@@ -19,6 +19,12 @@ import {
   BuildCommandFailedError,
   parseWslRuntimeArchiveMembers,
   DesktopDmgBackgroundSourceMissingError,
+  MacDmgNotarizationCredentialsMissingError,
+  LUCIVE_MAC_CODESIGN_IDENTITY,
+  LUCIVE_MAC_SIGN_IDENTITY,
+  isMacDiskImageArtifact,
+  resolveMacDmgCodesignIdentity,
+  signAndNotarizeMacDmgs,
   createStageWorkspaceConfig,
   createStagePatchedDependencies,
   createBuildConfig,
@@ -254,7 +260,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
   });
 
   it("switches desktop packaging product names to nightly for nightly builds", () => {
-    assert.equal(resolveDesktopProductName("0.0.17"), "T3 Code (Alpha)");
+    assert.equal(resolveDesktopProductName("0.0.17"), "T3 Code");
     assert.equal(resolveDesktopProductName("0.0.17-nightly.20260413.42"), "T3 Code (Nightly)");
   });
 
@@ -658,7 +664,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         "**/*.map",
       ]);
       assert.deepStrictEqual(mac.dmg, {
-        title: "T3 Code (Alpha) 1.2.3 Installer",
+        title: "T3 Code 1.2.3 Installer",
         background: "dmg/dmg-background-latest.png",
         window: { width: 640, height: 432 },
         contents: [
@@ -667,6 +673,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         ],
         iconSize: 120,
         iconTextSize: 12,
+        sign: false,
       });
       // Linux must register the renderer schemes so the generated .desktop
       // entry advertises MimeType=x-scheme-handler/t3code; for OAuth deep links.
@@ -1896,6 +1903,152 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         "dmg/dmg-background-nightly.png",
       );
     }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
+  );
+
+  it("uses the full Developer ID name when codesigning the DMG", () => {
+    assert.equal(
+      resolveMacDmgCodesignIdentity(LUCIVE_MAC_SIGN_IDENTITY),
+      LUCIVE_MAC_CODESIGN_IDENTITY,
+    );
+    assert.equal(
+      resolveMacDmgCodesignIdentity(LUCIVE_MAC_CODESIGN_IDENTITY),
+      LUCIVE_MAC_CODESIGN_IDENTITY,
+    );
+    assert.equal(resolveMacDmgCodesignIdentity(""), LUCIVE_MAC_CODESIGN_IDENTITY);
+    assert.isTrue(isMacDiskImageArtifact("T3-Code-0.0.42-arm64.dmg"));
+    assert.isFalse(isMacDiskImageArtifact("T3-Code-0.0.42-arm64.dmg.blockmap"));
+    assert.isFalse(isMacDiskImageArtifact("T3-Code-0.0.42-arm64.zip"));
+  });
+
+  it.effect("skips DMG notarization for unsigned or non-mac artifacts", () =>
+    Effect.gen(function* () {
+      const artifacts = ["/tmp/T3-Code-0.0.42-arm64.dmg"];
+      const unsigned = yield* signAndNotarizeMacDmgs({
+        signed: false,
+        platform: "mac",
+        artifacts,
+        verbose: false,
+      });
+      const linux = yield* signAndNotarizeMacDmgs({
+        signed: true,
+        platform: "linux",
+        artifacts,
+        verbose: false,
+      });
+      const zipOnly = yield* signAndNotarizeMacDmgs({
+        signed: true,
+        platform: "mac",
+        artifacts: ["/tmp/T3-Code-0.0.42-arm64.zip"],
+        verbose: false,
+      });
+
+      assert.strictEqual(unsigned, artifacts);
+      assert.strictEqual(linux, artifacts);
+      assert.deepStrictEqual(zipOnly, ["/tmp/T3-Code-0.0.42-arm64.zip"]);
+    }),
+  );
+
+  it.effect("fails signed macOS DMG builds when notarization credentials are missing", () =>
+    Effect.gen(function* () {
+      const error = yield* signAndNotarizeMacDmgs({
+        signed: true,
+        platform: "mac",
+        artifacts: ["/tmp/T3-Code-0.0.42-arm64.dmg"],
+        verbose: false,
+      }).pipe(
+        Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} }))),
+        Effect.flip,
+      );
+
+      assert.instanceOf(error, MacDmgNotarizationCredentialsMissingError);
+    }),
+  );
+
+  it.effect(
+    "codesigns, notarizes, and staples signed macOS DMGs then drops the stale blockmap",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const outputDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-dmg-notarize-" });
+          const dmg = path.join(outputDir, "T3-Code-0.0.42-arm64.dmg");
+          const blockmap = `${dmg}.blockmap`;
+          const zip = path.join(outputDir, "T3-Code-0.0.42-arm64.zip");
+          yield* fs.writeFileString(dmg, "dmg");
+          yield* fs.writeFileString(blockmap, "blockmap");
+          yield* fs.writeFileString(zip, "zip");
+
+          const commands: Array<{
+            readonly command: string;
+            readonly args: ReadonlyArray<string>;
+          }> = [];
+          const spawner = Layer.succeed(
+            ChildProcessSpawner.ChildProcessSpawner,
+            ChildProcessSpawner.make((command) => {
+              const childProcess = command as unknown as {
+                readonly command: string;
+                readonly args: ReadonlyArray<string>;
+              };
+              commands.push(childProcess);
+              return Effect.succeed(mockProcess(0));
+            }),
+          );
+
+          const remaining = yield* signAndNotarizeMacDmgs({
+            signed: true,
+            platform: "mac",
+            artifacts: [dmg, blockmap, zip],
+            verbose: false,
+          }).pipe(
+            Effect.provide(spawner),
+            Effect.provide(
+              ConfigProvider.layer(
+                ConfigProvider.fromEnv({
+                  env: {
+                    APPLE_ID: "dev@example.com",
+                    APPLE_PASSWORD: "app-specific",
+                    APPLE_TEAM_ID: "Q8JPDQXD6H",
+                  },
+                }),
+              ),
+            ),
+          );
+
+          assert.deepStrictEqual(remaining, [dmg, zip]);
+          assert.isFalse(yield* fs.exists(blockmap));
+          assert.deepStrictEqual(
+            commands.map((command) => [command.command, command.args[0]]),
+            [
+              ["codesign", "--sign"],
+              ["xcrun", "notarytool"],
+              ["xcrun", "stapler"],
+              ["xcrun", "stapler"],
+            ],
+          );
+          assert.deepStrictEqual(commands[0]?.args, [
+            "--sign",
+            LUCIVE_MAC_CODESIGN_IDENTITY,
+            "--timestamp",
+            "--force",
+            dmg,
+          ]);
+          assert.deepStrictEqual(commands[1]?.args, [
+            "notarytool",
+            "submit",
+            dmg,
+            "--apple-id",
+            "dev@example.com",
+            "--password",
+            "app-specific",
+            "--team-id",
+            "Q8JPDQXD6H",
+            "--wait",
+          ]);
+          assert.deepStrictEqual(commands[2]?.args, ["stapler", "staple", dmg]);
+          assert.deepStrictEqual(commands[3]?.args, ["stapler", "validate", dmg]);
+        }),
+      ),
   );
 
   it.effect("keeps executable resource editing enabled for unsigned Windows builds", () =>

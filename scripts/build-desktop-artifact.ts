@@ -55,7 +55,9 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 const LINUX_ICON_SIZES = [16, 22, 24, 32, 48, 64, 128, 256, 512] as const;
 const DESKTOP_APP_ID = "com.lucive.t3code";
-const LUCIVE_MAC_SIGN_IDENTITY = "Nicholas Roberts (Q8JPDQXD6H)";
+// electron-builder's CSC_NAME must omit the "Developer ID Application:" prefix.
+export const LUCIVE_MAC_SIGN_IDENTITY = "Nicholas Roberts (Q8JPDQXD6H)";
+export const LUCIVE_MAC_CODESIGN_IDENTITY = `Developer ID Application: ${LUCIVE_MAC_SIGN_IDENTITY}`;
 const APPLE_TEAM_ID_PATTERN = /^[A-Z0-9]{10}$/u;
 
 const BuildPlatform = Schema.Literals(["mac", "linux", "win"]);
@@ -665,6 +667,19 @@ export class DesktopBuildNoArtifactsProducedError extends Schema.TaggedError<Des
 ) {
   override get message(): string {
     return `Build completed but no files were produced in ${this.distPath}`;
+  }
+}
+
+export class MacDmgNotarizationCredentialsMissingError extends Schema.TaggedError<MacDmgNotarizationCredentialsMissingError>()(
+  "MacDmgNotarizationCredentialsMissingError",
+  {},
+) {
+  override get message(): string {
+    return [
+      "Signed macOS DMG builds need Apple notarization credentials.",
+      "Set APPLE_ID, APPLE_PASSWORD (or APPLE_APP_SPECIFIC_PASSWORD), and APPLE_TEAM_ID,",
+      "or APPLE_API_KEY, APPLE_API_KEY_ID, and APPLE_API_ISSUER.",
+    ].join(" ");
   }
 }
 
@@ -1690,6 +1705,110 @@ const runCommand = Effect.fn("runCommand")(function* (
       ...(stderr.trim() ? { stderrTail: stderr } : {}),
     });
   }
+});
+
+export function resolveMacDmgCodesignIdentity(cscName: string = LUCIVE_MAC_SIGN_IDENTITY): string {
+  const name = cscName.trim();
+  if (name.length === 0) {
+    return LUCIVE_MAC_CODESIGN_IDENTITY;
+  }
+  return name.startsWith("Developer ID Application:") ? name : `Developer ID Application: ${name}`;
+}
+
+export function isMacDiskImageArtifact(filePath: string): boolean {
+  return filePath.endsWith(".dmg");
+}
+
+const MacDmgNotarizationConfig = Config.all({
+  appleId: Config.String("APPLE_ID").pipe(Config.option),
+  applePassword: Config.String("APPLE_PASSWORD").pipe(Config.option),
+  appleAppSpecificPassword: Config.String("APPLE_APP_SPECIFIC_PASSWORD").pipe(Config.option),
+  appleTeamId: Config.String("APPLE_TEAM_ID").pipe(Config.option),
+  appleApiKey: Config.String("APPLE_API_KEY").pipe(Config.option),
+  appleApiKeyId: Config.String("APPLE_API_KEY_ID").pipe(Config.option),
+  appleApiIssuer: Config.String("APPLE_API_ISSUER").pipe(Config.option),
+});
+
+const resolveMacDmgNotarytoolAuth = Effect.fn("resolveMacDmgNotarytoolAuth")(function* () {
+  const config = yield* MacDmgNotarizationConfig;
+  const apiKey = Option.getOrUndefined(config.appleApiKey)?.trim();
+  const apiKeyId = Option.getOrUndefined(config.appleApiKeyId)?.trim();
+  const apiIssuer = Option.getOrUndefined(config.appleApiIssuer)?.trim();
+  if (apiKey && apiKeyId && apiIssuer) {
+    const fs = yield* FileSystem.FileSystem;
+    const keyPath = yield* fs.makeTempFileScoped({ prefix: "AuthKey-", suffix: ".p8" });
+    yield* fs.writeFileString(keyPath, apiKey);
+    return ["--key", keyPath, "--key-id", apiKeyId, "--issuer", apiIssuer] as const;
+  }
+
+  const appleId = Option.getOrUndefined(config.appleId)?.trim();
+  const password = (
+    Option.getOrUndefined(config.applePassword) ??
+    Option.getOrUndefined(config.appleAppSpecificPassword)
+  )?.trim();
+  const teamId = Option.getOrUndefined(config.appleTeamId)?.trim();
+  if (appleId && password && teamId) {
+    return ["--apple-id", appleId, "--password", password, "--team-id", teamId] as const;
+  }
+
+  return yield* new MacDmgNotarizationCredentialsMissingError();
+});
+
+export const signAndNotarizeMacDmgs = Effect.fn("signAndNotarizeMacDmgs")(function* (input: {
+  readonly signed: boolean;
+  readonly platform: typeof BuildPlatform.Type;
+  readonly artifacts: ReadonlyArray<string>;
+  readonly verbose: boolean;
+  readonly identity?: string;
+}) {
+  if (!input.signed || input.platform !== "mac") {
+    return input.artifacts;
+  }
+
+  const path = yield* Path.Path;
+  const dmgs = input.artifacts.filter(isMacDiskImageArtifact);
+  if (dmgs.length === 0) {
+    return input.artifacts;
+  }
+
+  const authArgs = yield* resolveMacDmgNotarytoolAuth();
+  const identity = resolveMacDmgCodesignIdentity(input.identity ?? LUCIVE_MAC_SIGN_IDENTITY);
+
+  for (const dmg of dmgs) {
+    const name = path.basename(dmg);
+    yield* Effect.log(`[desktop-artifact] Signing and notarizing ${name}...`);
+    yield* runCommand(
+      ChildProcess.make("codesign", ["--sign", identity, "--timestamp", "--force", dmg]),
+      { label: `codesign ${name}`, verbose: input.verbose },
+    );
+    yield* runCommand(
+      ChildProcess.make("xcrun", ["notarytool", "submit", dmg, ...authArgs, "--wait"]),
+      { label: `notarytool submit ${name}`, verbose: true },
+    );
+    yield* runCommand(ChildProcess.make("xcrun", ["stapler", "staple", dmg]), {
+      label: `stapler staple ${name}`,
+      verbose: input.verbose,
+    });
+    yield* runCommand(ChildProcess.make("xcrun", ["stapler", "validate", dmg]), {
+      label: `stapler validate ${name}`,
+      verbose: input.verbose,
+    });
+  }
+
+  const fs = yield* FileSystem.FileSystem;
+  const remaining: string[] = [];
+  for (const artifact of input.artifacts) {
+    const staleBlockmap = dmgs.some((dmg) => artifact === `${dmg}.blockmap`);
+    if (!staleBlockmap) {
+      remaining.push(artifact);
+      continue;
+    }
+    yield* fs.remove(artifact, { force: true });
+    yield* Effect.log(
+      `[desktop-artifact] Removed stale ${path.basename(artifact)} after DMG notarization.`,
+    );
+  }
+  return remaining;
 });
 
 const desktopBuildProbeSucceeds = Effect.fn("desktopBuildProbeSucceeds")(function* (
@@ -2729,6 +2848,10 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       ],
       iconSize: 120,
       iconTextSize: 12,
+      // CSC_NAME is the name without the codesign prefix. electron-builder
+      // then calls codesign on the DMG with that value, which fails or is
+      // skipped. Signed builds notarize the disk image after copy instead.
+      sign: false,
     };
   }
 
@@ -3862,8 +3985,15 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     });
   }
 
+  const publishedArtifacts = yield* signAndNotarizeMacDmgs({
+    signed: options.signed,
+    platform: options.platform,
+    artifacts: copiedArtifacts,
+    verbose: options.verbose,
+  });
+
   yield* Effect.log("[desktop-artifact] Done. Artifacts:").pipe(
-    Effect.annotateLogs({ artifacts: copiedArtifacts }),
+    Effect.annotateLogs({ artifacts: publishedArtifacts }),
   );
 });
 
@@ -3902,7 +4032,7 @@ const buildDesktopArtifactCli = Command.make("build-desktop-artifact", {
   ),
   signed: Flag.Boolean("signed").pipe(
     Flag.withDescription(
-      "Enable signing/notarization discovery; Windows uses Azure Trusted Signing (env: T3CODE_DESKTOP_SIGNED).",
+      "Enable signing and Apple notarization; Windows uses Azure Trusted Signing (env: T3CODE_DESKTOP_SIGNED).",
     ),
     Flag.optional,
   ),
