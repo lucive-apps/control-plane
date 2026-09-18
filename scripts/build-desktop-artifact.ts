@@ -55,7 +55,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 const LINUX_ICON_SIZES = [16, 22, 24, 32, 48, 64, 128, 256, 512] as const;
 const DESKTOP_APP_ID = "com.lucive.t3code";
-const LUCIVE_MAC_SIGN_IDENTITY = "Developer ID Application: Nicholas Roberts (Q8JPDQXD6H)";
+const LUCIVE_MAC_SIGN_IDENTITY = "Nicholas Roberts (Q8JPDQXD6H)";
 const APPLE_TEAM_ID_PATTERN = /^[A-Z0-9]{10}$/u;
 
 const BuildPlatform = Schema.Literals(["mac", "linux", "win"]);
