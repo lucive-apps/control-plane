@@ -4,6 +4,12 @@ This is my personal spin on [T3 Code](https://github.com/pingdotgg/t3code). It i
 
 Signed Mac builds are on [Releases](https://github.com/nickrroberts/t3/releases). Packaged apps check those releases for updates from Settings → General. Official installers, mobile, docs, and the rest of the project live in [pingdotgg/t3code](https://github.com/pingdotgg/t3code).
 
+This flavor of T3 Code focuses on day-to-day polish. It includes:
+
+- A much cleaner interface
+- A Cursor-style sidebar
+- Missing key bindings for things like the pull requests and usage views
+
 Ship a new signed Mac build with `vp run release:fork:desktop` after loading Apple notary credentials. That bumps the patch version, notarizes, and publishes a GitHub Release. Commit the version bump with the ship.
 
 ## Run from source
