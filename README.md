@@ -1,5 +1,7 @@
 # T3 Code
 
+This is my personal spin on [T3 Code](https://github.com/pingdotgg/t3code). It is not an official T3 Tools release. Signed Mac builds are on [Releases](https://github.com/nickrroberts/t3/releases).
+
 T3 Code is an "agent harness control surface". It enables control of the agents on your machine with a best-in-class mobile app ([iOS](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824), [Android](https://play.google.com/store/apps/details?id=com.t3tools.t3code)), [web app](https://app.t3.codes) and [Electron-based desktop app](https://t3.codes).
 
 Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, OpenCode, and Google Antigravity. If they're set up on your computer, T3 Code can control them.
@@ -40,7 +42,7 @@ To try it once without installing, run `npx t3@latest` instead.
 
 ### Desktop app
 
-Install the latest version of the desktop app from [GitHub Releases](https://github.com/pingdotgg/t3code/releases), or from your favorite package registry:
+Install this fork from [GitHub Releases](https://github.com/nickrroberts/t3/releases). Official T3 Code is on [pingdotgg/t3code](https://github.com/pingdotgg/t3code/releases), or from your favorite package registry:
 
 #### Windows (`winget`)
 
