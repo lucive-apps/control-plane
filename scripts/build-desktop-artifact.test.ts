@@ -63,6 +63,7 @@ import {
   resolveResourceMonitorRustTargets,
   resolveWindowsServerAsarIgnoreGlobs,
   resourceMonitorExecutableName,
+  FORK_DESKTOP_UPDATE_REPOSITORY,
   resolveGitHubPublishConfig,
   resolveMockUpdateServerPort,
   resolveMockUpdateServerUrl,
@@ -313,13 +314,32 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         owner: "pingdotgg",
         repo: "t3code",
         releaseType: "release",
+        vPrefixedTagName: false,
       });
       assert.deepStrictEqual(nightlyConfig, {
         provider: "github",
         owner: "pingdotgg",
         repo: "t3code",
         releaseType: "prerelease",
+        vPrefixedTagName: false,
         channel: "nightly",
+      });
+    }),
+  );
+
+  it.effect("defaults GitHub desktop publish config to the fork repo", () =>
+    Effect.gen(function* () {
+      const [owner, repo] = FORK_DESKTOP_UPDATE_REPOSITORY.split("/");
+      const latestConfig = yield* resolveGitHubPublishConfig("latest").pipe(
+        Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} }))),
+      );
+
+      assert.deepStrictEqual(latestConfig, {
+        provider: "github",
+        owner,
+        repo,
+        releaseType: "release",
+        vPrefixedTagName: false,
       });
     }),
   );
@@ -363,6 +383,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
           owner: "pingdotgg",
           repo: "t3code",
           releaseType: "release",
+          vPrefixedTagName: false,
         },
       ]);
     }).pipe(

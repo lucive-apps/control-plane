@@ -55,6 +55,9 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 const LINUX_ICON_SIZES = [16, 22, 24, 32, 48, 64, 128, 256, 512] as const;
 const DESKTOP_APP_ID = "com.lucive.t3code";
+// Fork releases use unprefixed tags (`0.0.43`, not `v0.0.43`) so they do not
+// trip upstream's `v*.*.*` publish workflows. electron-updater needs the same.
+export const FORK_DESKTOP_UPDATE_REPOSITORY = "nickrroberts/t3";
 // electron-builder's CSC_NAME must omit the "Developer ID Application:" prefix.
 export const LUCIVE_MAC_SIGN_IDENTITY = "Nicholas Roberts (Q8JPDQXD6H)";
 export const LUCIVE_MAC_CODESIGN_IDENTITY = `Developer ID Application: ${LUCIVE_MAC_SIGN_IDENTITY}`;
@@ -2664,7 +2667,7 @@ export const resolveGitHubPublishConfig = Effect.fn("resolveGitHubPublishConfig"
   const rawRepo = (
     Option.getOrUndefined(env.updateRepository)?.trim() ||
     Option.getOrUndefined(env.githubRepository)?.trim() ||
-    ""
+    FORK_DESKTOP_UPDATE_REPOSITORY
   ).trim();
   if (!rawRepo) return undefined;
 
@@ -2676,6 +2679,7 @@ export const resolveGitHubPublishConfig = Effect.fn("resolveGitHubPublishConfig"
     owner,
     repo,
     releaseType: updateChannel === "nightly" ? "prerelease" : "release",
+    vPrefixedTagName: false,
     ...(updateChannel === "nightly" ? { channel: "nightly" as const } : {}),
   };
 });

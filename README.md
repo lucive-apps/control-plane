@@ -2,7 +2,7 @@
 
 This is my personal spin on [T3 Code](https://github.com/pingdotgg/t3code). It is not an official T3 Tools release.
 
-Signed Mac builds are on [Releases](https://github.com/nickrroberts/t3/releases). Official installers, mobile, docs, and the rest of the project live in [pingdotgg/t3code](https://github.com/pingdotgg/t3code).
+Signed Mac builds are on [Releases](https://github.com/nickrroberts/t3/releases). Packaged apps check those releases for updates from Settings → General. Official installers, mobile, docs, and the rest of the project live in [pingdotgg/t3code](https://github.com/pingdotgg/t3code).
 
 ## Run from source
 
