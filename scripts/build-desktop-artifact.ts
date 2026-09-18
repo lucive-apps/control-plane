@@ -36,6 +36,7 @@ import {
 import { loadRepoEnv } from "./lib/public-config.ts";
 import { selectDesktopRuntimeExternalDependencies } from "./lib/desktop-external-packages.ts";
 import { resolveCatalogDependencies } from "./lib/resolve-catalog.ts";
+import { FORK_DESKTOP_UPDATE_REPOSITORY } from "./fork-desktop-version.ts";
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -55,9 +56,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 const LINUX_ICON_SIZES = [16, 22, 24, 32, 48, 64, 128, 256, 512] as const;
 const DESKTOP_APP_ID = "com.lucive.t3code";
-// Fork releases use unprefixed tags (`0.0.43`, not `v0.0.43`) so they do not
-// trip upstream's `v*.*.*` publish workflows. electron-updater needs the same.
-export const FORK_DESKTOP_UPDATE_REPOSITORY = "nickrroberts/t3";
+export { FORK_DESKTOP_UPDATE_REPOSITORY };
 // electron-builder's CSC_NAME must omit the "Developer ID Application:" prefix.
 export const LUCIVE_MAC_SIGN_IDENTITY = "Nicholas Roberts (Q8JPDQXD6H)";
 export const LUCIVE_MAC_CODESIGN_IDENTITY = `Developer ID Application: ${LUCIVE_MAC_SIGN_IDENTITY}`;
@@ -2679,6 +2678,8 @@ export const resolveGitHubPublishConfig = Effect.fn("resolveGitHubPublishConfig"
     owner,
     repo,
     releaseType: updateChannel === "nightly" ? "prerelease" : "release",
+    // Fork tags are `0.0.43`, not `v0.0.43`, so they do not trip upstream's
+    // `v*.*.*` publish workflows. electron-updater must use the same form.
     vPrefixedTagName: false,
     ...(updateChannel === "nightly" ? { channel: "nightly" as const } : {}),
   };

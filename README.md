@@ -4,6 +4,8 @@ This is my personal spin on [T3 Code](https://github.com/pingdotgg/t3code). It i
 
 Signed Mac builds are on [Releases](https://github.com/nickrroberts/t3/releases). Packaged apps check those releases for updates from Settings → General. Official installers, mobile, docs, and the rest of the project live in [pingdotgg/t3code](https://github.com/pingdotgg/t3code).
 
+Ship a new signed Mac build with `vp run release:fork:desktop` after loading Apple notary credentials. That bumps the patch version, notarizes, and publishes a GitHub Release. Commit the version bump with the ship.
+
 ## Run from source
 
 You need Node 24 and at least one provider CLI logged in (Codex, Claude, Cursor, Grok, OpenCode, or Antigravity).
