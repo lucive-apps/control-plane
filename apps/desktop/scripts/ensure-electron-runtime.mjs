@@ -8,8 +8,43 @@ import * as NodeChildProcess from "node:child_process";
 const require = NodeModule.createRequire(import.meta.url);
 // oxlint-disable-next-line t3code/no-global-process-runtime -- Standalone repair script has no Effect runtime.
 const hostPlatform = NodeOS.platform();
-// oxlint-disable-next-line t3code/no-global-process-runtime -- Standalone repair script has no Effect runtime.
-const hostArch = NodeOS.arch();
+
+export function detectAppleSilicon(input = {}) {
+  const platform = input.platform ?? hostPlatform;
+  const sysctl =
+    input.sysctl ?? ((args) => NodeChildProcess.spawnSync("sysctl", args, { encoding: "utf8" }));
+  if (platform !== "darwin") {
+    return false;
+  }
+  const result = sysctl(["-n", "hw.optional.arm64"]);
+  return result.status === 0 && result.stdout.trim() === "1";
+}
+
+// Rosetta Node reports x64 on Apple Silicon. Electron must still be native arm64
+// or the renderer pegs a core translating every click.
+export function resolveDesktopElectronArch(input = {}) {
+  const platform = input.platform ?? hostPlatform;
+  // oxlint-disable-next-line t3code/no-global-process-runtime -- Standalone repair script has no Effect runtime.
+  const nodeArch = input.nodeArch ?? NodeOS.arch();
+  const appleSilicon = input.appleSilicon ?? detectAppleSilicon({ platform });
+  if (platform === "darwin" && appleSilicon) {
+    return "arm64";
+  }
+  return nodeArch;
+}
+
+export function isUsableDesktopElectronBinary(fileDescription, expectedArch) {
+  if (typeof fileDescription !== "string" || !fileDescription.includes("Mach-O")) {
+    return false;
+  }
+  if (expectedArch === "arm64") {
+    return fileDescription.includes("arm64");
+  }
+  if (expectedArch === "x64") {
+    return fileDescription.includes("x86_64");
+  }
+  return true;
+}
 
 function getPlatformPath() {
   switch (hostPlatform) {
@@ -64,16 +99,11 @@ function getRequiredRuntimePaths(electronDir, platformPath) {
   return paths;
 }
 
-function isMachO(filePath) {
-  if (hostPlatform !== "darwin") {
-    return true;
-  }
-
+function readFileDescription(filePath) {
   const result = NodeChildProcess.spawnSync("file", ["-b", filePath], {
     encoding: "utf8",
   });
-
-  return result.status === 0 && result.stdout.includes("Mach-O");
+  return result.status === 0 ? result.stdout : "";
 }
 
 function missingRuntimePaths(electronDir, platformPath) {
@@ -82,7 +112,7 @@ function missingRuntimePaths(electronDir, platformPath) {
   });
 }
 
-function invalidRuntimePaths(electronDir, platformPath) {
+function invalidRuntimePaths(electronDir, platformPath, expectedArch) {
   if (hostPlatform !== "darwin") {
     return [];
   }
@@ -98,7 +128,11 @@ function invalidRuntimePaths(electronDir, platformPath) {
       "Electron Framework.framework",
       "Electron Framework",
     ),
-  ].filter((runtimePath) => NodeFS.existsSync(runtimePath) && !isMachO(runtimePath));
+  ].filter(
+    (runtimePath) =>
+      NodeFS.existsSync(runtimePath) &&
+      !isUsableDesktopElectronBinary(readFileDescription(runtimePath), expectedArch),
+  );
 }
 
 function runChecked(command, args) {
@@ -116,7 +150,7 @@ function runChecked(command, args) {
   );
 }
 
-function installElectronRuntime(electronDir, version) {
+function installElectronRuntime(electronDir, version, hostArch) {
   const tempDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-electron-"));
   const zipPath = NodePath.join(tempDir, `electron-v${version}-${hostPlatform}-${hostArch}.zip`);
 
@@ -143,24 +177,25 @@ function installElectronRuntime(electronDir, version) {
 }
 
 export function ensureElectronRuntime() {
+  const hostArch = resolveDesktopElectronArch();
   const electronPackageJsonPath = require.resolve("electron/package.json");
   const electronPackageJson = JSON.parse(NodeFS.readFileSync(electronPackageJsonPath, "utf8"));
   const electronDir = NodePath.dirname(electronPackageJsonPath);
   const platformPath = getPlatformPath();
   const electronPath = NodePath.join(electronDir, "dist", platformPath);
   const missingBeforeInstall = missingRuntimePaths(electronDir, platformPath);
-  const invalidBeforeInstall = invalidRuntimePaths(electronDir, platformPath);
+  const invalidBeforeInstall = invalidRuntimePaths(electronDir, platformPath, hostArch);
 
   if (missingBeforeInstall.length > 0 || invalidBeforeInstall.length > 0) {
     if (NodeFS.existsSync(NodePath.join(electronDir, "dist"))) {
       NodeFS.rmSync(NodePath.join(electronDir, "dist"), { recursive: true, force: true });
     }
     NodeFS.rmSync(NodePath.join(electronDir, "path.txt"), { force: true });
-    installElectronRuntime(electronDir, electronPackageJson.version);
+    installElectronRuntime(electronDir, electronPackageJson.version, hostArch);
   }
 
   const missingAfterInstall = missingRuntimePaths(electronDir, platformPath);
-  const invalidAfterInstall = invalidRuntimePaths(electronDir, platformPath);
+  const invalidAfterInstall = invalidRuntimePaths(electronDir, platformPath, hostArch);
   if (missingAfterInstall.length > 0 || invalidAfterInstall.length > 0) {
     throw new Error(
       `Electron runtime is incomplete after install.\nMissing:\n${missingAfterInstall

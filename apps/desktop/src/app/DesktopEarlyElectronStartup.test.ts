@@ -3,6 +3,7 @@ import * as NodePath from "node:path";
 import { assert, describe, it } from "@effect/vitest";
 
 import {
+  resolveDesktopChromiumUserDataPath,
   resolveEarlyLinuxElectronOptions,
   resolveEarlyLinuxPasswordStorePreference,
 } from "./DesktopEarlyElectronStartup.ts";
@@ -119,5 +120,29 @@ describe("DesktopEarlyElectronStartup", () => {
     });
 
     assert.equal(preference, "gnome-libsecret");
+  });
+
+  it("pins Chromium userData to t3code-dev before GPU process spawn", () => {
+    assert.equal(
+      resolveDesktopChromiumUserDataPath({
+        appDataDirectory: "/Users/alice/Library/Application Support",
+        isDevelopment: true,
+        joinPath,
+        pathExists: () => false,
+      }),
+      "/Users/alice/Library/Application Support/t3code-dev",
+    );
+  });
+
+  it("keeps a legacy Chromium userData directory when one already exists", () => {
+    assert.equal(
+      resolveDesktopChromiumUserDataPath({
+        appDataDirectory: "/Users/alice/Library/Application Support",
+        isDevelopment: true,
+        joinPath,
+        pathExists: (path) => path.endsWith("T3 Code (Dev)"),
+      }),
+      "/Users/alice/Library/Application Support/T3 Code (Dev)",
+    );
   });
 });

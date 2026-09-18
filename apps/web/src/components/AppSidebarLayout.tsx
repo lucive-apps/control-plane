@@ -2,23 +2,34 @@ import { useAtomValue } from "@effect/atom-react";
 import * as Schema from "effect/Schema";
 import {
   useEffect,
+  useRef,
   useState,
   useSyncExternalStore,
   type CSSProperties,
   type ReactNode,
 } from "react";
-import { useLocation, useNavigate } from "@tanstack/react-router";
+import { useLocation, useNavigate, useCanGoBack } from "@tanstack/react-router";
 
+import { isCommandPaletteOpen } from "../commandPaletteBus";
 import { isElectron } from "../env";
 import { getLocalStorageItem, removeLocalStorageItem } from "../hooks/useLocalStorage";
+import { isPreviewFocused } from "../lib/previewFocus";
+import {
+  useWorkspaceZoomStore,
+  WORKSPACE_ZOOM_WHEEL_THRESHOLD,
+  workspaceZoomFactor,
+} from "../workspaceZoom";
 import {
   isRichTextBoldShortcut,
   resolveShortcutCommand,
   shortcutLabelForCommand,
 } from "../keybindings";
-import { cn, isMacPlatform } from "../lib/utils";
+import { isTerminalFocused } from "../lib/terminalFocus";
+import { isMacPlatform } from "../lib/utils";
 import { primaryServerKeybindingsAtom } from "../state/server";
-import { useEnvironmentIdentificationMode, useLegacySidebarEnabled } from "../hooks/useSettings";
+import { useLegacySidebarEnabled } from "../hooks/useSettings";
+import { useSidebarSettledViewStore } from "../sidebarSettledViewStore";
+import { readPullRequestListPreferences } from "./pullRequest/pullRequestListPreferences";
 import {
   PanelAnimationSuppressionProvider,
   usePanelAnimationSettings,
@@ -28,10 +39,6 @@ import LegacyThreadSidebar from "./LegacySidebar";
 import ThreadSidebar from "./Sidebar";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
 import { SidebarChromeHeader } from "./sidebar/SidebarChrome";
-import {
-  resolveSidebarStageFocusRingOffsetClass,
-  useSidebarStageBackdropVariant,
-} from "./SidebarStageBackdrop";
 import { useProjects } from "../state/entities";
 import {
   resolveInitialThreadSidebarWidth,
@@ -40,14 +47,7 @@ import {
   THREAD_SIDEBAR_MIN_WIDTH,
   THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
 } from "./threadSidebarWidth";
-import {
-  Sidebar,
-  SidebarProvider,
-  SidebarRail,
-  SidebarTrigger,
-  useSidebar,
-  useSidebarVisibility,
-} from "./ui/sidebar";
+import { Sidebar, SidebarProvider, SidebarRail, SidebarTrigger, useSidebar } from "./ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 const MACOS_TRAFFIC_LIGHTS_LEFT_INSET = "var(--desktop-window-controls-inset, 90px)";
@@ -76,11 +76,6 @@ function readInitialThreadSidebarWidth(): number {
 function SidebarControl() {
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const { toggleSidebar } = useSidebar();
-  const isSidebarVisible = useSidebarVisibility();
-  const environmentIdentificationMode = useEnvironmentIdentificationMode();
-  const stageBackdropVariant = useSidebarStageBackdropVariant(
-    environmentIdentificationMode === "artwork",
-  );
   const shortcutLabel = shortcutLabelForCommand(keybindings, "sidebar.toggle");
 
   useEffect(() => {
@@ -124,18 +119,7 @@ function SidebarControl() {
       <Tooltip>
         <TooltipTrigger
           render={
-            <SidebarTrigger
-              className={cn(
-                "pointer-events-auto",
-                isSidebarVisible &&
-                  stageBackdropVariant &&
-                  "focus-visible:ring-white/90 [&_svg]:stroke-white/90! [&_svg]:opacity-100! [&_svg]:hover:stroke-white! [:hover,[data-pressed]]:bg-white/15",
-                isSidebarVisible &&
-                  stageBackdropVariant &&
-                  resolveSidebarStageFocusRingOffsetClass(stageBackdropVariant),
-              )}
-              aria-label="Toggle main sidebar"
-            />
+            <SidebarTrigger className="pointer-events-auto" aria-label="Toggle main sidebar" />
           }
         />
         <TooltipPopup side="bottom">
@@ -144,6 +128,162 @@ function SidebarControl() {
       </Tooltip>
     </div>
   );
+}
+
+function WorkspaceZoomFrame({ children }: { children: ReactNode }) {
+  const factor = useWorkspaceZoomStore((state) => workspaceZoomFactor(state.level));
+  return (
+    <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden" data-workspace-zoom-frame="">
+      <div
+        className="flex h-full min-h-0 w-full flex-col [&_[data-slot=sidebar-inset]]:h-full! [&_[data-slot=sidebar-inset]]:max-h-full"
+        data-workspace-zoom-canvas=""
+        style={
+          {
+            zoom: factor,
+            width: `${100 / factor}%`,
+            height: `${100 / factor}%`,
+          } as CSSProperties
+        }
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function WorkspaceZoomInput() {
+  const apply = useWorkspaceZoomStore((state) => state.apply);
+  const wheelRemainderRef = useRef(0);
+
+  useEffect(() => {
+    const onMenuAction = window.desktopBridge?.onMenuAction;
+    const unsubscribe =
+      typeof onMenuAction === "function"
+        ? onMenuAction((action) => {
+            if (action === "zoom-in") apply("in");
+            else if (action === "zoom-out") apply("out");
+            else if (action === "zoom-reset") apply("reset");
+          })
+        : undefined;
+
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      if (isPreviewFocused() || isCommandPaletteOpen()) return;
+      event.preventDefault();
+      wheelRemainderRef.current += event.deltaY;
+      while (wheelRemainderRef.current <= -WORKSPACE_ZOOM_WHEEL_THRESHOLD) {
+        apply("in");
+        wheelRemainderRef.current += WORKSPACE_ZOOM_WHEEL_THRESHOLD;
+      }
+      while (wheelRemainderRef.current >= WORKSPACE_ZOOM_WHEEL_THRESHOLD) {
+        apply("out");
+        wheelRemainderRef.current -= WORKSPACE_ZOOM_WHEEL_THRESHOLD;
+      }
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      // Electron View-menu accelerators already route here via zoom-*.
+      if (isElectron) return;
+      if (event.defaultPrevented || event.repeat || isCommandPaletteOpen()) return;
+      if (isPreviewFocused()) return;
+      if (
+        event.target instanceof HTMLElement &&
+        event.target.closest("[data-keybinding-capture]")
+      ) {
+        return;
+      }
+      const isMod = event.metaKey || event.ctrlKey;
+      if (!isMod || event.altKey || event.shiftKey) return;
+      if (event.key === "=" || event.key === "+") {
+        event.preventDefault();
+        apply("in");
+      } else if (event.key === "-") {
+        event.preventDefault();
+        apply("out");
+      } else if (event.key === "0") {
+        event.preventDefault();
+        apply("reset");
+      }
+    };
+
+    window.addEventListener("wheel", onWheel, { passive: false });
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      unsubscribe?.();
+      window.removeEventListener("wheel", onWheel);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [apply]);
+
+  return null;
+}
+
+function WorkspaceViewShortcuts() {
+  const navigate = useNavigate();
+  const canGoBack = useCanGoBack();
+  const pathname = useLocation({ select: (location) => location.pathname });
+  const { isMobile, setOpenMobile } = useSidebar();
+  const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const setSettledOpen = useSidebarSettledViewStore((store) => store.setOpen);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.repeat) return;
+      if (
+        event.target instanceof HTMLElement &&
+        event.target.closest("[data-keybinding-capture]")
+      ) {
+        return;
+      }
+      if (isCommandPaletteOpen()) return;
+      const command = resolveShortcutCommand(event, keybindings, {
+        context: { terminalFocus: isTerminalFocused() },
+      });
+      if (
+        command !== "usage.toggle" &&
+        command !== "pullRequests.toggle" &&
+        command !== "settled.toggle"
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      if (isMobile) setOpenMobile(false);
+
+      if (command === "settled.toggle") {
+        const nextOpen = !useSidebarSettledViewStore.getState().open;
+        setSettledOpen(nextOpen);
+        if (nextOpen && /^\/settings(?:\/|$)/.test(pathname)) {
+          void navigate({ to: "/" });
+        }
+        return;
+      }
+
+      const targetPath = command === "usage.toggle" ? "/usage" : "/pull-requests";
+      if (pathname === targetPath) {
+        if (canGoBack) {
+          window.history.back();
+          return;
+        }
+        void navigate({ to: "/" });
+        return;
+      }
+      if (command === "usage.toggle") {
+        void navigate({ to: "/usage" });
+        return;
+      }
+      void navigate({
+        to: "/pull-requests",
+        search: readPullRequestListPreferences(),
+      });
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [canGoBack, isMobile, keybindings, navigate, pathname, setOpenMobile, setSettledOpen]);
+
+  return null;
 }
 
 // Settings swaps the thread sidebar out of the tree. Keep the lightweight
@@ -267,8 +407,10 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           )}
           <SidebarRail onDoubleClick={resetSidebarWidth} />
         </Sidebar>
-        {children}
+        <WorkspaceZoomFrame>{children}</WorkspaceZoomFrame>
         <SidebarControl />
+        <WorkspaceViewShortcuts />
+        <WorkspaceZoomInput />
       </SidebarProvider>
     </PanelAnimationSuppressionProvider>
   );

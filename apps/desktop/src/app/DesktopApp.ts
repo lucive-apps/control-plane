@@ -170,9 +170,13 @@ const bootstrap = Effect.gen(function* () {
   // The renderer is served from the bundled client (or Vite in development)
   // rather than through the local backend, so the window can open without one.
   const electronProtocol = yield* ElectronProtocol.ElectronProtocol;
+  const serveFromVite =
+    environment.isDevelopment &&
+    !environment.staticRenderer &&
+    Option.isSome(environment.devServerUrl);
   yield* electronProtocol.registerDesktopProtocol({
     scheme: ElectronProtocol.getDesktopScheme(environment.isDevelopment),
-    ...(environment.isDevelopment
+    ...(serveFromVite
       ? { targetOrigin: Option.getOrThrow(environment.devServerUrl) }
       : { assetDirectory: environment.clientAssetsDir }),
     clerkFrontendApiHostname: DesktopClerk.desktopClerkFrontendApiHostname,

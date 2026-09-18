@@ -43,7 +43,14 @@ function tcpPortIsReady({ host, port, connectTimeoutMs = 500 }) {
   });
 }
 
-async function resolvePendingResources({ baseDir, files, tcpPort, tcpHosts, connectTimeoutMs }) {
+async function resolvePendingResources({
+  baseDir,
+  files,
+  tcpPort,
+  tcpHosts,
+  connectTimeoutMs,
+  skipTcp = false,
+}) {
   const pendingFiles = [];
 
   for (const relativeFilePath of files) {
@@ -51,6 +58,13 @@ async function resolvePendingResources({ baseDir, files, tcpPort, tcpHosts, conn
     if (!ready) {
       pendingFiles.push(relativeFilePath);
     }
+  }
+
+  if (skipTcp) {
+    return {
+      pendingFiles,
+      tcpReady: true,
+    };
   }
 
   let tcpReady = false;
@@ -80,29 +94,31 @@ export async function waitForResources({
   tcpPort,
   connectTimeoutMs = 500,
 }) {
-  if (!Number.isInteger(tcpPort) || tcpPort <= 0) {
+  if (tcpPort !== undefined && (!Number.isInteger(tcpPort) || tcpPort <= 0)) {
     throw new TypeError("waitForResources requires a positive integer tcpPort");
   }
 
   const startedAt = Date.now();
   const tcpHosts = tcpHost ? [tcpHost] : defaultTcpHosts;
+  const waitForTcp = tcpPort !== undefined;
 
   while (true) {
     const { pendingFiles, tcpReady } = await resolvePendingResources({
       baseDir,
       files,
-      tcpPort,
+      tcpPort: waitForTcp ? tcpPort : 0,
       tcpHosts,
       connectTimeoutMs,
+      skipTcp: !waitForTcp,
     });
 
-    if (pendingFiles.length === 0 && tcpReady) {
+    if (pendingFiles.length === 0 && (!waitForTcp || tcpReady)) {
       return;
     }
 
     if (Date.now() - startedAt >= timeoutMs) {
       const pendingResources = [];
-      if (!tcpReady) {
+      if (waitForTcp && !tcpReady) {
         pendingResources.push(tcpHost ? `tcp:${tcpHost}:${tcpPort}` : `tcp:${tcpPort}`);
       }
       for (const filePath of pendingFiles) {

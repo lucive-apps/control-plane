@@ -11,6 +11,7 @@ import {
   filterPinnedBrowseEntries,
   filterCommandPaletteGroups,
   reduceCommandPaletteUiState,
+  resolveDirectAddProjectFlow,
   type CommandPaletteActionItem,
   type CommandPaletteGroup,
 } from "./CommandPalette.logic";
@@ -269,6 +270,38 @@ describe("reduceCommandPaletteUiState", () => {
       mode: "command",
       openIntent: null,
     });
+  });
+});
+
+describe("resolveDirectAddProjectFlow", () => {
+  const local = { environmentId: EnvironmentId.make("local"), isConnected: true };
+  const remote = { environmentId: EnvironmentId.make("remote"), isConnected: false };
+
+  it("waits until the environment catalog is ready", () => {
+    expect(
+      resolveDirectAddProjectFlow({ catalogReady: false, environmentOptions: [local] }),
+    ).toEqual({ kind: "wait" });
+  });
+
+  it("sends an empty catalog to Connections", () => {
+    expect(resolveDirectAddProjectFlow({ catalogReady: true, environmentOptions: [] })).toEqual({
+      kind: "connect",
+    });
+  });
+
+  it("opens source selection when exactly one environment is connected", () => {
+    expect(
+      resolveDirectAddProjectFlow({ catalogReady: true, environmentOptions: [local] }),
+    ).toEqual({ kind: "pick-source", environmentId: local.environmentId });
+  });
+
+  it("asks which environment to use when more than one exists or none is connected", () => {
+    expect(
+      resolveDirectAddProjectFlow({ catalogReady: true, environmentOptions: [local, remote] }),
+    ).toEqual({ kind: "pick-environment" });
+    expect(
+      resolveDirectAddProjectFlow({ catalogReady: true, environmentOptions: [remote] }),
+    ).toEqual({ kind: "pick-environment" });
   });
 });
 

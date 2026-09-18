@@ -31,6 +31,8 @@ import {
   formatWorkingDurationLabel,
   shouldClearThreadSelectionOnMouseDown,
   shouldRecedeSidebarThread,
+  groupSidebarThreadsIntoProjectFolders,
+  flattenSidebarProjectFolderThreads,
   sortLogicalProjectsForSidebar,
   sortSettledThreadsForSidebar,
   resolveSidebarDropTarget,
@@ -2478,6 +2480,125 @@ describe("sortLogicalProjectsForSidebar", () => {
         (project) => project.projectKey,
       ),
     ).toEqual(["logical-newer", "logical-older"]);
+  });
+});
+
+describe("groupSidebarThreadsIntoProjectFolders", () => {
+  it("nests threads under their project, keeps empty folders, and preserves section order", () => {
+    const hometrace = {
+      projectKey: "hometrace",
+      displayName: "hometrace",
+      memberProjectRefs: [{ environmentId: "env", projectId: "p1" }],
+    };
+    const lucive = {
+      projectKey: "lucive",
+      displayName: "lucive",
+      memberProjectRefs: [{ environmentId: "env", projectId: "p2" }],
+    };
+    const folders = groupSidebarThreadsIntoProjectFolders(
+      [hometrace, lucive],
+      [
+        {
+          section: "pinned",
+          threads: [{ environmentId: "env", projectId: "p1", id: "pinned" }],
+        },
+        {
+          section: "active",
+          threads: [{ environmentId: "env", projectId: "p1", id: "active" }],
+        },
+        {
+          section: "settled",
+          threads: [{ environmentId: "env", projectId: "p1", id: "settled" }],
+        },
+      ],
+    );
+
+    expect(folders.map((folder) => folder.projectKey)).toEqual(["hometrace", "lucive"]);
+    expect(folders[0]!.entries.map((entry) => [entry.thread.id, entry.section])).toEqual([
+      ["pinned", "pinned"],
+      ["active", "active"],
+      ["settled", "settled"],
+    ]);
+    expect(folders[1]!.entries).toEqual([]);
+  });
+
+  it("collects threads whose project is missing into Other", () => {
+    const folders = groupSidebarThreadsIntoProjectFolders(
+      [
+        {
+          projectKey: "hometrace",
+          displayName: "hometrace",
+          memberProjectRefs: [{ environmentId: "env", projectId: "p1" }],
+        },
+      ],
+      [
+        {
+          section: "active",
+          threads: [
+            { environmentId: "env", projectId: "p1", id: "known" },
+            { environmentId: "env", projectId: "missing", id: "orphan" },
+          ],
+        },
+      ],
+    );
+
+    expect(folders.map((folder) => folder.projectKey)).toEqual(["hometrace", "__ungrouped__"]);
+    expect(folders[1]!.displayName).toBe("Other");
+    expect(folders[1]!.entries.map((entry) => entry.thread.id)).toEqual(["orphan"]);
+  });
+
+  it("keeps settled threads out of project folders when that section is omitted", () => {
+    const folders = groupSidebarThreadsIntoProjectFolders(
+      [
+        {
+          projectKey: "hometrace",
+          displayName: "hometrace",
+          memberProjectRefs: [{ environmentId: "env", projectId: "p1" }],
+        },
+      ],
+      [
+        {
+          section: "active",
+          threads: [{ environmentId: "env", projectId: "p1", id: "live" }],
+        },
+      ],
+    );
+
+    expect(folders[0]!.entries.map((entry) => entry.thread.id)).toEqual(["live"]);
+  });
+});
+
+describe("flattenSidebarProjectFolderThreads", () => {
+  it("walks projects top to bottom, then threads in each folder", () => {
+    const hometrace = {
+      projectKey: "hometrace",
+      displayName: "Hometrace",
+      memberProjectRefs: [{ environmentId: "env", projectId: "p1" }],
+    };
+    const bots = {
+      projectKey: "bots",
+      displayName: "Bots",
+      memberProjectRefs: [{ environmentId: "env", projectId: "p2" }],
+    };
+    const folders = groupSidebarThreadsIntoProjectFolders(
+      [hometrace, bots],
+      [
+        {
+          section: "active",
+          threads: [
+            { environmentId: "env", projectId: "p2", id: "bots-thread" },
+            { environmentId: "env", projectId: "p1", id: "hometrace-older" },
+            { environmentId: "env", projectId: "p1", id: "hometrace-newer" },
+          ],
+        },
+      ],
+    );
+
+    expect(flattenSidebarProjectFolderThreads(folders).map((thread) => thread.id)).toEqual([
+      "hometrace-older",
+      "hometrace-newer",
+      "bots-thread",
+    ]);
   });
 });
 

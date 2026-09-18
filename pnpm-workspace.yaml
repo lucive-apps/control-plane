@@ -204,6 +204,8 @@ peerDependencyRules:
     vite: "*"
 
 supportedArchitectures:
-  cpu: [current, x64]
+  # arm64 must be explicit: a Rosetta-hosted install reports cpu as x64, and
+  # Electron then runs translated on Apple Silicon.
+  cpu: [current, x64, arm64]
   libc: [current, glibc]
   os: [current, linux]

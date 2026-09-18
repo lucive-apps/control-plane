@@ -70,6 +70,8 @@ const initialState: UiState = {
 
 const LEGACY_PROJECT_CWD_PREFERENCE_PREFIX = "legacy-project-cwd:";
 const LEGACY_PROJECT_EXPANSION_DEFAULT_KEY = "legacy-project-expansion-default";
+export const SIDEBAR_PROJECTS_SECTION_KEY = "sidebar-section:projects";
+export const SIDEBAR_REPOSITORIES_SECTION_KEY = "sidebar-section:repositories";
 let legacyKeysCleanedUp = false;
 
 export function legacyProjectCwdPreferenceKey(cwd: string): string {
@@ -119,6 +121,10 @@ function sanitizeTimestampRecord(value: unknown): Record<string, string> {
 
 function isPullRequestMergeMethod(value: unknown): value is PullRequestMergeMethod {
   return value === "merge" || value === "squash" || value === "rebase";
+}
+
+function isIsoTimestamp(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && Number.isFinite(Date.parse(value));
 }
 
 export function parsePersistedState(parsed: PersistedUiState): UiState {

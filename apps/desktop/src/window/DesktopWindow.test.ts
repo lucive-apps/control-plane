@@ -81,6 +81,7 @@ function makeFakeBrowserWindow() {
     setZoomLevel: vi.fn((level: number) => {
       zoomLevel = level;
     }),
+    setVisualZoomLevelLimits: vi.fn(() => Promise.resolve()),
     isLoadingMainFrame: vi.fn(() => false),
     on: vi.fn((eventName: string, listener: (...args: readonly unknown[]) => void) => {
       webContentsListeners.set(eventName, listener);
@@ -205,6 +206,17 @@ const desktopEnvironmentLayer = DesktopEnvironment.layer(environmentInput).pipe(
   ),
 );
 
+const packagedDesktopEnvironmentLayer = DesktopEnvironment.layer(environmentInput).pipe(
+  Layer.provide(
+    Layer.mergeAll(
+      NodeServices.layer,
+      DesktopConfig.layerTest({
+        T3CODE_PORT: "3773",
+      }),
+    ),
+  ),
+);
+
 const desktopWindowBoundsEquivalence = Schema.toEquivalence(
   DesktopAppSettings.DesktopWindowBoundsSchema,
 );
@@ -225,6 +237,7 @@ function makeTestLayer(input: {
   readonly onPopupTemplate?: (input: ElectronMenu.ElectronMenuTemplateInput) => Effect.Effect<void>;
   readonly previewZoomReapplies?: number[];
   readonly onReveal?: (window: Electron.BrowserWindow) => void;
+  readonly environmentLayer?: typeof desktopEnvironmentLayer;
 }) {
   let desktopSettings = input.desktopSettings ?? DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS;
   const desktopAppSettingsLayer = Layer.succeed(DesktopAppSettings.DesktopAppSettings, {
@@ -285,7 +298,7 @@ function makeTestLayer(input: {
     Layer.provide(
       Layer.mergeAll(
         desktopAssetsLayer,
-        desktopEnvironmentLayer,
+        input.environmentLayer ?? desktopEnvironmentLayer,
         desktopAppSettingsLayer,
         desktopClientSettingsLayer,
         desktopServerExposureLayer,
@@ -628,7 +641,7 @@ describe("DesktopWindow", () => {
         assert.isFalse(createdWindowOptions[0]?.webPreferences?.backgroundThrottling);
         assert.deepEqual(fakeWindow.setAutoHideCursor.mock.calls, [[false]]);
         assert.deepEqual(fakeWindow.loadURL.mock.calls[0], ["t3code-dev://app/"]);
-        assert.equal(fakeWindow.openDevTools.mock.calls.length, 1);
+        assert.equal(fakeWindow.openDevTools.mock.calls.length, 0);
       }).pipe(Effect.provide(layer));
     }),
   );
@@ -709,10 +722,9 @@ describe("DesktopWindow", () => {
     }),
   );
 
-  // Chromium hands the main window's zoom level down to embedded preview
-  // guests, so every app zoom has to put the preview browser back at its own
-  // zoom or zooming the UI drags the previewed page with it.
-  it.effect("restores the preview browser's own zoom after zooming the app", () =>
+  // Cmd+/- zooms the workspace pane in the renderer. Chromium page zoom
+  // would scale the sidebar too, so the host zoom stays locked at 1.
+  it.effect("zooms the workspace through the renderer instead of the page", () =>
     Effect.gen(function* () {
       const fakeWindow = makeFakeBrowserWindow();
       const createCount = yield* Ref.make(0);
@@ -735,17 +747,22 @@ describe("DesktopWindow", () => {
         yield* desktopWindow.zoomMain("reset");
 
         assert.deepEqual(
-          fakeWindow.setZoomLevel.mock.calls.map(([level]) => level),
-          [-0.5, -1, -0.5, 0],
+          fakeWindow.send.mock.calls.filter(([channel]) => channel === MENU_ACTION_CHANNEL),
+          [
+            [MENU_ACTION_CHANNEL, "zoom-out"],
+            [MENU_ACTION_CHANNEL, "zoom-out"],
+            [MENU_ACTION_CHANNEL, "zoom-in"],
+            [MENU_ACTION_CHANNEL, "zoom-reset"],
+          ],
         );
-        // Recorded after the window level moved, so the preview is put back at
-        // its own zoom on every step rather than left on the inherited one.
-        assert.deepEqual(previewZoomReapplies, [-0.5, -1, -0.5, 0]);
+        assert.isAtLeast(fakeWindow.setZoomLevel.mock.calls.length, 1);
+        assert.isTrue(fakeWindow.setZoomLevel.mock.calls.every(([level]) => level === 0));
+        assert.deepEqual(previewZoomReapplies, []);
       }).pipe(Effect.provide(layer));
     }),
   );
 
-  it.effect("keeps macOS window buttons centered when zooming and leaving fullscreen", () =>
+  it.effect("keeps macOS window buttons on the unzoomed sidebar chrome", () =>
     Effect.gen(function* () {
       const fakeWindow = makeFakeBrowserWindow();
       const createCount = yield* Ref.make(0);
@@ -756,15 +773,11 @@ describe("DesktopWindow", () => {
         const desktopWindow = yield* DesktopWindow.DesktopWindow;
         yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
 
+        fakeWindow.setWindowButtonPosition.mockClear();
         for (const direction of ["in", "in", "out", "reset", "out"] as const) {
           yield* desktopWindow.zoomMain(direction);
-          const position = fakeWindow.setWindowButtonPosition.mock.lastCall?.[0];
-          assert.isDefined(position);
-          // The 14-point native buttons should share the zoomed 52px header's center.
-          const headerCenter = 26 * fakeWindow.window.webContents.getZoomFactor();
-          assert.isAtMost(Math.abs(position.y + 7 - headerCenter), 0.5);
-          assert.equal(position.x, 16);
         }
+        assert.equal(fakeWindow.setWindowButtonPosition.mock.calls.length, 0);
 
         fakeWindow.isFullScreen.mockReturnValue(true);
         fakeWindow.setWindowButtonPosition.mockClear();
@@ -839,9 +852,10 @@ describe("DesktopWindow", () => {
   );
 
   // The window boots hidden with throttling disabled so first paint runs at
-  // full speed; the first reveal must hand it back to normal hidden-window
-  // throttling or a minimized window stays expensive forever.
-  it.effect("re-enables background throttling on first reveal", () =>
+  // full speed. Development keeps that unthrottled after reveal so an editor
+  // covering the window does not stall clicks; packaged builds hand throttling
+  // back so a minimized window stays cheap.
+  it.effect("keeps background throttling off after reveal in development", () =>
     Effect.gen(function* () {
       const fakeWindow = makeFakeBrowserWindow();
       const createCount = yield* Ref.make(0);
@@ -850,6 +864,33 @@ describe("DesktopWindow", () => {
         window: fakeWindow.window,
         createCount,
         mainWindow,
+      });
+
+      yield* Effect.gen(function* () {
+        const desktopWindow = yield* DesktopWindow.DesktopWindow;
+        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+
+        assert.equal(fakeWindow.setBackgroundThrottling.mock.calls.length, 0);
+        const readyToShow = fakeWindow.windowListeners.get("ready-to-show");
+        if (!readyToShow) {
+          return yield* Effect.die("window ready-to-show listener was not registered");
+        }
+        readyToShow();
+        assert.equal(fakeWindow.setBackgroundThrottling.mock.calls.length, 0);
+      }).pipe(Effect.provide(layer));
+    }),
+  );
+
+  it.effect("re-enables background throttling on first reveal when packaged", () =>
+    Effect.gen(function* () {
+      const fakeWindow = makeFakeBrowserWindow();
+      const createCount = yield* Ref.make(0);
+      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+      const layer = makeTestLayer({
+        window: fakeWindow.window,
+        createCount,
+        mainWindow,
+        environmentLayer: packagedDesktopEnvironmentLayer,
       });
 
       yield* Effect.gen(function* () {

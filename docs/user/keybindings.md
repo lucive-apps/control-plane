@@ -30,6 +30,12 @@ on macOS and Ctrl on Windows and Linux, including GNOME, KDE Plasma, Niri, and
 Hyprland. If a custom desktop shortcut takes the same keys, choose another binding
 in Settings.
 
+## Sidebar views
+
+`mod+shift+u` opens Usage, `mod+shift+r` opens Pull Requests, and `mod+shift+t`
+toggles the settled-threads list in the sidebar. Press the Usage or Pull Requests
+shortcut again to leave that page. All three can be changed in Settings.
+
 ## Copy pull request references
 
 With a PR open in the right panel or on the Pull Requests page, use `mod+shift+c`

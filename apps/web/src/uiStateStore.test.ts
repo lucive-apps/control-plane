@@ -15,6 +15,8 @@ import {
   setProjectExpanded,
   setSidebarProjectScopeKey,
   setThreadChangedFilesExpanded,
+  SIDEBAR_PROJECTS_SECTION_KEY,
+  SIDEBAR_REPOSITORIES_SECTION_KEY,
   type UiState,
 } from "./uiStateStore";
 
@@ -68,6 +70,33 @@ describe("uiStateStore pure functions", () => {
     );
     expect(resolveProjectExpanded({ [legacyKey]: false }, ["new-logical", legacyKey])).toBe(false);
     expect(resolveProjectExpanded({}, ["new-logical"])).toBe(true);
+    expect(
+      resolveProjectExpanded({}, [SIDEBAR_PROJECTS_SECTION_KEY, SIDEBAR_REPOSITORIES_SECTION_KEY]),
+    ).toBe(true);
+    expect(
+      resolveProjectExpanded({ [SIDEBAR_PROJECTS_SECTION_KEY]: false }, [
+        SIDEBAR_PROJECTS_SECTION_KEY,
+      ]),
+    ).toBe(false);
+  });
+
+  it("collapses the Projects section, including the legacy Repositories key", () => {
+    const collapsedLegacy = setProjectExpanded(
+      makeUiState(),
+      SIDEBAR_REPOSITORIES_SECTION_KEY,
+      false,
+    );
+    expect(
+      resolveProjectExpanded(collapsedLegacy.projectExpandedById, [
+        SIDEBAR_PROJECTS_SECTION_KEY,
+        SIDEBAR_REPOSITORIES_SECTION_KEY,
+      ]),
+    ).toBe(false);
+
+    const collapsed = setProjectExpanded(makeUiState(), SIDEBAR_PROJECTS_SECTION_KEY, false);
+    expect(
+      resolveProjectExpanded(collapsed.projectExpandedById, [SIDEBAR_PROJECTS_SECTION_KEY]),
+    ).toBe(false);
   });
 
   it("sets expansion for every stable key belonging to a logical project", () => {

@@ -29,6 +29,7 @@ function MenuPopup({
   alignOffset,
   side = "bottom",
   anchor,
+  keepMounted = false,
   ...props
 }: MenuPrimitive.Popup.Props & {
   align?: MenuPrimitive.Positioner.Props["align"];
@@ -36,6 +37,7 @@ function MenuPopup({
   alignOffset?: MenuPrimitive.Positioner.Props["alignOffset"];
   side?: MenuPrimitive.Positioner.Props["side"];
   anchor?: MenuPrimitive.Positioner.Props["anchor"];
+  keepMounted?: boolean;
 }) {
   const hasExplicitWidthClass =
     typeof className === "string" &&
@@ -45,7 +47,7 @@ function MenuPopup({
     });
 
   return (
-    <MenuPrimitive.Portal>
+    <MenuPrimitive.Portal keepMounted={keepMounted}>
       <MenuPrimitive.Positioner
         align={align}
         alignOffset={alignOffset}

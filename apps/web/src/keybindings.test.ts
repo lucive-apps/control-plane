@@ -147,6 +147,21 @@ const DEFAULT_BINDINGS = compile([
   },
   { shortcut: modShortcut("o", { shiftKey: true }), command: "chat.new" },
   { shortcut: modShortcut("n", { shiftKey: true }), command: "chat.newLocal" },
+  {
+    shortcut: modShortcut("t", { shiftKey: true }),
+    command: "settled.toggle",
+    whenAst: whenNot(whenIdentifier("terminalFocus")),
+  },
+  {
+    shortcut: modShortcut("u", { shiftKey: true }),
+    command: "usage.toggle",
+    whenAst: whenNot(whenIdentifier("terminalFocus")),
+  },
+  {
+    shortcut: modShortcut("r", { shiftKey: true }),
+    command: "pullRequests.toggle",
+    whenAst: whenNot(whenIdentifier("terminalFocus")),
+  },
   { shortcut: modShortcut("o"), command: "editor.openFavorite" },
   { shortcut: modShortcut("[", { shiftKey: true }), command: "thread.previous" },
   { shortcut: modShortcut("]", { shiftKey: true }), command: "thread.next" },
@@ -219,6 +234,53 @@ describe("settle thread shortcut", () => {
   it("does not intercept the terminal", () => {
     assert.isNull(
       resolveShortcutCommand(event({ key: "s", ctrlKey: true, shiftKey: true }), DEFAULT_BINDINGS, {
+        platform: "Win32",
+        context: { terminalFocus: true },
+      }),
+    );
+  });
+});
+
+describe("sidebar view shortcuts", () => {
+  it("resolves usage, pull requests, and settled toggles outside the terminal", () => {
+    assert.equal(
+      resolveShortcutCommand(event({ key: "u", metaKey: true, shiftKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+        context: { terminalFocus: false },
+      }),
+      "usage.toggle",
+    );
+    assert.equal(
+      resolveShortcutCommand(event({ key: "r", metaKey: true, shiftKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+        context: { terminalFocus: false },
+      }),
+      "pullRequests.toggle",
+    );
+    assert.equal(
+      resolveShortcutCommand(event({ key: "t", metaKey: true, shiftKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+        context: { terminalFocus: false },
+      }),
+      "settled.toggle",
+    );
+  });
+
+  it("does not intercept the terminal", () => {
+    assert.isNull(
+      resolveShortcutCommand(event({ key: "u", ctrlKey: true, shiftKey: true }), DEFAULT_BINDINGS, {
+        platform: "Win32",
+        context: { terminalFocus: true },
+      }),
+    );
+    assert.isNull(
+      resolveShortcutCommand(event({ key: "r", ctrlKey: true, shiftKey: true }), DEFAULT_BINDINGS, {
+        platform: "Win32",
+        context: { terminalFocus: true },
+      }),
+    );
+    assert.isNull(
+      resolveShortcutCommand(event({ key: "t", ctrlKey: true, shiftKey: true }), DEFAULT_BINDINGS, {
         platform: "Win32",
         context: { terminalFocus: true },
       }),

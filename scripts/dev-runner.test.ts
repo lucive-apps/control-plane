@@ -94,7 +94,6 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
         assert.deepStrictEqual(getDevRunnerModeArgs("dev:desktop"), [
           "run",
           "--filter=@t3tools/desktop",
-          "--filter=@t3tools/web",
           "dev",
         ]);
       }),
@@ -465,6 +464,49 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
 
         assert.equal(env.T3CODE_SINGLE_ORIGIN_DEV, undefined);
         assert.equal(env.VITE_HTTP_URL, "http://127.0.0.1:13773");
+        assert.equal(env.T3CODE_BUNDLED_DEV, "1");
+        assert.equal(env.T3CODE_WEB_SOURCEMAP, "0");
+        assert.equal(env.T3CODE_DESKTOP_STATIC_RENDERER, "1");
+      }),
+    );
+
+    it.effect("keeps an explicit T3CODE_BUNDLED_DEV opt-out in dev:desktop mode", () =>
+      Effect.gen(function* () {
+        const env = yield* createDevRunnerEnv({
+          mode: "dev:desktop",
+          baseEnv: { T3CODE_BUNDLED_DEV: "0" },
+          serverOffset: 0,
+          webOffset: 0,
+          t3Home: undefined,
+          browser: undefined,
+          autoBootstrapProjectFromCwd: undefined,
+          logWebSocketEvents: undefined,
+          host: undefined,
+          port: undefined,
+          devUrl: undefined,
+        });
+
+        assert.equal(env.T3CODE_BUNDLED_DEV, "0");
+      }),
+    );
+
+    it.effect("keeps an explicit T3CODE_WEB_SOURCEMAP opt-in in dev:desktop mode", () =>
+      Effect.gen(function* () {
+        const env = yield* createDevRunnerEnv({
+          mode: "dev:desktop",
+          baseEnv: { T3CODE_WEB_SOURCEMAP: "1" },
+          serverOffset: 0,
+          webOffset: 0,
+          t3Home: undefined,
+          browser: undefined,
+          autoBootstrapProjectFromCwd: undefined,
+          logWebSocketEvents: undefined,
+          host: undefined,
+          port: undefined,
+          devUrl: undefined,
+        });
+
+        assert.equal(env.T3CODE_WEB_SOURCEMAP, "1");
       }),
     );
 

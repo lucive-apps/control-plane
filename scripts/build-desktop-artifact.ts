@@ -54,7 +54,8 @@ import { Command, Flag } from "effect/unstable/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 const LINUX_ICON_SIZES = [16, 22, 24, 32, 48, 64, 128, 256, 512] as const;
-const DESKTOP_APP_ID = "com.t3tools.t3code";
+const DESKTOP_APP_ID = "com.lucive.t3code";
+const LUCIVE_MAC_SIGN_IDENTITY = "Developer ID Application: Nicholas Roberts (Q8JPDQXD6H)";
 const APPLE_TEAM_ID_PATTERN = /^[A-Z0-9]{10}$/u;
 
 const BuildPlatform = Schema.Literals(["mac", "linux", "win"]);
@@ -3584,13 +3585,21 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   const stageProdResourcesDir = path.join(stageAppDir, "apps/desktop/prod-resources");
   yield* fs.copy(stageResourcesDir, stageProdResourcesDir);
 
+  const repoEnvForPasskeys = loadRepoEnv({ repoRoot });
   const configuredMacPasskeySigning =
-    options.platform === "mac" && options.signed
+    options.platform === "mac" &&
+    options.signed &&
+    Boolean(repoEnvForPasskeys.T3CODE_MACOS_PROVISIONING_PROFILE?.trim())
       ? yield* Effect.try({
-          try: () => resolveMacPasskeySigningConfiguration(loadRepoEnv({ repoRoot })),
+          try: () => resolveMacPasskeySigningConfiguration(repoEnvForPasskeys),
           catch: MacPasskeySigningConfigurationResolutionError.fromCause,
         })
       : undefined;
+  if (options.platform === "mac" && options.signed && configuredMacPasskeySigning === undefined) {
+    yield* Effect.log(
+      "[desktop-artifact] Signing without Associated Domains (no T3CODE_MACOS_PROVISIONING_PROFILE).",
+    );
+  }
   const macPasskeySigning = configuredMacPasskeySigning
     ? {
         ...configuredMacPasskeySigning,
@@ -3745,6 +3754,8 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     delete buildEnv.APPLE_API_KEY;
     delete buildEnv.APPLE_API_KEY_ID;
     delete buildEnv.APPLE_API_ISSUER;
+  } else if (options.platform === "mac") {
+    buildEnv.CSC_NAME ??= LUCIVE_MAC_SIGN_IDENTITY;
   }
 
   if (hostPlatform === "win32") {

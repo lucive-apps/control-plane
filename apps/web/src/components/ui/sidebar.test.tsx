@@ -47,6 +47,7 @@ describe("sidebar interactive cursors", () => {
 
     expect(html).toContain("[-webkit-app-region:no-drag]");
     expect(html).toContain("size-[var(--workspace-titlebar-control-size)]!");
+    expect(html).toContain("text-[var(--sidebar-icon-color)]");
   });
 
   it("uses shared geometry and icon constraints for menu buttons by default", () => {

@@ -58,6 +58,7 @@ describe("DesktopEnvironment", () => {
       );
 
       assert.equal(environment.isDevelopment, true);
+      assert.equal(environment.staticRenderer, false);
       assert.equal(environment.appDataDirectory, "/Users/alice/Library/Application Support");
       assert.equal(environment.baseDir, "/tmp/t3");
       assert.equal(environment.stateDir, "/tmp/t3/userdata");
@@ -95,6 +96,21 @@ describe("DesktopEnvironment", () => {
         }),
       );
       assert.equal(environment.otlpProtocol, "http/protobuf");
+    }),
+  );
+
+  it.effect("serves the built web client when T3CODE_DESKTOP_STATIC_RENDERER is set", () =>
+    Effect.gen(function* () {
+      const environment = yield* makeEnvironment(
+        {},
+        {
+          VITE_DEV_SERVER_URL: "http://127.0.0.1:5733",
+          T3CODE_DESKTOP_STATIC_RENDERER: "1",
+        },
+      );
+
+      assert.equal(environment.isDevelopment, true);
+      assert.equal(environment.staticRenderer, true);
     }),
   );
 

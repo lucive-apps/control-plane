@@ -115,6 +115,27 @@ it.effect("parses keybinding rules", () =>
     });
     assert.strictEqual(parsedThreadSettle.command, "thread.settle");
 
+    const parsedSettledToggle = yield* decode(KeybindingRule, {
+      key: "mod+shift+t",
+      command: "settled.toggle",
+      when: "!terminalFocus",
+    });
+    assert.strictEqual(parsedSettledToggle.command, "settled.toggle");
+
+    const parsedUsageToggle = yield* decode(KeybindingRule, {
+      key: "mod+shift+u",
+      command: "usage.toggle",
+      when: "!terminalFocus",
+    });
+    assert.strictEqual(parsedUsageToggle.command, "usage.toggle");
+
+    const parsedPullRequestsToggle = yield* decode(KeybindingRule, {
+      key: "mod+shift+r",
+      command: "pullRequests.toggle",
+      when: "!terminalFocus",
+    });
+    assert.strictEqual(parsedPullRequestsToggle.command, "pullRequests.toggle");
+
     const parsedThreadCopyReference = yield* decode(KeybindingRule, {
       key: "mod+shift+c",
       command: "thread.copyReference",

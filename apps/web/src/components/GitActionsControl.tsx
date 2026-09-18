@@ -19,6 +19,7 @@ import { useNavigate } from "@tanstack/react-router";
 import * as Option from "effect/Option";
 import {
   type MouseEvent,
+  use,
   useCallback,
   useEffect,
   useEffectEvent,
@@ -79,7 +80,15 @@ import {
 } from "~/components/ui/dialog";
 import { Group, GroupSeparator } from "~/components/ui/group";
 import { Input } from "~/components/ui/input";
-import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
+import {
+  Menu,
+  MenuItem,
+  MenuPopup,
+  MenuSub,
+  MenuSubPopup,
+  MenuSubTrigger,
+  MenuTrigger,
+} from "~/components/ui/menu";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { Textarea } from "~/components/ui/textarea";
@@ -106,6 +115,10 @@ import { type DraftId, useComposerDraftStore } from "~/composerDraftStore";
 import { getSourceControlPresentation } from "~/sourceControlPresentation";
 import { useOpenLink } from "~/browser/useOpenLink";
 import { useOpenPrLink } from "~/lib/openPullRequestLink";
+import {
+  HeaderOverflowMenuContext,
+  HeaderOverflowMenuItems,
+} from "~/components/chat/ChatHeaderOverflowMenu";
 
 interface GitActionsControlProps {
   gitCwd: string | null;
@@ -116,6 +129,8 @@ interface GitActionsControlProps {
    * place it against, in which case it still opens in the browser.
    */
   onOpenPullRequest?: ((number: number) => void) | undefined;
+  /** Header overflow menu vs the original split-button toolbar. */
+  variant?: "toolbar" | "menu";
 }
 
 interface PendingDefaultBranchAction {
@@ -948,6 +963,7 @@ export default function GitActionsControl({
   activeThreadRef,
   draftId,
   onOpenPullRequest,
+  variant = "toolbar",
 }: GitActionsControlProps) {
   const updateThreadMetadata = useAtomCommand(
     threadEnvironment.updateMetadata,
@@ -1192,6 +1208,12 @@ export default function GitActionsControl({
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [activeEnvironmentId, gitCwd, refreshVcsStatus]);
+
+  const overflowMenu = use(HeaderOverflowMenuContext);
+  useEffect(() => {
+    if (variant !== "menu" || !overflowMenu?.open || !gitCwd) return;
+    requestVcsStatusRefresh(refreshVcsStatus, activeEnvironmentId, gitCwd);
+  }, [activeEnvironmentId, gitCwd, overflowMenu?.open, refreshVcsStatus, variant]);
 
   const openExistingPr = useCallback(async () => {
     const openPr = gitStatusForActions?.pr?.state === "open" ? gitStatusForActions.pr : null;
@@ -1632,33 +1654,116 @@ export default function GitActionsControl({
 
   const canPublishRepository = isRepo && gitStatusForActions !== null && !hasPrimaryRemote;
 
+  const initializeGit = () => {
+    void (async () => {
+      const result = await initAction.run();
+      if (result._tag === "Success" || isAtomCommandInterrupted(result)) {
+        return;
+      }
+      const error = squashAtomCommandFailure(result);
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Git initialization failed",
+          description: error instanceof Error ? error.message : "An error occurred.",
+          ...(threadToastData !== undefined ? { data: threadToastData } : {}),
+        }),
+      );
+    })();
+  };
+
+  const gitMenuContent = (
+    <>
+      {gitActionMenuItems.map((item) => {
+        const disabledReason = getMenuActionDisabledReason({
+          item,
+          gitStatus: gitStatusForActions,
+          isBusy: isGitActionRunning,
+          hasPrimaryRemote,
+        });
+        if (item.disabled && disabledReason) {
+          return (
+            <Popover key={`${item.id}-${item.label}`}>
+              <PopoverTrigger
+                openOnHover
+                nativeButton={false}
+                render={<span className="block w-max cursor-not-allowed" />}
+              >
+                <MenuItem className="w-full" disabled>
+                  <GitActionItemIcon icon={item.icon} SourceControlIcon={SourceControlIcon} />
+                  {item.label}
+                </MenuItem>
+              </PopoverTrigger>
+              <PopoverPopup tooltipStyle side="left" align="center">
+                {disabledReason}
+              </PopoverPopup>
+            </Popover>
+          );
+        }
+
+        return (
+          <MenuItem
+            key={`${item.id}-${item.label}`}
+            disabled={item.disabled}
+            onClick={() => {
+              openDialogForMenuItem(item);
+            }}
+          >
+            <GitActionItemIcon icon={item.icon} SourceControlIcon={SourceControlIcon} />
+            {item.label}
+          </MenuItem>
+        );
+      })}
+      {canPublishRepository ? (
+        <MenuItem
+          disabled={isGitActionRunning}
+          onClick={() => {
+            setIsPublishDialogOpen(true);
+          }}
+        >
+          <CloudUploadIcon />
+          Publish repository...
+        </MenuItem>
+      ) : null}
+      {gitStatusForActions?.refName === null && (
+        <p className="px-2 py-1.5 text-xs text-warning">
+          Detached HEAD: create and check out a branch to enable push and pull request actions.
+        </p>
+      )}
+      {gitStatusForActions &&
+        gitStatusForActions.refName !== null &&
+        !gitStatusForActions.hasWorkingTreeChanges &&
+        gitStatusForActions.behindCount > 0 &&
+        gitStatusForActions.aheadCount === 0 && (
+          <p className="px-2 py-1.5 text-xs text-warning">Behind upstream. Pull/rebase first.</p>
+        )}
+      {gitStatusError && <p className="px-2 py-1.5 text-xs text-destructive">{gitStatusError}</p>}
+    </>
+  );
+
+  const overflowItems = !isRepo ? (
+    <MenuItem disabled={initAction.isPending} onClick={initializeGit}>
+      <GitBranchPlusIcon aria-hidden />
+      {initAction.isPending ? "Initializing..." : "Initialize Git"}
+    </MenuItem>
+  ) : (
+    <MenuSub>
+      <MenuSubTrigger disabled={isGitActionRunning}>
+        <GitQuickActionIcon quickAction={quickAction} SourceControlIcon={SourceControlIcon} />
+        {quickAction.label}
+      </MenuSubTrigger>
+      <MenuSubPopup className="w-full">{gitMenuContent}</MenuSubPopup>
+    </MenuSub>
+  );
+
   if (!gitCwd) return null;
 
   return (
     <>
-      {!isRepo ? (
-        <Button
-          variant="outline"
-          size="xs"
-          disabled={initAction.isPending}
-          onClick={() => {
-            void (async () => {
-              const result = await initAction.run();
-              if (result._tag === "Success" || isAtomCommandInterrupted(result)) {
-                return;
-              }
-              const error = squashAtomCommandFailure(result);
-              toastManager.add(
-                stackedThreadToast({
-                  type: "error",
-                  title: "Git initialization failed",
-                  description: error instanceof Error ? error.message : "An error occurred.",
-                  ...(threadToastData !== undefined ? { data: threadToastData } : {}),
-                }),
-              );
-            })();
-          }}
-        >
+      {variant === "menu" ? (
+        <HeaderOverflowMenuItems>{overflowItems}</HeaderOverflowMenuItems>
+      ) : !isRepo ? (
+        <Button variant="outline" size="xs" disabled={initAction.isPending} onClick={initializeGit}>
           <GitBranchPlusIcon className="size-3.5" aria-hidden />
           <span className="ml-0.5">
             {initAction.isPending ? "Initializing..." : "Initialize Git"}
@@ -1720,78 +1825,7 @@ export default function GitActionsControl({
               <ChevronDownIcon aria-hidden="true" className="size-4" />
             </MenuTrigger>
             <MenuPopup align="end" className="w-full">
-              {gitActionMenuItems.map((item) => {
-                const disabledReason = getMenuActionDisabledReason({
-                  item,
-                  gitStatus: gitStatusForActions,
-                  isBusy: isGitActionRunning,
-                  hasPrimaryRemote,
-                });
-                if (item.disabled && disabledReason) {
-                  return (
-                    <Popover key={`${item.id}-${item.label}`}>
-                      <PopoverTrigger
-                        openOnHover
-                        nativeButton={false}
-                        render={<span className="block w-max cursor-not-allowed" />}
-                      >
-                        <MenuItem className="w-full" disabled>
-                          <GitActionItemIcon
-                            icon={item.icon}
-                            SourceControlIcon={SourceControlIcon}
-                          />
-                          {item.label}
-                        </MenuItem>
-                      </PopoverTrigger>
-                      <PopoverPopup tooltipStyle side="left" align="center">
-                        {disabledReason}
-                      </PopoverPopup>
-                    </Popover>
-                  );
-                }
-
-                return (
-                  <MenuItem
-                    key={`${item.id}-${item.label}`}
-                    disabled={item.disabled}
-                    onClick={() => {
-                      openDialogForMenuItem(item);
-                    }}
-                  >
-                    <GitActionItemIcon icon={item.icon} SourceControlIcon={SourceControlIcon} />
-                    {item.label}
-                  </MenuItem>
-                );
-              })}
-              {canPublishRepository ? (
-                <MenuItem
-                  disabled={isGitActionRunning}
-                  onClick={() => {
-                    setIsPublishDialogOpen(true);
-                  }}
-                >
-                  <CloudUploadIcon />
-                  Publish repository...
-                </MenuItem>
-              ) : null}
-              {gitStatusForActions?.refName === null && (
-                <p className="px-2 py-1.5 text-xs text-warning">
-                  Detached HEAD: create and check out a branch to enable push and pull request
-                  actions.
-                </p>
-              )}
-              {gitStatusForActions &&
-                gitStatusForActions.refName !== null &&
-                !gitStatusForActions.hasWorkingTreeChanges &&
-                gitStatusForActions.behindCount > 0 &&
-                gitStatusForActions.aheadCount === 0 && (
-                  <p className="px-2 py-1.5 text-xs text-warning">
-                    Behind upstream. Pull/rebase first.
-                  </p>
-                )}
-              {gitStatusError && (
-                <p className="px-2 py-1.5 text-xs text-destructive">{gitStatusError}</p>
-              )}
+              {gitMenuContent}
             </MenuPopup>
           </Menu>
         </Group>

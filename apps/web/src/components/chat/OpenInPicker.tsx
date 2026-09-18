@@ -18,7 +18,17 @@ import { useEnvironment } from "../../state/environments";
 import { ChevronDownIcon, FolderClosedIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import { Group, GroupSeparator } from "../ui/group";
-import { Menu, MenuItem, MenuPopup, MenuShortcut, MenuTrigger } from "../ui/menu";
+import { HeaderOverflowMenuItems } from "./ChatHeaderOverflowMenu";
+import {
+  Menu,
+  MenuItem,
+  MenuPopup,
+  MenuShortcut,
+  MenuSub,
+  MenuSubPopup,
+  MenuSubTrigger,
+  MenuTrigger,
+} from "../ui/menu";
 import {
   AntigravityIcon,
   CursorIcon,
@@ -189,6 +199,7 @@ export const OpenInPicker = memo(function OpenInPicker({
   openInCwd,
   compact = false,
   enableShortcut = true,
+  variant = "toolbar",
 }: {
   environmentId: EnvironmentId;
   keybindings: ResolvedKeybindingsConfig;
@@ -196,6 +207,7 @@ export const OpenInPicker = memo(function OpenInPicker({
   openInCwd: string | null;
   compact?: boolean;
   enableShortcut?: boolean;
+  variant?: "toolbar" | "menu";
 }) {
   const openInEditorMutation = useAtomCommand(shellEnvironment.openInEditor, "open in editor");
   const remote = useRemoteOpenState(environmentId);
@@ -274,6 +286,46 @@ export const OpenInPicker = memo(function OpenInPicker({
     return () => window.removeEventListener("keydown", handler);
   }, [enableShortcut, keybindings, openInCwd, openInEditor, preferredEditor]);
 
+  const editorMenuItems =
+    remote.mode === "remote-unavailable" ? (
+      <MenuItem disabled>No SSH route to {environmentLabel}</MenuItem>
+    ) : (
+      <>
+        {options.length === 0 && <MenuItem disabled>No installed editors found</MenuItem>}
+        {options.map(({ label, Icon, value, kind }) => (
+          <MenuItem key={value} onClick={() => openInEditor(value)}>
+            <Icon aria-hidden="true" className={getOpenInIconClass(kind)} />
+            {label}
+            {value === preferredEditor && openFavoriteEditorShortcutLabel && (
+              <MenuShortcut>{openFavoriteEditorShortcutLabel}</MenuShortcut>
+            )}
+          </MenuItem>
+        ))}
+        {remote.mode === "remote-links" && !remoteHintSeen && (
+          <MenuItem disabled>Opens over SSH. Needs your key on {environmentLabel}</MenuItem>
+        )}
+      </>
+    );
+
+  if (variant === "menu") {
+    return (
+      <HeaderOverflowMenuItems>
+        <MenuSub>
+          <MenuSubTrigger disabled={!openInCwd || remote.mode === "remote-unavailable"}>
+            {primaryOption?.Icon && (
+              <primaryOption.Icon
+                aria-hidden="true"
+                className={getOpenInIconClass(primaryOption.kind)}
+              />
+            )}
+            Open
+          </MenuSubTrigger>
+          <MenuSubPopup>{editorMenuItems}</MenuSubPopup>
+        </MenuSub>
+      </HeaderOverflowMenuItems>
+    );
+  }
+
   return (
     <Group aria-label="Open in editor">
       <Button
@@ -307,27 +359,7 @@ export const OpenInPicker = memo(function OpenInPicker({
         >
           <ChevronDownIcon aria-hidden="true" className="size-4" />
         </MenuTrigger>
-        <MenuPopup align="end">
-          {remote.mode === "remote-unavailable" ? (
-            <MenuItem disabled>No SSH route to {environmentLabel}</MenuItem>
-          ) : (
-            <>
-              {options.length === 0 && <MenuItem disabled>No installed editors found</MenuItem>}
-              {options.map(({ label, Icon, value, kind }) => (
-                <MenuItem key={value} onClick={() => openInEditor(value)}>
-                  <Icon aria-hidden="true" className={getOpenInIconClass(kind)} />
-                  {label}
-                  {value === preferredEditor && openFavoriteEditorShortcutLabel && (
-                    <MenuShortcut>{openFavoriteEditorShortcutLabel}</MenuShortcut>
-                  )}
-                </MenuItem>
-              ))}
-              {remote.mode === "remote-links" && !remoteHintSeen && (
-                <MenuItem disabled>Opens over SSH. Needs your key on {environmentLabel}</MenuItem>
-              )}
-            </>
-          )}
-        </MenuPopup>
+        <MenuPopup align="end">{editorMenuItems}</MenuPopup>
       </Menu>
     </Group>
   );

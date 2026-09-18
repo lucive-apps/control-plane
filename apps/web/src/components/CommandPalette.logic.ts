@@ -121,6 +121,32 @@ export function reduceCommandPaletteUiState(
   }
 }
 
+export type DirectAddProjectFlow =
+  | { readonly kind: "wait" }
+  | { readonly kind: "connect" }
+  | { readonly kind: "pick-environment" }
+  | { readonly kind: "pick-source"; readonly environmentId: EnvironmentId };
+
+export function resolveDirectAddProjectFlow(input: {
+  readonly catalogReady: boolean;
+  readonly environmentOptions: ReadonlyArray<{
+    readonly environmentId: EnvironmentId;
+    readonly isConnected: boolean;
+  }>;
+}): DirectAddProjectFlow {
+  if (!input.catalogReady) {
+    return { kind: "wait" };
+  }
+  if (input.environmentOptions.length === 0) {
+    return { kind: "connect" };
+  }
+  const connected = input.environmentOptions.find((option) => option.isConnected);
+  if (input.environmentOptions.length > 1 || connected === undefined) {
+    return { kind: "pick-environment" };
+  }
+  return { kind: "pick-source", environmentId: connected.environmentId };
+}
+
 export interface CommandPaletteThreadContentMatch {
   readonly source: "user" | "assistant";
   readonly snippet: string;

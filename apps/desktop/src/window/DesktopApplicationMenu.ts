@@ -237,8 +237,8 @@ export const make = Effect.gen(function* () {
           /*
             Not the zoom roles: those act on the focused webContents, so with
             an embedded preview WebContentsView focused they zoom the guest
-            page and the app UI appears stuck. These always zoom the main
-            window (see DesktopWindow.zoomMain).
+            page and the app UI appears stuck. These always zoom the workspace
+            pane (see DesktopWindow.zoomMain), leaving the sidebar at 1×.
           */
           { label: "Actual Size", accelerator: "CmdOrCtrl+0", click: zoomClick("reset") },
           { label: "Zoom In", accelerator: "CmdOrCtrl+=", click: zoomClick("in") },

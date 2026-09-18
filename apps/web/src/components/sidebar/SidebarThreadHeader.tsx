@@ -1,16 +1,8 @@
 /**
- * The sidebar header: one row holding search, project scope and new thread.
- *
- * Search owns the row's text and spans it. Project scope collapses to an icon
- * that sits with new-project and new-thread as a segmented group at the end.
- * The scope icon swaps to the project favicon while a project is selected,
- * so the header still names the scope after the row that showed it is gone.
- *
- * The scope picker itself is passed in: its combobox state lives with the rest
- * of the sidebar's scope logic. `searchFieldRef` lands on the search field so
- * the picker's popup can anchor to that width rather than to its 28px trigger.
+ * Sidebar nav: New Chat above the search row. New Project lives on the
+ * Projects section header.
  */
-import { FolderPlusIcon, SearchIcon, SquarePenIcon, XIcon } from "lucide-react";
+import { SearchIcon, SquarePenIcon, XIcon } from "lucide-react";
 import {
   type ComponentProps,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -28,18 +20,6 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 export interface SidebarThreadHeaderProps {
   /** Lands on the search field so a popup can anchor to its width. */
   searchFieldRef?: RefObject<HTMLDivElement | null>;
-  /** Without projects there is nothing to scope, so those controls stay out. */
-  hasProjects: boolean;
-  /** The project scope combobox, rendered as the first icon of the group. */
-  projectScope: ReactNode;
-  onNewProject: () => void;
-  /** Receives the click so Shift+click can skip the project picker. */
-  onNewThread: (event: ReactMouseEvent) => void;
-  newThreadDisabled: boolean;
-  newThreadShortcutLabel: string | null | undefined;
-  newThreadInProjectShortcutLabel: string | null | undefined;
-  /** Shift+click only matters once there is more than one project to pick. */
-  showNewThreadInProjectHint: boolean;
   searchInputRef: RefObject<HTMLInputElement | null>;
   searchQuery: string;
   onSearchQueryChange: (value: string) => void;
@@ -48,18 +28,13 @@ export interface SidebarThreadHeaderProps {
   searchResultCount: number;
   activeSearchResultIndex: number;
   onClearSearch: () => void;
+  onNewChat: (event?: ReactMouseEvent<HTMLButtonElement>) => void;
+  newChatDisabled?: boolean;
+  newChatTooltip?: ReactNode;
 }
 
 export function SidebarThreadHeader({
   searchFieldRef,
-  hasProjects,
-  projectScope,
-  onNewProject,
-  onNewThread,
-  newThreadDisabled,
-  newThreadShortcutLabel,
-  newThreadInProjectShortcutLabel,
-  showNewThreadInProjectHint,
   searchInputRef,
   searchQuery,
   onSearchQueryChange,
@@ -68,92 +43,78 @@ export function SidebarThreadHeader({
   searchResultCount,
   activeSearchResultIndex,
   onClearSearch,
+  onNewChat,
+  newChatDisabled = false,
+  newChatTooltip = "New Chat",
 }: SidebarThreadHeaderProps) {
   const resultsVisible = isSearching && searchResultCount > 0;
   // Results shrink as the query narrows, so the active index can outrun the
   // list; pointing aria-activedescendant at a removed option strands the
   // screen reader on nothing.
   const activeResultExists = resultsVisible && activeSearchResultIndex < searchResultCount;
-  const newThreadLabel = newThreadShortcutLabel
-    ? `New thread (${newThreadShortcutLabel})`
-    : "New thread";
 
   return (
-    <div className="flex items-center gap-1">
-      <div
-        ref={searchFieldRef}
-        className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
-      >
-        <SearchIcon className="size-4 shrink-0 text-[var(--sidebar-icon-color)]" />
-        <Input
-          ref={searchInputRef}
-          nativeInput
-          unstyled
-          type="search"
-          value={searchQuery}
-          onChange={(event) => onSearchQueryChange(event.currentTarget.value)}
-          onKeyDown={onSearchKeyDown}
-          placeholder="Search"
-          aria-label="Search threads"
-          role="combobox"
-          aria-autocomplete="list"
-          aria-expanded={resultsVisible}
-          aria-controls={resultsVisible ? "sidebar-thread-search-results" : undefined}
-          aria-activedescendant={
-            activeResultExists
-              ? `sidebar-thread-search-result-${activeSearchResultIndex}`
-              : undefined
+    <div className="flex flex-col gap-0.5">
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              aria-label="New Chat"
+              disabled={newChatDisabled}
+              onClick={onNewChat}
+              className="flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-[13px] font-medium text-sidebar-foreground outline-none hover:bg-sidebar-row-hover disabled:cursor-not-allowed disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-ring"
+            />
           }
-          className="min-w-0 flex-1 [&_[data-slot=input]]:h-auto [&_[data-slot=input]]:p-0 [&_[data-slot=input]]:leading-normal [&_[data-slot=input]]:text-sm [&_[data-slot=input]]:font-medium [&_[data-slot=input]]:text-sidebar-foreground [&_[data-slot=input]]:placeholder:text-[var(--sidebar-icon-color)]"
-        />
-        {isSearching ? (
-          <Button
-            type="button"
-            size="icon-micro"
-            variant="ghost"
-            className="shrink-0 text-sidebar-muted-foreground hover:bg-sidebar-control-surface hover:text-sidebar-foreground"
-            aria-label="Clear thread search"
-            onClick={() => {
-              onClearSearch();
-              searchInputRef.current?.focus();
-            }}
-          >
-            <XIcon className="size-3" />
-          </Button>
-        ) : null}
-      </div>
-      {/* Unfilled like the search field beside it: the buttons carry their own
-          hover states, and a background well reads far louder on themed
-          palettes than on the base light and dark ones. */}
-      <div className="flex shrink-0 items-center">
-        {hasProjects ? (
-          <>
-            {projectScope}
-            <SidebarHeaderIconButton label="New project" onClick={onNewProject}>
-              <FolderPlusIcon />
-            </SidebarHeaderIconButton>
-          </>
-        ) : null}
-        <SidebarHeaderIconButton
-          label="New thread"
-          tooltip={
-            showNewThreadInProjectHint ? (
-              <span className="flex flex-col gap-0.5">
-                <span>{newThreadLabel}</span>
-                <span className="text-muted-foreground">
-                  New thread in current project: Shift+click
-                  {newThreadInProjectShortcutLabel ? ` (${newThreadInProjectShortcutLabel})` : ""}
-                </span>
-              </span>
-            ) : (
-              newThreadLabel
-            )
-          }
-          disabled={newThreadDisabled}
-          onClick={onNewThread}
         >
-          <SquarePenIcon />
-        </SidebarHeaderIconButton>
+          <SquarePenIcon className="size-3.5 shrink-0 text-[var(--sidebar-icon-color)]" />
+          <span className="min-w-0 truncate">New Chat</span>
+        </TooltipTrigger>
+        <TooltipPopup side="right">{newChatTooltip}</TooltipPopup>
+      </Tooltip>
+      <div className="flex items-center gap-1">
+        <div
+          ref={searchFieldRef}
+          className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-[13px] font-medium text-sidebar-foreground hover:bg-sidebar-row-hover"
+        >
+          <SearchIcon className="size-3.5 shrink-0 text-[var(--sidebar-icon-color)]" />
+          <Input
+            ref={searchInputRef}
+            nativeInput
+            unstyled
+            type="search"
+            value={searchQuery}
+            onChange={(event) => onSearchQueryChange(event.currentTarget.value)}
+            onKeyDown={onSearchKeyDown}
+            placeholder="Search"
+            aria-label="Search threads"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded={resultsVisible}
+            aria-controls={resultsVisible ? "sidebar-thread-search-results" : undefined}
+            aria-activedescendant={
+              activeResultExists
+                ? `sidebar-thread-search-result-${activeSearchResultIndex}`
+                : undefined
+            }
+            className="min-w-0 flex-1 [&_[data-slot=input]]:h-auto [&_[data-slot=input]]:p-0 [&_[data-slot=input]]:leading-normal [&_[data-slot=input]]:text-[13px] [&_[data-slot=input]]:font-medium [&_[data-slot=input]]:text-sidebar-foreground [&_[data-slot=input]]:placeholder:text-sidebar-foreground"
+          />
+          {isSearching ? (
+            <Button
+              type="button"
+              size="icon-micro"
+              variant="ghost"
+              className="shrink-0 text-sidebar-muted-foreground hover:bg-sidebar-control-surface hover:text-sidebar-foreground"
+              aria-label="Clear thread search"
+              onClick={() => {
+                onClearSearch();
+                searchInputRef.current?.focus();
+              }}
+            >
+              <XIcon className="size-3" />
+            </Button>
+          ) : null}
+        </div>
       </div>
     </div>
   );

@@ -82,7 +82,7 @@ const MODE_ARGS = {
   ],
   "dev:server": ["run", "--filter=t3", "dev"],
   "dev:web": ["run", "--filter=@t3tools/web", "dev"],
-  "dev:desktop": ["run", "--filter=@t3tools/desktop", "--filter=@t3tools/web", "dev"],
+  "dev:desktop": ["run", "--filter=@t3tools/desktop", "dev"],
 } as const satisfies Record<string, ReadonlyArray<string>>;
 
 type DevMode = keyof typeof MODE_ARGS;
@@ -389,6 +389,25 @@ export function createDevRunnerEnv({
       delete output.T3CODE_NO_BROWSER;
       delete output.T3CODE_HOST;
       delete output.T3CODE_DEV_AUTH_TOKEN;
+      // Electron's custom protocol pays a main-process round trip per module.
+      // Unbundled Vite then waterfalls the renderer for minutes on the boot
+      // splash. Bundled dev collapses that to a few chunks, same rationale as
+      // --share over a tailnet. An explicit T3CODE_BUNDLED_DEV=0 still opts out.
+      if (output.T3CODE_BUNDLED_DEV === undefined) {
+        output.T3CODE_BUNDLED_DEV = "1";
+      }
+      // Full source maps of the bundled desktop graph are large enough that
+      // Vite and DevTools can pin the machine. Opt back in with T3CODE_WEB_SOURCEMAP=1.
+      if (output.T3CODE_WEB_SOURCEMAP === undefined) {
+        output.T3CODE_WEB_SOURCEMAP = "0";
+      }
+      // Serve the already-built web client from disk. Vite's bundled graph is a
+      // multi-GB watcher that makes the Electron window feel frozen; UI work
+      // rebuilds via desktop's `t3#build` dependency. T3CODE_DESKTOP_STATIC_RENDERER=0
+      // plus a separately started `vp run --filter=@t3tools/web dev` restores HMR.
+      if (output.T3CODE_DESKTOP_STATIC_RENDERER === undefined) {
+        output.T3CODE_DESKTOP_STATIC_RENDERER = "1";
+      }
     }
 
     if (!isDesktopMode && host !== undefined) {

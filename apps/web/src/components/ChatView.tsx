@@ -359,6 +359,7 @@ import {
   useThread,
   useThreadRefs,
   useThreadShell,
+  readThreadShell,
 } from "../state/entities";
 import { environmentShell } from "../state/shell";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";

@@ -7,18 +7,26 @@ import { beforeEach, vi } from "vite-plus/test";
 
 const {
   appendSwitchMock,
+  getPathMock,
   getSwitchValueMock,
   hasSwitchMock,
   registerSchemesMock,
   setDesktopNameMock,
+  setPathMock,
+  existsSyncMock,
   mkdirSyncMock,
   writeFileSyncMock,
 } = vi.hoisted(() => ({
   appendSwitchMock: vi.fn(),
+  getPathMock: vi.fn((name: string) =>
+    name === "appData" ? "/Users/alice/Library/Application Support" : "",
+  ),
   getSwitchValueMock: vi.fn(),
   hasSwitchMock: vi.fn(),
   registerSchemesMock: vi.fn(),
   setDesktopNameMock: vi.fn(),
+  setPathMock: vi.fn(),
+  existsSyncMock: vi.fn(() => false),
   mkdirSyncMock: vi.fn(),
   writeFileSyncMock: vi.fn(),
 }));
@@ -27,6 +35,8 @@ vi.mock("electron", () => ({
   app: {
     setDesktopName: setDesktopNameMock,
     getVersion: () => "0.0.37",
+    getPath: getPathMock,
+    setPath: setPathMock,
     commandLine: {
       appendSwitch: appendSwitchMock,
       getSwitchValue: getSwitchValueMock,
@@ -40,6 +50,7 @@ vi.mock("electron", () => ({
 
 vi.mock("node:fs", () => ({
   readFileSync: () => "{}",
+  existsSync: existsSyncMock,
   mkdirSync: mkdirSyncMock,
   writeFileSync: writeFileSyncMock,
 }));
@@ -49,10 +60,14 @@ import * as DesktopPreReadyPlatform from "./DesktopPreReadyPlatform.ts";
 describe("DesktopPreReadyPlatform", () => {
   beforeEach(() => {
     appendSwitchMock.mockReset();
+    getPathMock.mockClear();
     getSwitchValueMock.mockReset();
     hasSwitchMock.mockReset();
     registerSchemesMock.mockReset();
     setDesktopNameMock.mockReset();
+    setPathMock.mockReset();
+    existsSyncMock.mockReset();
+    existsSyncMock.mockReturnValue(false);
     mkdirSyncMock.mockReset();
     writeFileSyncMock.mockReset();
   });
@@ -104,7 +119,7 @@ describe("DesktopPreReadyPlatform", () => {
             assert.equal(identity.desktopName, "com.t3tools.T3Code.desktop");
             assert.include(identity.desktopEntry ?? "", 'Exec="/Applications/current.AppImage" %U');
             assert.include(identity.desktopEntry ?? "", "Name=T3 Code (Alpha)");
-            assert.include(identity.desktopEntry ?? "", "MimeType=x-scheme-handler/t3code;");
+            assert.include(identity.desktopEntry ?? "", "MimeType=x-scheme-handler/agents;");
           }),
         ).pipe(Effect.ensuring(Effect.sync(() => vi.unstubAllEnvs())));
       },
@@ -125,8 +140,10 @@ describe("DesktopPreReadyPlatform", () => {
 
   it.effect(
     "acquires a synchronous pre-ready layer before an asynchronous Clerk-shaped layer",
-    () =>
-      Effect.gen(function* () {
+    () => {
+      vi.stubEnv("VITE_DEV_SERVER_URL", "");
+
+      return Effect.gen(function* () {
         class ClerkShaped extends Context.Service<ClerkShaped, { readonly ready: true }>()(
           "@t3tools/desktop/app/DesktopPreReadyPlatform.test/ClerkShaped",
         ) {}
@@ -171,6 +188,40 @@ describe("DesktopPreReadyPlatform", () => {
         assert.equal(registerSchemesMock.mock.calls.length, 1);
         assert.equal(appendSwitchMock.mock.calls.length, 0);
         assert.equal(setDesktopNameMock.mock.calls.length, 0);
-      }),
+        assert.deepEqual(setPathMock.mock.calls, [
+          ["userData", "/Users/alice/Library/Application Support/agents"],
+        ]);
+      }).pipe(Effect.ensuring(Effect.sync(() => vi.unstubAllEnvs())));
+    },
+  );
+
+  it.effect(
+    "pins Chromium userData and unthrottles the renderer before ready in development",
+    () => {
+      vi.stubEnv("VITE_DEV_SERVER_URL", "http://127.0.0.1:5733");
+
+      return Effect.gen(function* () {
+        yield* DesktopPreReadyPlatform.DesktopPreReadyElectronOptions;
+
+        assert.deepEqual(setPathMock.mock.calls, [
+          ["userData", "/Users/alice/Library/Application Support/t3code-dev"],
+        ]);
+        assert.deepEqual(
+          appendSwitchMock.mock.calls.map(([name]) => name),
+          [
+            "disable-renderer-backgrounding",
+            "disable-background-timer-throttling",
+            "disable-backgrounding-occluded-windows",
+          ],
+        );
+      }).pipe(
+        Effect.provide(
+          DesktopPreReadyPlatform.layer.pipe(
+            Layer.provide(Layer.succeed(HostProcessPlatform, "darwin")),
+          ),
+        ),
+        Effect.ensuring(Effect.sync(() => vi.unstubAllEnvs())),
+      );
+    },
   );
 });

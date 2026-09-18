@@ -340,7 +340,11 @@ function SidebarTrigger({ className, onClick, ...props }: React.ComponentProps<t
       variant="ghost"
       {...props}
     >
-      {isOpen ? <PanelLeftCloseIcon /> : <PanelLeftIcon />}
+      {isOpen ? (
+        <PanelLeftCloseIcon className="text-[var(--sidebar-icon-color)]" />
+      ) : (
+        <PanelLeftIcon className="text-[var(--sidebar-icon-color)]" />
+      )}
       <span className="sr-only">Toggle Sidebar</span>
     </Button>
   );

@@ -59,6 +59,7 @@ export const DesktopConfig = Config.all({
   mockUpdateServerPort: Config.Port("T3CODE_DESKTOP_MOCK_UPDATE_SERVER_PORT").pipe(
     Config.withDefault(3000),
   ),
+  staticRenderer: optionalBoolean("T3CODE_DESKTOP_STATIC_RENDERER"),
 });
 
 export const layerTest = (env: Readonly<Record<string, string | undefined>>) =>

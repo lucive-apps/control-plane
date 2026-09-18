@@ -11,14 +11,11 @@ import {
 import { waitForResources } from "./wait-for-resources.mjs";
 
 const devServerUrl = process.env.VITE_DEV_SERVER_URL?.trim();
-if (!devServerUrl) {
+const staticRenderer = ["1", "true"].includes(
+  (process.env.T3CODE_DESKTOP_STATIC_RENDERER ?? "").trim().toLowerCase(),
+);
+if (!devServerUrl && !staticRenderer) {
   throw new Error("VITE_DEV_SERVER_URL is required for desktop development.");
-}
-
-const devServer = new URL(devServerUrl);
-const port = Number.parseInt(devServer.port, 10);
-if (!Number.isInteger(port) || port <= 0) {
-  throw new Error(`VITE_DEV_SERVER_URL must include an explicit port: ${devServerUrl}`);
 }
 
 const requiredFiles = [
@@ -29,6 +26,7 @@ const requiredFiles = [
   "dist-electron/snapShot/RegionSnapShotWorker.cjs",
   "dist-electron/snapShot/SnapShotAccessibilityWorker.cjs",
   "../server/dist/bin.mjs",
+  ...(staticRenderer ? ["../server/dist/client/index.html"] : []),
 ];
 const watchedDirectories = [
   { directory: "dist-electron", files: new Set(["main.cjs", "preload.cjs"]) },
@@ -45,6 +43,9 @@ const watchedDirectories = [
     ]),
   },
   { directory: "../server/dist", files: new Set(["bin.mjs"]) },
+  ...(staticRenderer
+    ? [{ directory: "../server/dist/client", files: new Set(["index.html"]) }]
+    : []),
 ];
 const forcedShutdownTimeoutMs = 1_500;
 const restartDebounceMs = 120;
@@ -62,8 +63,16 @@ NodeChildProcess.execFileSync(
 await waitForResources({
   baseDir: desktopDir,
   files: requiredFiles,
-  tcpHost: devServer.hostname,
-  tcpPort: port,
+  ...(staticRenderer
+    ? {}
+    : (() => {
+        const devServer = new URL(devServerUrl);
+        const port = Number.parseInt(devServer.port, 10);
+        if (!Number.isInteger(port) || port <= 0) {
+          throw new Error(`VITE_DEV_SERVER_URL must include an explicit port: ${devServerUrl}`);
+        }
+        return { tcpHost: devServer.hostname, tcpPort: port };
+      })()),
 });
 
 const childEnv = { ...process.env };

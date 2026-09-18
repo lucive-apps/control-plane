@@ -2609,10 +2609,10 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
   });
 
   /**
-   * Chromium hands every guest `<webview>` the embedder's zoom level, so zooming
-   * the app UI drags the previewed page along with it. The preview browser owns
-   * its own zoom factor, so re-assert it on each attached guest whenever the main
-   * window's zoom changes (see DesktopWindow.zoomMain).
+   * Chromium hands every guest `<webview>` the embedder's zoom level, so a
+   * host page zoom would drag the previewed page with it. The preview browser
+   * owns its own zoom factor; re-assert it on each attached guest when the
+   * host zoom might have changed.
    */
   const reapplyZoom = Effect.fn("PreviewManager.reapplyZoom")(function* () {
     const tabIds = Array.from((yield* SynchronizedRef.get(tabsRef)).keys());

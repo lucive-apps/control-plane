@@ -43,6 +43,7 @@ import * as Option from "effect/Option";
 import {
   ArrowLeftIcon,
   ChartNoAxesColumnIcon,
+  CircleCheckIcon,
   CornerLeftUpIcon,
   FileSearchIcon,
   FolderIcon,
@@ -111,6 +112,7 @@ import {
   resolveProjectPathForDispatch,
 } from "../lib/projectPaths";
 import { onOpenCommandPalette } from "../commandPaletteBus";
+import { useSidebarSettledViewStore } from "../sidebarSettledViewStore";
 import { isPreviewFocused } from "../lib/previewFocus";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import {
@@ -145,6 +147,7 @@ import {
   buildThreadActionItems,
   buildLinkedThreadActionItems,
   enumerateCommandPaletteItems,
+  resolveDirectAddProjectFlow,
   type CommandPaletteActionItem,
   type CommandPaletteOpenIntent,
   type CommandPaletteSubmenuItem,
@@ -607,6 +610,9 @@ export function CommandPalette({ children }: { children: ReactNode }) {
     <ComposerHandleContext value={composerHandleRef}>
       <CommandDialog
         open={state.open}
+        // Direct-open flows remount the palette input; Electron treats that
+        // focus loss as dismiss. Backdrop clicks still close the dialog.
+        disablePointerDismissal
         onOpenChange={(open, eventDetails) => {
           if (!open && eventDetails.reason === "escape-key" && state.mode !== "command") {
             eventDetails.cancel();
@@ -711,7 +717,7 @@ function OpenCommandPaletteDialog(props: {
   const startProjectClone = useAtomCommand(sourceControlEnvironment.startProjectClone, {
     reportFailure: false,
   });
-  const { environments } = useEnvironments();
+  const { environments, isReady: environmentCatalogReady } = useEnvironments();
   const desktopLocalBootstraps = useDesktopLocalBootstraps();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const availableSettingsSearchItems = useAvailableSettingsSearchItems();
@@ -1649,27 +1655,33 @@ function OpenCommandPaletteDialog(props: {
   );
 
   const openAddProjectFlow = useCallback(() => {
-    // With no environment at all there is nothing to browse, so the only
-    // useful next step is connecting one.
-    if (addProjectEnvironmentOptions.length === 0) {
-      setOpen(false);
-      void navigate({ to: "/settings/connections" });
-      return;
+    const next = resolveDirectAddProjectFlow({
+      catalogReady: environmentCatalogReady,
+      environmentOptions: addProjectEnvironmentOptions,
+    });
+    switch (next.kind) {
+      case "wait":
+        return;
+      case "connect":
+        // With no environment at all there is nothing to browse, so the only
+        // useful next step is connecting one.
+        setOpen(false);
+        void navigate({ to: "/settings/connections" });
+        return;
+      case "pick-environment":
+        pushPaletteView({
+          addonIcon: <FolderPlusIcon className={ADDON_ICON_CLASS} />,
+          groups: addProjectEnvironmentGroups,
+        });
+        return;
+      case "pick-source":
+        void startAddProjectSourceSelection(next.environmentId);
+        return;
     }
-
-    if (addProjectEnvironmentOptions.length > 1 || defaultAddProjectEnvironmentId === null) {
-      pushPaletteView({
-        addonIcon: <FolderPlusIcon className={ADDON_ICON_CLASS} />,
-        groups: addProjectEnvironmentGroups,
-      });
-      return;
-    }
-
-    void startAddProjectSourceSelection(defaultAddProjectEnvironmentId);
   }, [
     addProjectEnvironmentGroups,
-    addProjectEnvironmentOptions.length,
-    defaultAddProjectEnvironmentId,
+    addProjectEnvironmentOptions,
+    environmentCatalogReady,
     navigate,
     pushPaletteView,
     setOpen,
@@ -1692,9 +1704,12 @@ function OpenCommandPaletteDialog(props: {
     if (openIntent?.kind !== "add-project") {
       return;
     }
+    if (!environmentCatalogReady) {
+      return;
+    }
     clearOpenIntent();
     openAddProjectFlow();
-  }, [clearOpenIntent, openAddProjectFlow, openIntent]);
+  }, [clearOpenIntent, environmentCatalogReady, openAddProjectFlow, openIntent]);
 
   useLayoutEffect(() => {
     if (openIntent?.kind !== "new-thread-in" || projectThreadItems.length === 0) {
@@ -2012,6 +2027,7 @@ function OpenCommandPaletteDialog(props: {
       searchTerms: ["pull requests", "prs", "pr", "github", "review", "merge", "branch"],
       title: "Open pull requests",
       icon: <PullRequestGlyph.pullRequest className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "pullRequests.toggle",
       run: async () => {
         await navigate({ to: "/pull-requests", search: readPullRequestListPreferences() });
       },
@@ -2024,8 +2040,25 @@ function OpenCommandPaletteDialog(props: {
     searchTerms: ["usage", "use", "tokens", "cost", "spend", "limits", "stats", "analytics"],
     title: "Open usage",
     icon: <ChartNoAxesColumnIcon className={ITEM_ICON_CLASS} />,
+    shortcutCommand: "usage.toggle",
     run: async () => {
       await navigate({ to: "/usage" });
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:settled-threads",
+    searchTerms: ["settled", "archive", "done", "completed", "closed"],
+    title: "Toggle settled threads",
+    icon: <CircleCheckIcon className={ITEM_ICON_CLASS} />,
+    shortcutCommand: "settled.toggle",
+    run: async () => {
+      const nextOpen = !useSidebarSettledViewStore.getState().open;
+      useSidebarSettledViewStore.getState().setOpen(nextOpen);
+      if (nextOpen && /^\/settings(?:\/|$)/.test(pathname)) {
+        await navigate({ to: "/" });
+      }
     },
   });
 

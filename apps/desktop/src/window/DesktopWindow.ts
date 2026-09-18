@@ -128,11 +128,9 @@ export class DesktopWindow extends Context.Service<
     readonly dispatchSnapShotEvent: (
       event: DesktopSnapShotEvent,
     ) => Effect.Effect<void, DesktopWindowError>;
-    // Zooms the main window's own webContents. The Electron `zoomIn`/`zoomOut`
-    // menu roles act on whichever webContents has keyboard focus, so with an
-    // embedded preview WebContentsView (or DevTools) focused they zoom the
-    // guest page instead of the app UI. The menu routes here to always target
-    // the main window.
+    // Zooms the workspace pane in the renderer. Chromium page zoom would
+    // scale the sidebar together with the chat; the menu routes here so
+    // Cmd+/- never hits a focused preview guest *or* the sidebar chrome.
     readonly zoomMain: (direction: MainWindowZoomDirection) => Effect.Effect<void>;
     readonly syncAppearance: Effect.Effect<void>;
   }
@@ -418,6 +416,11 @@ export const make = Effect.gen(function* () {
         webviewTag: true,
       },
     });
+
+    // Workspace zoom lives in the renderer (main pane only). Keep Chromium's
+    // page zoom locked so pinch / Cmd+/- cannot balloon the sidebar too.
+    window.webContents.setZoomLevel(0);
+    void window.webContents.setVisualZoomLevelLimits(1, 1);
 
     if (environment.platform === "darwin") {
       window.setAutoHideCursor(false);
@@ -740,6 +743,8 @@ export const make = Effect.gen(function* () {
       clearDevelopmentLoadRetry();
       developmentLoadRetryIndex = 0;
       window.setTitle(environment.displayName);
+      window.webContents.setZoomLevel(0);
+      void window.webContents.setVisualZoomLevelLimits(1, 1);
       if (environment.platform === "darwin") syncMacosWindowButtons(window);
     });
     window.webContents.on(
@@ -811,9 +816,11 @@ export const make = Effect.gen(function* () {
       revealSubscribers.push((fire) => window.webContents.once("did-finish-load", fire));
     }
     bindFirstRevealTrigger(revealSubscribers, () => {
-      // Boot is done; hand the window back to normal hidden-window throttling
-      // (see the backgroundThrottling comment on the create options above).
-      if (!window.isDestroyed()) {
+      // Packaged builds hand the window back to normal hidden-window throttling
+      // after first paint. Dev keeps the renderer unthrottled: this window is
+      // usually occluded by the editor, and Chromium otherwise coalesces input
+      // and timers until clicks feel dead.
+      if (!window.isDestroyed() && !environment.isDevelopment) {
         window.webContents.setBackgroundThrottling(true);
       }
       // Reveal the real window, then close the connecting splash (if any) so the
@@ -825,9 +832,8 @@ export const make = Effect.gen(function* () {
     });
 
     loadApplication();
-    if (environment.isDevelopment) {
-      window.webContents.openDevTools({ mode: "detach" });
-    }
+    // Don't auto-open DevTools. Bundled desktop dev serves a large graph, and a
+    // detached inspector on that plus source maps can freeze the renderer.
 
     window.on("closed", () => {
       clearDevelopmentLoadRetry();
@@ -1002,20 +1008,9 @@ export const make = Effect.gen(function* () {
     }),
     zoomMain: Effect.fn("desktop.window.zoomMain")(function* (direction) {
       yield* Effect.annotateCurrentSpan({ direction });
-      const window = yield* focusedMainWindow;
-      if (Option.isNone(window) || window.value.isDestroyed()) {
-        return;
-      }
-      const webContents = window.value.webContents;
-      // Same step size as the Electron zoomIn/zoomOut menu roles.
-      webContents.setZoomLevel(
-        direction === "reset" ? 0 : webContents.getZoomLevel() + (direction === "in" ? 0.5 : -0.5),
-      );
-      if (environment.platform === "darwin") syncMacosWindowButtons(window.value);
-      // Chromium pushes the new level down to embedded guests, which would zoom
-      // the previewed page along with the app UI. The preview browser keeps its
-      // own zoom, so put each guest back where the preview left it.
-      yield* previewManager.reapplyZoom();
+      yield* dispatchRendererEvent(MENU_ACTION_CHANNEL, `zoom-${direction}`, {
+        reveal: false,
+      });
     }),
     syncAppearance: Effect.gen(function* () {
       const shouldUseDarkColors = yield* electronTheme.shouldUseDarkColors;

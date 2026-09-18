@@ -637,6 +637,15 @@ describe("draft hero submission transition", () => {
         hasTimelineEntries: true,
         isWorking: true,
         draftHeroDockRequested: false,
+        backgroundSubmissionPending: false,
+      }),
+    ).toBe(false);
+    expect(
+      resolveDraftHeroState({
+        isLocalDraftThread: false,
+        hasTimelineEntries: true,
+        isWorking: true,
+        draftHeroDockRequested: false,
         backgroundSubmissionPending: true,
       }),
     ).toBe(true);

@@ -14,6 +14,12 @@ import { resolveDesktopAppBranding } from "./DesktopEnvironment.ts";
 import { renderUrlHandlerDesktopEntry } from "./DesktopLinuxUrlHandler.ts";
 import * as ElectronProtocol from "../electron/ElectronProtocol.ts";
 
+const DEVELOPMENT_RENDERER_COMMAND_LINE_SWITCHES = [
+  "disable-renderer-backgrounding",
+  "disable-background-timer-throttling",
+  "disable-backgrounding-occluded-windows",
+] as const;
+
 export interface DesktopPreReadyCommandLineReader {
   readonly hasSwitch: (switchName: string) => boolean;
   readonly getSwitchValue: (switchName: string) => string;
@@ -57,6 +63,24 @@ export const make = Effect.gen(function* () {
         ? readCommandLineSwitchValue(Electron.app.commandLine, "password-store")
         : null;
     const linux = platform === "linux" ? resolveEarlyLinuxElectronOptionsFromProcess() : null;
+    const isDevelopment = DesktopEarlyElectronStartup.isDesktopDevelopmentEnvironment(process.env);
+    // GPU and network utilities spawn at ready using whatever userData is set
+    // now. Waiting until Clerk/app identity runs leaves those children on
+    // Chromium's default Application Support/Electron profile.
+    Electron.app.setPath(
+      "userData",
+      DesktopEarlyElectronStartup.resolveDesktopChromiumUserDataPath({
+        appDataDirectory: Electron.app.getPath("appData"),
+        isDevelopment,
+        joinPath: NodePath.join,
+        pathExists: (path) => NodeFS.existsSync(path),
+      }),
+    );
+    if (isDevelopment) {
+      for (const switchName of DEVELOPMENT_RENDERER_COMMAND_LINE_SWITCHES) {
+        Electron.app.commandLine.appendSwitch(switchName);
+      }
+    }
 
     if (linux !== null) {
       // The portal also requires a valid desktop entry. An AppImage update may

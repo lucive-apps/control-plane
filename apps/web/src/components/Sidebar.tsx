@@ -6,14 +6,17 @@ import { replaceComposerContextReferences } from "@t3tools/shared/composerContex
 import * as Schema from "effect/Schema";
 import {
   DndContext,
+  closestCorners,
+  pointerWithin,
   useSensor,
   useSensors,
+  type CollisionDetection,
   type DragEndEvent,
   type DragOverEvent,
   type DragStartEvent,
   type Modifier,
 } from "@dnd-kit/core";
-import { SortableContext, useSortable } from "@dnd-kit/sortable";
+import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { restrictToFirstScrollableAncestor, restrictToVerticalAxis } from "@dnd-kit/modifiers";
 import { CSS } from "@dnd-kit/utilities";
 import {
@@ -42,18 +45,20 @@ import {
   AlarmClockOffIcon,
   CheckIcon,
   ChevronDownIcon,
+  ChevronRightIcon,
   CircleAlertIcon,
   CircleCheckIcon,
   CircleDashedIcon,
   ClockIcon,
   EyeIcon,
   FolderIcon,
+  FolderOpenIcon,
+  FolderPlusIcon,
   GitBranchIcon,
   MessageCircleQuestionIcon,
   PinIcon,
   PinOffIcon,
   PlusIcon,
-  SettingsIcon,
   ShieldQuestionIcon,
   SquarePenIcon,
   TerminalIcon,
@@ -66,7 +71,6 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
-  useReducer,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -107,10 +111,16 @@ import {
 import { getProjectOrderKey, selectProjectGroupingSettings } from "../logicalProject";
 import {
   buildSidebarProjectSnapshots,
-  projectGroupsSpanEnvironments,
   type SidebarProjectSnapshot,
 } from "../sidebarProjectGrouping";
-import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
+import {
+  legacyProjectCwdPreferenceKey,
+  resolveProjectExpanded,
+  SIDEBAR_PROJECTS_SECTION_KEY,
+  SIDEBAR_REPOSITORIES_SECTION_KEY,
+  useUiStateStore,
+} from "../uiStateStore";
+import { useSidebarSettledViewStore } from "../sidebarSettledViewStore";
 import {
   getThreadKeysToDeselectAfterDelete,
   useThreadSelectionStore,
@@ -119,7 +129,7 @@ import { useThreadActions } from "../hooks/useThreadActions";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
-import { useClientSettings } from "../hooks/useSettings";
+import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useLocalStorage } from "../hooks/useLocalStorage";
 import { useNowMinute } from "../hooks/useNowMinute";
@@ -145,7 +155,6 @@ import type { SidebarThreadSummary } from "../types";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { cn } from "~/lib/utils";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
-import { ProjectEnvironmentBadge } from "./ProjectEnvironmentBadge";
 import { buildThreadActionMenuItems } from "./threadActionMenu.logic";
 import {
   animateSidebarLayoutChanges,
@@ -153,15 +162,15 @@ import {
   buildBulkTitleRegenerationContextMenuItem,
   buildBulkUnpinContextMenuItem,
   deleteSelectedThreadEntries,
-  filterSidebarProjectScopeItems,
   formatWorkingDurationLabel,
   firstValidTimestampMs,
+  flattenSidebarProjectFolderThreads,
+  groupSidebarThreadsIntoProjectFolders,
   hasUnseenCompletion,
   isSidebarNestedLinkClick,
   isTrailingDoubleClick,
   orderItemsByPreferredIds,
   planSidebarThreadDrop,
-  reduceSidebarProjectScopeMenuState,
   resolveAdjacentThreadId,
   resolveSidebarDropTarget,
   resolveSidebarDropVerb,
@@ -220,20 +229,9 @@ import {
 } from "../providerInstances";
 import { useThreadRunningTerminalIds } from "../state/terminalSessions";
 import { stackedThreadToast, toastManager } from "./ui/toast";
-import { Button } from "./ui/button";
-import {
-  Combobox,
-  ComboboxEmpty,
-  ComboboxSearchInput,
-  ComboboxItem,
-  ComboboxList,
-  ComboboxPopup,
-  ComboboxTrigger,
-  useComboboxFilter,
-} from "./ui/combobox";
 import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
-import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
+import { SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import {
@@ -248,7 +246,6 @@ import {
 // Settled-tail paging: recent history is the common lookup; the deep tail
 // stays behind an explicit Show more.
 const SETTLED_TAIL_INITIAL_COUNT = 10;
-const SETTLED_TAIL_PAGE_COUNT = 25;
 // Fresh keys deliberately reset both shelves to collapsed for existing users.
 const SETTLED_SHELF_EXPANDED_KEY = "t3code:sidebar:settled-expanded";
 const SNOOZED_SHELF_EXPANDED_KEY = "t3code:sidebar:snoozed-expanded";
@@ -1480,7 +1477,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                     : "text-foreground/90",
             )
           : cn(
-              "truncate group-focus-within/sidebar-row:text-foreground group-hover/sidebar-row:text-foreground",
+              "truncate text-[13px] group-focus-within/sidebar-row:text-foreground group-hover/sidebar-row:text-foreground",
               shouldRecede
                 ? "text-secondary-label/70"
                 : props.isActive || isWoke || status === "input"
@@ -1581,8 +1578,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
         {...sortableRootProps}
         {...(fileDropHandlers ?? {})}
         className={cn(
-          // Matches the h-9 row so unrendered rows never shift the list when they paint.
-          "list-none [content-visibility:auto] [contain-intrinsic-size:auto_36px]",
+          // Matches the h-8 row so unrendered rows never shift the list when they paint.
+          "list-none [content-visibility:auto] [contain-intrinsic-size:auto_32px]",
           sortable?.isDragging && "relative z-20",
         )}
       >
@@ -1595,7 +1592,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                 tabIndex={0}
                 data-testid="sidebar-row-slim"
                 aria-busy={isRegeneratingTitle || undefined}
-                className={cn(rowSurfaceClassName, "flex h-9 items-center gap-2.5 px-2.5")}
+                className={cn(rowSurfaceClassName, "flex h-8 items-center gap-2 px-2")}
                 onClick={handleClick}
                 onDoubleClick={handleDoubleClick}
                 onKeyDown={handleKeyDown}
@@ -1603,16 +1600,32 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               />
             }
           >
-            {/* Settled history recedes: dimmed favicon at rest, restored on
-              hover so the tail stays scannable when you're hunting. */}
             <span
+              role="img"
+              aria-label={topStatus?.label ?? "Ready"}
               className={cn(
-                "shrink-0 transition-opacity",
-                (!props.isActive || variantAction === "unsettle") &&
-                  "opacity-40 grayscale group-focus-within/sidebar-row:opacity-100 group-focus-within/sidebar-row:grayscale-0 group-hover/sidebar-row:opacity-100 group-hover/sidebar-row:grayscale-0",
+                "flex size-4 shrink-0 items-center justify-center",
+                shouldRecede &&
+                  "opacity-50 group-focus-within/sidebar-row:opacity-100 group-hover/sidebar-row:opacity-100",
               )}
             >
-              {props.project ? <ProjectFavicon project={props.project} className="size-4" /> : null}
+              <span
+                className={cn(
+                  "size-1.5 rounded-full",
+                  status === "working" || status === "monitoring"
+                    ? "bg-sky-500"
+                    : status === "approval" || isWoke
+                      ? "bg-amber-500"
+                      : status === "input"
+                        ? "bg-indigo-500"
+                        : status === "failed"
+                          ? "bg-red-500"
+                          : isUnread
+                            ? "bg-emerald-500"
+                            : "bg-muted-foreground/40",
+                  status === "working" && "animate-status-pulse",
+                )}
+              />
             </span>
             {draftIndicator}
             {title}
@@ -1663,7 +1676,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                       <TooltipPopup side="top">Dismiss Woke notification</TooltipPopup>
                     </Tooltip>
                   ) : (
-                    <span className="text-xs">
+                    <span className="text-[10px]">
                       {variantAction === "unsettle"
                         ? settledTimeLabel(thread)
                         : threadTimeLabel(thread)}
@@ -2128,9 +2141,218 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
   );
 });
 
+function sidebarProjectExpansionKeys(project: SidebarProjectSnapshot | null, projectKey: string) {
+  if (project === null) return [projectKey];
+  return [
+    project.projectKey,
+    ...project.memberProjects.map((member) => member.physicalProjectKey),
+    ...project.memberProjects.map((member) => legacyProjectCwdPreferenceKey(member.workspaceRoot)),
+  ];
+}
+
+function SidebarListSectionHeader({
+  sectionKeys,
+  title,
+  actionLabel,
+  onAction,
+  children,
+}: {
+  sectionKeys: string | readonly string[];
+  title: string;
+  actionLabel: string;
+  onAction: () => void;
+  children: ReactNode;
+}) {
+  const expanded = useUiStateStore((state) =>
+    resolveProjectExpanded(state.projectExpandedById, sectionKeys),
+  );
+  const setProjectExpanded = useUiStateStore((state) => state.setProjectExpanded);
+  return (
+    <li className="list-none w-full" data-testid={`sidebar-section-${title.toLowerCase()}`}>
+      <div className="group/section flex h-8 w-full items-center gap-0.5 px-2">
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-label={`${expanded ? "Collapse" : "Expand"} ${title}`}
+          className="flex h-8 min-w-0 flex-1 cursor-pointer items-center rounded-md text-left text-sidebar-muted-foreground outline-none hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={() => setProjectExpanded(sectionKeys, !expanded)}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <span className="min-w-0 truncate text-[12px] font-medium">{title}</span>
+        </button>
+        <SidebarSectionIconButton label={actionLabel} onClick={onAction}>
+          {children}
+        </SidebarSectionIconButton>
+      </div>
+    </li>
+  );
+}
+
+function SidebarSectionIconButton({
+  label,
+  onClick,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            aria-label={label}
+            className="inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground opacity-0 outline-none pointer-events-none transition-opacity hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover/section:pointer-events-auto group-hover/section:opacity-100"
+            onClick={(event) => {
+              event.stopPropagation();
+              onClick();
+            }}
+            onPointerDown={(event) => event.stopPropagation()}
+          />
+        }
+      >
+        {children}
+      </TooltipTrigger>
+      <TooltipPopup side="right">{label}</TooltipPopup>
+    </Tooltip>
+  );
+}
+
+const SidebarProjectFolderBlock = memo(function SidebarProjectFolderBlock({
+  project,
+  projectKey,
+  displayName,
+  containsActiveThread,
+  sortable = false,
+  consumeToggleSuppression,
+  onNewThreadInProject,
+  children,
+}: {
+  project: SidebarProjectSnapshot | null;
+  projectKey: string;
+  displayName: string;
+  containsActiveThread: boolean;
+  sortable?: boolean;
+  consumeToggleSuppression?: () => boolean;
+  onNewThreadInProject?: (project: SidebarProjectSnapshot) => void;
+  children: ReactNode;
+}) {
+  const preferenceKeys = useMemo(
+    () => sidebarProjectExpansionKeys(project, projectKey),
+    [project, projectKey],
+  );
+  const expanded = useUiStateStore((state) =>
+    resolveProjectExpanded(state.projectExpandedById, preferenceKeys),
+  );
+  const setProjectExpanded = useUiStateStore((state) => state.setProjectExpanded);
+  const wasActiveRef = useRef(false);
+  const showNewThread = project !== null && onNewThreadInProject !== undefined;
+  const { listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
+    useSortable({
+      id: projectKey,
+      disabled: !sortable,
+      animateLayoutChanges: animateSidebarLayoutChanges,
+    });
+
+  useEffect(() => {
+    if (containsActiveThread && !wasActiveRef.current && !expanded) {
+      setProjectExpanded(preferenceKeys, true);
+    }
+    wasActiveRef.current = containsActiveThread;
+  }, [containsActiveThread, expanded, preferenceKeys, setProjectExpanded]);
+
+  return (
+    <li
+      ref={setNodeRef}
+      className={cn("list-none", isDragging && "z-20 opacity-80")}
+      data-testid="sidebar-project-folder"
+      style={{
+        transform: CSS.Translate.toString(transform),
+        transition,
+      }}
+    >
+      <div
+        ref={sortable ? setActivatorNodeRef : undefined}
+        className={cn(
+          "group/folder flex h-8 w-full items-center rounded-md text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
+          sortable && "cursor-grab active:cursor-grabbing",
+        )}
+        {...(sortable ? listeners : undefined)}
+      >
+        <button
+          type="button"
+          data-testid="sidebar-project-folder-toggle"
+          aria-expanded={expanded}
+          aria-label={`${expanded ? "Collapse" : "Expand"} ${displayName}`}
+          className={cn(
+            "flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            sortable ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
+          )}
+          onClick={() => {
+            if (consumeToggleSuppression?.()) return;
+            setProjectExpanded(preferenceKeys, !expanded);
+          }}
+          onMouseDown={(event) => {
+            if (event.button === 0) event.preventDefault();
+          }}
+        >
+          <ChevronRightIcon
+            aria-hidden
+            className={cn(
+              "size-3.5 shrink-0 text-muted-foreground/70 transition-transform duration-150",
+              expanded && "rotate-90",
+            )}
+          />
+          {expanded ? (
+            <FolderOpenIcon aria-hidden className="size-3.5 shrink-0" />
+          ) : (
+            <FolderIcon aria-hidden className="size-3.5 shrink-0" />
+          )}
+          <span className="min-w-0 flex-1 truncate">{displayName}</span>
+        </button>
+        {showNewThread ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  data-testid="sidebar-project-folder-new-thread"
+                  aria-label={`New thread in ${displayName}`}
+                  className="mr-0.5 inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground opacity-0 outline-none pointer-events-none transition-opacity hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover/folder:pointer-events-auto group-hover/folder:opacity-100"
+                  onClick={() => {
+                    if (project === null || onNewThreadInProject === undefined) return;
+                    onNewThreadInProject(project);
+                  }}
+                  onPointerDown={(event) => event.stopPropagation()}
+                />
+              }
+            >
+              <PlusIcon aria-hidden className="size-3.5" />
+            </TooltipTrigger>
+            <TooltipPopup side="right">New thread in {displayName}</TooltipPopup>
+          </Tooltip>
+        ) : null}
+      </div>
+      {expanded ? <ul className="flex flex-col gap-px pl-4">{children}</ul> : null}
+    </li>
+  );
+});
+
 export default function Sidebar() {
   const projects = useProjects();
   const projectOrder = useUiStateStore((store) => store.projectOrder);
+  const reorderProjects = useUiStateStore((store) => store.reorderProjects);
+  const setProjectExpanded = useUiStateStore((store) => store.setProjectExpanded);
+  const projectsSectionExpanded = useUiStateStore((store) =>
+    resolveProjectExpanded(store.projectExpandedById, [
+      SIDEBAR_PROJECTS_SECTION_KEY,
+      SIDEBAR_REPOSITORIES_SECTION_KEY,
+    ]),
+  );
+  const updateSettings = useUpdateClientSettings();
+  const [folderOrderLocked, setFolderOrderLocked] = useState(false);
   const threads = useThreadShells();
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
@@ -2283,10 +2505,11 @@ export default function Sidebar() {
       }),
     [projectOrder, projects],
   );
+  const useManualProjectOrder = sidebarProjectSortOrder === "manual" || folderOrderLocked;
   const unsortedProjectGroups = useMemo(
     () =>
       buildSidebarProjectSnapshots({
-        projects: sidebarProjectSortOrder === "manual" ? orderedProjects : projects,
+        projects: useManualProjectOrder ? orderedProjects : projects,
         settings: projectGroupingSettings,
         primaryEnvironmentId,
         resolveEnvironmentLabel: (environmentId) => environmentLabelById.get(environmentId) ?? null,
@@ -2297,12 +2520,17 @@ export default function Sidebar() {
       primaryEnvironmentId,
       projectGroupingSettings,
       projects,
-      sidebarProjectSortOrder,
+      useManualProjectOrder,
     ],
   );
   const projectGroups = useMemo(
-    () => sortLogicalProjectsForSidebar(unsortedProjectGroups, threads, sidebarProjectSortOrder),
-    [sidebarProjectSortOrder, threads, unsortedProjectGroups],
+    () =>
+      sortLogicalProjectsForSidebar(
+        unsortedProjectGroups,
+        threads,
+        useManualProjectOrder ? "manual" : sidebarProjectSortOrder,
+      ),
+    [sidebarProjectSortOrder, threads, unsortedProjectGroups, useManualProjectOrder],
   );
   const projectGroupsRef = useRef(projectGroups);
   projectGroupsRef.current = projectGroups;
@@ -2345,63 +2573,10 @@ export default function Sidebar() {
   // fresh clock whenever it recomputes.
   const [snoozeWakeTick, bumpSnoozeWakeTick] = useState(0);
 
-  // Project scope: one menu above the list. Scoping filters the list without
-  // making the header width depend on the number or length of project names.
-  // The selection lives in the persisted UI store next to the other sidebar
-  // project preferences, so routes that unmount the sidebar (Settings) and
-  // app restarts keep it.
+  // Project scope still lives in the UI store and thread context menu, so
+  // Settings unmounts and app restarts keep a filter if one is set.
   const projectScopeKey = useUiStateStore((store) => store.sidebarProjectScopeKey);
   const setProjectScopeKey = useUiStateStore((store) => store.setSidebarProjectScopeKey);
-  // {value, label} items let Base UI drive the combobox selection contract
-  // while the popup search filters the same collection.
-  const projectScopeItems = useMemo(
-    () => [
-      { value: "all", label: "All projects" },
-      ...projectGroups.map((project) => ({
-        value: project.projectKey,
-        label: project.displayName,
-      })),
-    ],
-    [projectGroups],
-  );
-  // Same-named projects on two machines are only told apart by where they
-  // live, so rows on another machine carry its icon once the catalog spans
-  // more than one environment; a single-machine catalog stays as it was.
-  const showProjectEnvironments = useMemo(
-    () => projectGroupsSpanEnvironments(projectGroups),
-    [projectGroups],
-  );
-  const projectGroupByScopeKey = useMemo(
-    () => new Map(projectGroups.map((project) => [project.projectKey, project] as const)),
-    [projectGroups],
-  );
-  const selectedProjectScopeItem = useMemo(
-    () =>
-      projectScopeItems.find((item) => item.value === (projectScopeKey ?? "all")) ??
-      projectScopeItems[0]!,
-    [projectScopeItems, projectScopeKey],
-  );
-  const [projectScopeMenuState, dispatchProjectScopeMenu] = useReducer(
-    reduceSidebarProjectScopeMenuState,
-    { open: false, query: "" },
-  );
-  const projectScopeFilter = useComboboxFilter();
-  // Filtering derives from the same React state that controls the input, so
-  // the visible query and the visible list can never desync — the peer wiring
-  // in DiffPanel and BranchToolbarBranchSelector. "All projects" is the default
-  // row, not a searchable entry: it heads the list while the query is empty and
-  // drops out while filtering, so it can't outrank a project match under
-  // autoHighlight and no-hit queries reach the empty state.
-  const filteredProjectScopeItems = useMemo(
-    () =>
-      filterSidebarProjectScopeItems({
-        items: projectScopeItems,
-        query: projectScopeMenuState.query,
-        matches: (item, query) =>
-          projectScopeFilter.contains(item, query, (candidate) => candidate.label),
-      }),
-    [projectScopeFilter, projectScopeItems, projectScopeMenuState.query],
-  );
   const scopedProjectGroup = useMemo(
     () =>
       projectScopeKey === null
@@ -2472,25 +2647,6 @@ export default function Sidebar() {
       });
     },
     [isMobile, router, setOpenMobile],
-  );
-  // Anchor for the scope popup: the header search field, not its icon trigger.
-  const headerSearchRef = useRef<HTMLDivElement | null>(null);
-  // Safari can send a click after Ctrl+click opens settings. Ignore that one
-  // selection, then clear the guard when the picker opens again.
-  const suppressNextScopeChangeRef = useRef(false);
-  const highlightedProjectScopeKeyRef = useRef<string | null>(null);
-  const handleProjectSettings = useCallback(
-    (
-      event: ReactMouseEvent<HTMLElement> | ReactKeyboardEvent<HTMLInputElement>,
-      projectGroup: SidebarProjectSnapshot,
-    ) => {
-      event.preventDefault();
-      event.stopPropagation();
-      suppressNextScopeChangeRef.current = true;
-      dispatchProjectScopeMenu({ type: "project-settings-opened" });
-      openProjectSettings(projectGroup);
-    },
-    [openProjectSettings],
   );
 
   // Keep a dropped row at its destination while its server applies the
@@ -2690,20 +2846,7 @@ export default function Sidebar() {
     }
     return visible;
   }, [routeThreadKey, settledThreads, settledVisibleCount]);
-  const hiddenSettledCount = settledThreads.length - visibleSettledThreads.length;
-  const showMoreSettled = useCallback(
-    () => setSettledVisibleCount((count) => count + SETTLED_TAIL_PAGE_COUNT),
-    [],
-  );
-  const [settledShelfExpanded, setSettledShelfExpanded] = useLocalStorage(
-    SETTLED_SHELF_EXPANDED_KEY,
-    false,
-    Schema.Boolean,
-  );
-  const toggleSettledShelf = useCallback(
-    () => setSettledShelfExpanded((value) => !value),
-    [setSettledShelfExpanded],
-  );
+  const [settledShelfExpanded] = useLocalStorage(SETTLED_SHELF_EXPANDED_KEY, false, Schema.Boolean);
   const renderedSettledThreads = useMemo(() => {
     if (settledShelfExpanded) return visibleSettledThreads;
     if (routeThreadKey === null) return EMPTY_THREADS;
@@ -2717,15 +2860,7 @@ export default function Sidebar() {
   // The snoozed shelf is collapsed by default: out of the way, never gone.
   // Collapsed threads don't render (and so don't participate in jump
   // shortcuts or multi-select), matching the settled tail's paging model.
-  const [snoozedShelfExpanded, setSnoozedShelfExpanded] = useLocalStorage(
-    SNOOZED_SHELF_EXPANDED_KEY,
-    false,
-    Schema.Boolean,
-  );
-  const toggleSnoozedShelf = useCallback(
-    () => setSnoozedShelfExpanded((value) => !value),
-    [setSnoozedShelfExpanded],
-  );
+  const [snoozedShelfExpanded] = useLocalStorage(SNOOZED_SHELF_EXPANDED_KEY, false, Schema.Boolean);
   const visibleSnoozedThreads = useMemo(() => {
     if (snoozedShelfExpanded) return snoozedThreads;
     // The open thread must never vanish behind the collapsed shelf: a
@@ -2740,9 +2875,67 @@ export default function Sidebar() {
     return routeThread === undefined ? EMPTY_THREADS : [routeThread];
   }, [routeThreadKey, snoozedShelfExpanded, snoozedThreads]);
 
-  const orderedThreads = useMemo(
-    () => [...pinnedThreads, ...activeThreads, ...visibleSnoozedThreads, ...renderedSettledThreads],
-    [pinnedThreads, activeThreads, visibleSnoozedThreads, renderedSettledThreads],
+  const settledViewOpen = useSidebarSettledViewStore((store) => store.open);
+  const setSettledViewOpen = useSidebarSettledViewStore((store) => store.setOpen);
+  const toggleSettledView = useSidebarSettledViewStore((store) => store.toggle);
+  const visibleProjectGroups = useMemo(
+    () => (scopedProjectGroup !== null ? [scopedProjectGroup] : projectGroups),
+    [projectGroups, scopedProjectGroup],
+  );
+  const projectFolders = useMemo(
+    () =>
+      groupSidebarThreadsIntoProjectFolders(visibleProjectGroups, [
+        { section: "pinned", threads: pinnedThreads },
+        { section: "active", threads: activeThreads },
+        { section: "snoozed", threads: snoozedThreads },
+        {
+          section: "settled",
+          threads: settledThreads.filter(
+            (thread) =>
+              routeThreadKey !== null &&
+              scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === routeThreadKey,
+          ),
+        },
+      ]),
+    [
+      activeThreads,
+      pinnedThreads,
+      routeThreadKey,
+      settledThreads,
+      snoozedThreads,
+      visibleProjectGroups,
+    ],
+  );
+  const settledProjectFolders = useMemo(
+    () =>
+      groupSidebarThreadsIntoProjectFolders(projectGroups, [
+        {
+          section: "settled",
+          threads: settledThreads,
+        },
+      ]).filter((folder) => folder.entries.length > 0),
+    [projectGroups, settledThreads],
+  );
+  const orderedThreads = useMemo(() => {
+    if (isSearchingThreads) return threadSearchResults;
+    return flattenSidebarProjectFolderThreads(
+      settledViewOpen ? settledProjectFolders : projectFolders,
+    );
+  }, [
+    isSearchingThreads,
+    projectFolders,
+    settledProjectFolders,
+    settledViewOpen,
+    threadSearchResults,
+  ]);
+  const sortableFolderIds = useMemo(
+    () =>
+      settledViewOpen || !projectsSectionExpanded
+        ? []
+        : projectFolders
+            .filter((folder) => folder.project !== null)
+            .map((folder) => folder.projectKey),
+    [projectFolders, projectsSectionExpanded, settledViewOpen],
   );
   const orderedThreadKeys = useMemo(
     () =>
@@ -3135,6 +3328,7 @@ export default function Sidebar() {
     readonly targetSection: SidebarSection | null;
   } | null>(null);
   const dragTargetSection = dragState?.targetSection ?? null;
+  const [folderDragActive, setFolderDragActive] = useState(false);
   const dragSensorRef = useRef<SidebarPointerSensor | null>(null);
   const finishThreadDrag = useCallback((started: boolean) => {
     dragSensorRef.current = null;
@@ -3373,7 +3567,7 @@ export default function Sidebar() {
       cancelThreadDrag();
     }
   }, [cancelThreadDrag, dragState, sidebarListItems]);
-  const listMotionPaused = dragState !== null;
+  const listMotionPaused = dragState !== null || folderDragActive;
   // Every shell event rebuilds sidebarListItems, but rows only move when the
   // rendered order or a row's section changes. Keying the motion pass on that
   // keeps ordinary updates from forcing a layout read and animating rows
@@ -4372,6 +4566,69 @@ export default function Sidebar() {
     },
     [isMobile, newThreadContext, projectGroups.length, setOpenMobile],
   );
+  const handleNewThreadInProject = useCallback(
+    (project: SidebarProjectSnapshot) => {
+      if (isMobile) setOpenMobile(false);
+      void handleNewThreadRef.current(scopeProjectRef(project.environmentId, project.id));
+    },
+    [isMobile, setOpenMobile],
+  );
+  const handleNewProject = useCallback(() => {
+    setProjectExpanded([SIDEBAR_PROJECTS_SECTION_KEY, SIDEBAR_REPOSITORIES_SECTION_KEY], true);
+    openAddProjectCommandPalette();
+  }, [openAddProjectCommandPalette, setProjectExpanded]);
+  const suppressFolderToggleRef = useRef(false);
+  const consumeFolderToggleSuppression = useCallback(() => {
+    if (!suppressFolderToggleRef.current) return false;
+    suppressFolderToggleRef.current = false;
+    return true;
+  }, []);
+  const folderCollisionDetection = useCallback<CollisionDetection>((args) => {
+    const pointerCollisions = pointerWithin(args);
+    if (pointerCollisions.length > 0) return pointerCollisions;
+    return closestCorners(args);
+  }, []);
+  const handleFolderDragStart = useCallback(() => {
+    suppressFolderToggleRef.current = true;
+    listMotionRef.current?.suspend();
+    setFolderDragActive(true);
+  }, []);
+  const handleFolderDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      setFolderDragActive(false);
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
+      const folders = settledViewOpen ? settledProjectFolders : projectFolders;
+      const activeFolder = folders.find((folder) => folder.projectKey === String(active.id));
+      const overFolder = folders.find((folder) => folder.projectKey === String(over.id));
+      if (!activeFolder?.project || !overFolder?.project) return;
+      const visualOrder = folders.flatMap((folder) =>
+        folder.project === null
+          ? []
+          : folder.project.memberProjects.map((member) => member.physicalProjectKey),
+      );
+      const known = new Set(visualOrder);
+      const rest = orderedProjects.map(getProjectOrderKey).filter((key) => !known.has(key));
+      setFolderOrderLocked(true);
+      if (sidebarProjectSortOrder !== "manual") {
+        updateSettings({ sidebarProjectSortOrder: "manual" });
+      }
+      reorderProjects(
+        [...visualOrder, ...rest],
+        activeFolder.project.memberProjects.map((member) => member.physicalProjectKey),
+        overFolder.project.memberProjects.map((member) => member.physicalProjectKey),
+      );
+    },
+    [
+      orderedProjects,
+      projectFolders,
+      reorderProjects,
+      settledProjectFolders,
+      settledViewOpen,
+      sidebarProjectSortOrder,
+      updateSettings,
+    ],
+  );
 
   // The button mirrors chat.new: in multi-project setups both route through
   // the command palette's "New thread in..." picker, and in single-project
@@ -4385,6 +4642,9 @@ export default function Sidebar() {
     shortcutLabelForCommand(keybindings, "chat.new") ??
     (projectGroups.length <= 1 ? shortcutLabelForCommand(keybindings, "chat.newLocal") : undefined);
   const newThreadInProjectShortcutLabel = shortcutLabelForCommand(keybindings, "chat.newLocal");
+  const newThreadLabel = newThreadShortcutLabel
+    ? `New Chat (${newThreadShortcutLabel})`
+    : "New Chat";
   return (
     <>
       <SidebarChromeHeader isElectron={isElectron} />
@@ -4395,148 +4655,6 @@ export default function Sidebar() {
           // header and would otherwise paint across the search row's outline.
           <SidebarGroup className="relative z-[1] p-[var(--sidebar-content-inset)] pt-1">
             <SidebarThreadHeader
-              searchFieldRef={headerSearchRef}
-              hasProjects={projectGroups.length > 0}
-              projectScope={
-                <Combobox
-                  items={projectScopeItems}
-                  filteredItems={filteredProjectScopeItems}
-                  autoHighlight
-                  itemToStringLabel={(item) => item.label}
-                  isItemEqualToValue={(a, b) => a.value === b.value}
-                  open={projectScopeMenuState.open}
-                  onOpenChange={(open) => {
-                    if (open) suppressNextScopeChangeRef.current = false;
-                    dispatchProjectScopeMenu({ type: "open-changed", open });
-                  }}
-                  onItemHighlighted={(item) => {
-                    highlightedProjectScopeKeyRef.current = item?.value ?? null;
-                  }}
-                  value={selectedProjectScopeItem}
-                  onValueChange={(item) => {
-                    if (suppressNextScopeChangeRef.current) {
-                      suppressNextScopeChangeRef.current = false;
-                      return;
-                    }
-                    if (!item) return;
-                    setProjectScopeKey(item.value === "all" ? null : item.value);
-                  }}
-                >
-                  <ComboboxTrigger
-                    render={
-                      <SidebarHeaderIconButton
-                        label={
-                          scopedProjectGroup
-                            ? `Filter threads by project: ${scopedProjectGroup.displayName}`
-                            : "Filter threads by project"
-                        }
-                      />
-                    }
-                  >
-                    {scopedProjectGroup ? (
-                      // Wrapped so the button's direct-child svg color rule cannot override
-                      // a project's own icon color.
-                      <span className="flex shrink-0">
-                        <ProjectFavicon project={scopedProjectGroup} className="size-4" />
-                      </span>
-                    ) : (
-                      <FolderIcon className="size-4" />
-                    )}
-                  </ComboboxTrigger>
-                  <ComboboxPopup
-                    align="start"
-                    // Anchored to the search field, not the 28px trigger: the
-                    // popup opens under the field, is at least as wide as it,
-                    // and grows to fit project names up to a cap, past which
-                    // the rows truncate.
-                    anchor={headerSearchRef}
-                    className="max-w-[min(18rem,var(--available-width))] overflow-hidden"
-                  >
-                    <ComboboxSearchInput
-                      aria-label="Search projects"
-                      placeholder="Search projects..."
-                      value={projectScopeMenuState.query}
-                      onKeyDown={(event) => {
-                        if (
-                          event.defaultPrevented ||
-                          event.nativeEvent.isComposing ||
-                          event.ctrlKey ||
-                          event.altKey ||
-                          event.metaKey ||
-                          (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10"))
-                        ) {
-                          return;
-                        }
-                        // Combobox items use virtual focus: keyboard events
-                        // stay on this input, not on the highlighted option.
-                        const scopeKey = highlightedProjectScopeKeyRef.current;
-                        const project = scopeKey ? projectGroupByScopeKey.get(scopeKey) : null;
-                        if (project) handleProjectSettings(event, project);
-                      }}
-                      onChange={(event) =>
-                        dispatchProjectScopeMenu({
-                          type: "query-changed",
-                          query: event.target.value,
-                        })
-                      }
-                    />
-                    <ComboboxEmpty>No matching projects.</ComboboxEmpty>
-                    <ComboboxList>
-                      {(item: (typeof projectScopeItems)[number]) => {
-                        const project = projectGroupByScopeKey.get(item.value) ?? null;
-                        return (
-                          <ComboboxItem
-                            key={item.value}
-                            hideIndicator
-                            value={item}
-                            className="h-8 min-h-8 py-0 font-medium"
-                            contentClassName="flex min-w-0 items-center gap-2"
-                            onContextMenu={(event) => {
-                              if (project) handleProjectSettings(event, project);
-                            }}
-                          >
-                            {project ? (
-                              <ProjectFavicon project={project} className="size-4 shrink-0" />
-                            ) : (
-                              <FolderIcon className="size-4 shrink-0" />
-                            )}
-                            <span className="min-w-0 flex-1 truncate text-sm">{item.label}</span>
-                            {project && showProjectEnvironments ? (
-                              <ProjectEnvironmentBadge
-                                group={project}
-                                primaryEnvironmentId={primaryEnvironmentId}
-                                machineByEnvironmentId={environmentMachineById}
-                              />
-                            ) : null}
-                            {project ? (
-                              <Button
-                                size="icon-xs"
-                                variant="ghost-muted"
-                                tabIndex={-1}
-                                aria-hidden="true"
-                                title={`Project settings for ${project.displayName}`}
-                                className="ml-auto size-6 [--control-icon-color:currentColor] text-icon-muted focus-visible:bg-accent focus-visible:text-foreground"
-                                onPointerDown={(event) => event.stopPropagation()}
-                                onClick={(event) => {
-                                  void handleProjectSettings(event, project);
-                                }}
-                              >
-                                <SettingsIcon className="size-3.5" />
-                              </Button>
-                            ) : null}
-                          </ComboboxItem>
-                        );
-                      }}
-                    </ComboboxList>
-                  </ComboboxPopup>
-                </Combobox>
-              }
-              onNewProject={openAddProjectCommandPalette}
-              onNewThread={handleNewThreadClick}
-              newThreadDisabled={projects.length === 0}
-              newThreadShortcutLabel={newThreadShortcutLabel}
-              newThreadInProjectShortcutLabel={newThreadInProjectShortcutLabel}
-              showNewThreadInProjectHint={projectGroups.length > 1}
               searchInputRef={threadSearchInputRef}
               searchQuery={threadSearchQuery}
               onSearchQueryChange={(value) => {
@@ -4548,6 +4666,23 @@ export default function Sidebar() {
               searchResultCount={threadSearchResults.length}
               activeSearchResultIndex={activeSearchResultIndex}
               onClearSearch={clearThreadSearch}
+              onNewChat={handleNewThreadClick}
+              newChatDisabled={projects.length === 0}
+              newChatTooltip={
+                projectGroups.length > 1 ? (
+                  <span className="flex flex-col gap-0.5">
+                    <span>{newThreadLabel}</span>
+                    <span className="text-muted-foreground">
+                      New Chat in current project: Shift+click
+                      {newThreadInProjectShortcutLabel
+                        ? ` (${newThreadInProjectShortcutLabel})`
+                        : ""}
+                    </span>
+                  </span>
+                ) : (
+                  newThreadLabel
+                )
+              }
             />
           </SidebarGroup>
         }
@@ -4620,24 +4755,52 @@ export default function Sidebar() {
             >
               <DndContext
                 sensors={dndSensors}
-                collisionDetection={dndCollisionDetection}
+                collisionDetection={
+                  sortableFolderIds.length > 0 ? folderCollisionDetection : dndCollisionDetection
+                }
                 modifiers={[
                   restrictToVerticalAxis,
-                  restrictBelowPins,
+                  ...(sortableFolderIds.length > 0 ? [] : [restrictBelowPins]),
                   restrictToFirstScrollableAncestor,
                 ]}
-                onDragStart={handleThreadDragStart}
-                onDragOver={handleThreadDragOver}
-                onDragEnd={handleThreadDragEnd}
+                onDragStart={(event) => {
+                  const id = String(event.active.id);
+                  if (sortableFolderIds.includes(id)) {
+                    handleFolderDragStart();
+                    return;
+                  }
+                  handleThreadDragStart(event);
+                }}
+                onDragOver={(event) => {
+                  if (sortableFolderIds.includes(String(event.active.id))) return;
+                  handleThreadDragOver(event);
+                }}
+                onDragCancel={() => setFolderDragActive(false)}
+                onDragEnd={(event) => {
+                  const id = String(event.active.id);
+                  if (sortableFolderIds.includes(id)) {
+                    handleFolderDragEnd(event);
+                    return;
+                  }
+                  handleThreadDragEnd(event);
+                }}
               >
                 <SidebarDragLifecycle onUnmount={cancelThreadDrag} />
-                <SortableContext items={sortableIds} strategy={sidebarSortingStrategy}>
+                <SortableContext
+                  items={sortableFolderIds.length > 0 ? sortableFolderIds : sortableIds}
+                  strategy={
+                    sortableFolderIds.length > 0
+                      ? verticalListSortingStrategy
+                      : sidebarSortingStrategy
+                  }
+                >
                   <ul
                     ref={attachListMotionRef}
                     role="list"
                     className={cn(
                       "relative flex flex-col gap-px",
-                      sidebarListItems.length > 0 && "flex-1",
+                      (settledViewOpen ? settledProjectFolders : projectFolders).length > 0 &&
+                        "flex-1",
                     )}
                   >
                     {(() => {
@@ -4649,12 +4812,7 @@ export default function Sidebar() {
                         const threadKey = scopedThreadKey(
                           scopeThreadRef(thread.environmentId, thread.id),
                         );
-                        // Settled and snoozed are the ONLY things that collapse a
-                        // row: every other thread is a full card. Density comes
-                        // from users (or the auto rules) actually parking work,
-                        // not from the sidebar second-guessing what still matters.
-                        const isCard = section === "active" || section === "pinned";
-                        const rowVariant = isCard ? "card" : "slim";
+                        const rowVariant = "slim" as const;
                         return (
                           <SidebarThreadRow
                             // Fade between card and compact rows while the outer
@@ -4752,186 +4910,113 @@ export default function Sidebar() {
                       const renderThreadRow = (
                         thread: EnvironmentThreadShell,
                         section: SidebarSection,
-                      ) => {
-                        const threadKey = scopedThreadKey(
-                          scopeThreadRef(thread.environmentId, thread.id),
+                      ) => renderThreadRowInner(thread, section);
+                      const folders = settledViewOpen ? settledProjectFolders : projectFolders;
+                      const items: ReactNode[] = [];
+                      if (!settledViewOpen) {
+                        items.push(
+                          <SidebarDraftBlock
+                            key="draft-sessions"
+                            projectByKey={projectByKey}
+                            projectDisplayNameByKey={projectDisplayNameByKey}
+                            scopedProjectKeys={scopedProjectKeys}
+                            routeDraftId={routeDraftIdForRows}
+                            onNavigateToDraft={navigateToDraft}
+                          />,
                         );
-                        return (
-                          <SortableThreadRow
-                            key={threadKey}
-                            id={threadKey}
-                            disabled={
-                              !draggableThreadKeys.has(threadKey) || optimisticDrop !== null
+                        items.push(
+                          <SidebarListSectionHeader
+                            key="projects-section"
+                            sectionKeys={[
+                              SIDEBAR_PROJECTS_SECTION_KEY,
+                              SIDEBAR_REPOSITORIES_SECTION_KEY,
+                            ]}
+                            title="Projects"
+                            actionLabel="New Project"
+                            onAction={handleNewProject}
+                          >
+                            <FolderPlusIcon aria-hidden className="size-3.5" />
+                          </SidebarListSectionHeader>,
+                        );
+                      } else {
+                        items.push(
+                          <li key="settled-view-header" className="list-none">
+                            <div className="flex h-8 items-center gap-2 px-2">
+                              <span className="min-w-0 flex-1 truncate text-[13px] text-sidebar-muted-foreground">
+                                Settled
+                              </span>
+                              <button
+                                type="button"
+                                aria-label="Exit settled threads"
+                                className="inline-flex size-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                                onClick={() => setSettledViewOpen(false)}
+                              >
+                                <XIcon aria-hidden className="size-3.5" />
+                              </button>
+                            </div>
+                          </li>,
+                        );
+                      }
+                      for (const folder of folders) {
+                        if (!settledViewOpen && !projectsSectionExpanded) break;
+                        items.push(
+                          <SidebarProjectFolderBlock
+                            key={folder.projectKey}
+                            project={folder.project}
+                            projectKey={folder.projectKey}
+                            displayName={folder.displayName}
+                            containsActiveThread={folder.entries.some(
+                              (entry) =>
+                                scopedThreadKey(
+                                  scopeThreadRef(entry.thread.environmentId, entry.thread.id),
+                                ) === routeThreadKey,
+                            )}
+                            sortable={!settledViewOpen && folder.project !== null}
+                            consumeToggleSuppression={consumeFolderToggleSuppression}
+                            onNewThreadInProject={
+                              settledViewOpen ? undefined : handleNewThreadInProject
                             }
                           >
-                            {(bag) => renderThreadRowInner(thread, section, bag)}
-                          </SortableThreadRow>
+                            {folder.entries.map((entry) =>
+                              renderThreadRow(entry.thread, entry.section),
+                            )}
+                          </SidebarProjectFolderBlock>,
                         );
-                      };
-                      const from = dragState?.activeSection ?? null;
-                      const items: ReactNode[] = [
-                        <SidebarDraftBlock
-                          key="draft-sessions"
-                          projectByKey={projectByKey}
-                          projectDisplayNameByKey={projectDisplayNameByKey}
-                          scopedProjectKeys={scopedProjectKeys}
-                          routeDraftId={routeDraftIdForRows}
-                          onNavigateToDraft={navigateToDraft}
-                        />,
-                      ];
-                      for (const item of sidebarListItems) {
-                        if (item.kind === "thread") {
-                          items.push(renderThreadRow(threadByKey.get(item.key)!, item.section));
-                          continue;
-                        }
-                        switch (item.marker) {
-                          case "pinned-header":
-                            items.push(
-                              <SidebarDragBoundary
-                                key="pinned-header"
-                                marker="pinned-header"
-                                label="Pinned"
-                                visible={from !== null}
-                                isDropTarget={dragTargetSection === "pinned"}
-                              />,
-                            );
-                            break;
-                          case "pinned-divider":
-                            items.push(
-                              <SidebarDragBoundary
-                                key="pinned-divider"
-                                marker="pinned-divider"
-                                label="Active"
-                                visible={from !== null}
-                                isDropTarget={dragTargetSection === "active"}
-                              />,
-                            );
-                            break;
-                          case "active-placeholder":
-                            items.push(
-                              <SidebarSectionPlaceholder
-                                key="active-placeholder"
-                                marker="active-placeholder"
-                                label="Active"
-                                showHint={
-                                  from !== null &&
-                                  (activeThreads.length === 0 ||
-                                    (from === "active" &&
-                                      activeThreads.length === 1 &&
-                                      dragTargetSection !== null &&
-                                      dragTargetSection !== "active"))
-                                }
-                                isDropTarget={dragTargetSection === "active"}
-                              />,
-                            );
-                            break;
-                          case "snoozed-header":
-                            items.push(
-                              <SidebarSectionHeader
-                                key="snoozed-shelf-header"
-                                marker="snoozed-header"
-                                className="mt-auto"
-                                label={
-                                  snoozedShelfExpanded
-                                    ? "Snoozed"
-                                    : `Snoozed (${snoozedThreads.length})`
-                                }
-                                toggle={{
-                                  expanded: snoozedShelfExpanded,
-                                  onToggle: toggleSnoozedShelf,
-                                }}
-                              />,
-                            );
-                            break;
-                          case "settled-header":
-                            items.push(
-                              <SidebarSectionHeader
-                                key="settled-shelf-header"
-                                marker="settled-header"
-                                className={cn(snoozedThreads.length === 0 && "mt-auto")}
-                                label={
-                                  settledShelfExpanded
-                                    ? "Settled"
-                                    : `Settled (${settledThreads.length})`
-                                }
-                                dragging={from !== null}
-                                isDropTarget={dragTargetSection === "settled"}
-                                toggle={{
-                                  expanded: settledShelfExpanded,
-                                  onToggle: toggleSettledShelf,
-                                }}
-                              />,
-                            );
-                            break;
-                          case "settled-placeholder":
-                            items.push(
-                              <SidebarSectionPlaceholder
-                                key="settled-placeholder"
-                                marker="settled-placeholder"
-                                label="Settled"
-                                showHint={
-                                  from !== null &&
-                                  (renderedSettledThreads.length === 0 ||
-                                    (from === "settled" &&
-                                      renderedSettledThreads.length === 1 &&
-                                      dragTargetSection !== null &&
-                                      dragTargetSection !== "settled"))
-                                }
-                                isDropTarget={dragTargetSection === "settled"}
-                              />,
-                            );
-                            break;
-                        }
                       }
                       return items;
                     })()}
-                    {settledShelfExpanded && hiddenSettledCount > 0 ? (
-                      <li className="list-none">
-                        <button
-                          type="button"
-                          onClick={showMoreSettled}
-                          className="flex h-9 w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 text-left text-sm text-sidebar-muted-foreground/55 hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
-                        >
-                          <PlusIcon aria-hidden className="size-4 shrink-0" />
-                          Show {Math.min(hiddenSettledCount, SETTLED_TAIL_PAGE_COUNT)} more
-                        </button>
-                      </li>
-                    ) : null}
                   </ul>
                 </SortableContext>
               </DndContext>
             </TooltipProvider>
           ) : null}
           {!isSearchingThreads &&
+          !settledViewOpen &&
           visibleDraftSessionCount === 0 &&
-          pinnedThreads.length +
-            activeThreads.length +
-            snoozedThreads.length +
-            settledThreads.length ===
-            0 ? (
+          projects.length === 0 ? (
             <div className="flex flex-col items-center gap-2 px-2 py-6 text-center text-xs text-muted-foreground/60">
-              {projects.length === 0 ? (
-                <>
-                  <span>No projects yet</span>
-                  <button
-                    type="button"
-                    onClick={openAddProjectCommandPalette}
-                    className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-sidebar-border px-2.5 py-1 text-[11px] font-medium text-sidebar-muted-foreground transition-colors hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
-                  >
-                    <PlusIcon className="-mx-0.5 size-3" />
-                    Add project
-                  </button>
-                </>
-              ) : scopedProjectGroup ? (
-                `No threads in ${scopedProjectGroup.displayName} yet`
-              ) : (
-                "No threads yet"
-              )}
+              <span>No projects yet</span>
+              <button
+                type="button"
+                onClick={openAddProjectCommandPalette}
+                className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-sidebar-border px-2.5 py-1 text-[11px] font-medium text-sidebar-muted-foreground transition-colors hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+              >
+                <PlusIcon className="-mx-0.5 size-3" />
+                Add project
+              </button>
+            </div>
+          ) : null}
+          {!isSearchingThreads && settledViewOpen && settledThreads.length === 0 ? (
+            <div className="px-2 py-6 text-center text-xs text-muted-foreground/60">
+              No settled threads
             </div>
           ) : null}
         </SidebarGroup>
       </SidebarContent>
-      <SidebarChromeFooter />
+      <SidebarChromeFooter
+        settledViewOpen={settledViewOpen}
+        onToggleSettledView={toggleSettledView}
+      />
     </>
   );
 }

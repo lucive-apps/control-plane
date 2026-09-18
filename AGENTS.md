@@ -83,6 +83,38 @@ The most common defect in this repo is a change that works on the path you teste
 - To reuse web dev auth across worktrees, configure one fixed `T3CODE_DEV_AUTH_TOKEN` in the main checkout's gitignored `.env`. The `t3.json` setup links that file into worktrees. Never commit or publish the token or a startup URL. See [Reusable dev credential](docs/operations/development.md#reusable-dev-credential).
 - Stop what you started, by the PID you tracked. See rule 1.
 
+### Fork
+
+This repo is a public fork of [pingdotgg/t3code](https://github.com/pingdotgg/t3code). Treat every change as something other people will run.
+
+- Boot the full Electron app from the repo root. Never `vp run dev` here (that is server+web). If this shell inherited `T3CODE_HOME` from another T3 Code, it will write to `~/.t3` unless you override it.
+
+  ```sh
+  unset T3CODE_HOME T3_SERVICE_LAUNCHER_CONTEXT T3_BOOT_SERVICE_UNIT T3CODE_DESKTOP_REMOTE_DEBUGGING_PORT
+  vp run dev:desktop --home-dir "$PWD/.t3"
+  ```
+
+- `--home-dir` is required when launching from T3 Code. Confirm the `[dev-runner]` line prints `baseDir=.../.t3`.
+- Do not touch the live install's data: `~/.t3/userdata` and `~/Library/Application Support/t3code`.
+- Apple Silicon: a Rosetta (x86) Node still reports `x64`, and an x86 Electron then pegs the renderer at ~100% CPU. `apps/desktop/scripts/ensure-electron-runtime.mjs` must install **arm64** Electron. After boot, `file` the binary under `apps/desktop/.electron-runtime/T3 Code (Dev).app` — it has to say `arm64`, not `x86_64`. If it does not, run that script and restart. `pnpm-workspace.yaml` `supportedArchitectures` includes `arm64` so native addons match.
+- Desktop dev serves the built web client (no Vite). UI edits: rebuild `apps/web`, copy `apps/web/dist` to `apps/server/dist/client`. The desktop watcher restarts Electron when that `index.html` changes.
+- Do not set `VITE_HTTP_URL` / `VITE_WS_URL`. Do not auto-open DevTools.
+
+#### Upstream updates
+
+`origin` is this fork (`nickrroberts/t3`). `upstream` is `pingdotgg/t3code`. Git applies upstream commits that do not touch our lines automatically. We only resolve conflicts where both sides edited the same hunks.
+
+Pull upstream into `main` with a merge (not rebase — this is a public fork others clone):
+
+```sh
+git fetch upstream
+git merge upstream/main
+```
+
+GitHub → **Sync fork** does the same merge when there are no conflicts. If Git reports conflicts, fix those files, commit the merge, and push. Do not force-push `main`.
+
+A weekday GitHub Action (`.github/workflows/sync-upstream.yml`) fetches `upstream` and opens (or updates) a `sync/upstream` PR. It never merges to `main`. Conflicts open an issue instead. Enable Actions on this repo and run **Sync upstream** once so the schedule is allowed. Manual merge above still works anytime.
+
 ## Test data
 
 An empty database is a bad test. Seed your worktree's `.t3` with a copy of real data instead of pointing at live state:

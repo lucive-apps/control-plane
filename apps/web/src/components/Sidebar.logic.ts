@@ -1215,6 +1215,108 @@ export function sortLogicalProjectsForSidebar<
   );
 }
 
+export type SidebarProjectFolderEntry<TThread> = {
+  readonly thread: TThread;
+  readonly section: SidebarSection;
+};
+
+export type SidebarProjectFolder<
+  TProject extends {
+    readonly projectKey: string;
+    readonly displayName: string;
+  },
+  TThread,
+> = {
+  readonly project: TProject | null;
+  readonly projectKey: string;
+  readonly displayName: string;
+  readonly entries: readonly SidebarProjectFolderEntry<TThread>[];
+};
+
+const UNGROUPED_SIDEBAR_PROJECT_KEY = "__ungrouped__";
+
+/**
+ * Nests sidebar threads under their logical project folder. Empty projects
+ * stay visible so the tree matches the project catalog; threads whose project
+ * is missing land in a trailing Other folder.
+ */
+export function groupSidebarThreadsIntoProjectFolders<
+  TProject extends {
+    readonly projectKey: string;
+    readonly displayName: string;
+    readonly memberProjectRefs: readonly {
+      readonly environmentId: string;
+      readonly projectId: string;
+    }[];
+  },
+  TThread extends { readonly environmentId: string; readonly projectId: string },
+>(
+  projects: readonly TProject[],
+  sections: readonly {
+    readonly section: SidebarSection;
+    readonly threads: readonly TThread[];
+  }[],
+): SidebarProjectFolder<TProject, TThread>[] {
+  const groupKeyByProjectRef = new Map(
+    projects.flatMap((project) =>
+      project.memberProjectRefs.map(
+        (projectRef) =>
+          [`${projectRef.environmentId}\0${projectRef.projectId}`, project.projectKey] as const,
+      ),
+    ),
+  );
+  const entriesByProjectKey = new Map<string, SidebarProjectFolderEntry<TThread>[]>(
+    projects.map((project) => [project.projectKey, []]),
+  );
+  const ungrouped: SidebarProjectFolderEntry<TThread>[] = [];
+
+  for (const { section, threads } of sections) {
+    for (const thread of threads) {
+      const projectKey = groupKeyByProjectRef.get(`${thread.environmentId}\0${thread.projectId}`);
+      const entry = { thread, section };
+      if (projectKey === undefined) {
+        ungrouped.push(entry);
+        continue;
+      }
+      const existing = entriesByProjectKey.get(projectKey);
+      if (existing) {
+        existing.push(entry);
+      } else {
+        entriesByProjectKey.set(projectKey, [entry]);
+      }
+    }
+  }
+
+  const folders: SidebarProjectFolder<TProject, TThread>[] = projects.map((project) => ({
+    project,
+    projectKey: project.projectKey,
+    displayName: project.displayName,
+    entries: entriesByProjectKey.get(project.projectKey) ?? [],
+  }));
+  if (ungrouped.length > 0) {
+    folders.push({
+      project: null,
+      projectKey: UNGROUPED_SIDEBAR_PROJECT_KEY,
+      displayName: "Other",
+      entries: ungrouped,
+    });
+  }
+  return folders;
+}
+
+/** Visual top-to-bottom thread order: project folders, then threads in each folder. */
+export function flattenSidebarProjectFolderThreads<TThread>(
+  folders: readonly SidebarProjectFolder<
+    {
+      readonly projectKey: string;
+      readonly displayName: string;
+    },
+    TThread
+  >[],
+): TThread[] {
+  return folders.flatMap((folder) => folder.entries.map((entry) => entry.thread));
+}
+
 /**
  * Sorts the cross-environment project collection used by landing surfaces.
  * Project ids are only unique within an environment, and archived threads

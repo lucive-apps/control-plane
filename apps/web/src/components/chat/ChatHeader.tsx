@@ -32,6 +32,7 @@ import ProjectScriptsControl, {
   type ProjectScriptActionResult,
 } from "../ProjectScriptsControl";
 import { OpenInPicker } from "./OpenInPicker";
+import { ChatHeaderOverflowMenu } from "./ChatHeaderOverflowMenu";
 import { useRemoteOpenState, type RemoteOpenMode } from "../../remoteOpen";
 import { usePrimaryEnvironmentId } from "../../state/environments";
 import { useT3ProjectFileScripts } from "~/hooks/useT3ProjectFileScripts";
@@ -409,34 +410,41 @@ export const ChatHeader = memo(function ChatHeader({
           "[[data-panel-animations=true]_&]:motion-safe:transition-[padding-right] [[data-panel-animations=true]_&]:motion-safe:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:motion-safe:ease-out",
         )}
       >
-        {activeProjectScripts && (
-          <ProjectScriptsControl
-            scripts={activeProjectScripts}
-            fileScripts={fileScripts}
-            keybindings={keybindings}
-            preferredScriptId={preferredScriptId}
-            onRunScript={onRunProjectScript}
-            onAddScript={onAddProjectScript}
-            onUpdateScript={onUpdateProjectScript}
-            onDeleteScript={onDeleteProjectScript}
-          />
-        )}
-        {showOpenInPicker && (
-          <OpenInPicker
-            environmentId={activeThreadEnvironmentId}
-            keybindings={keybindings}
-            availableEditors={availableEditors}
-            openInCwd={openInCwd}
-          />
-        )}
-        {activeProjectName && (
-          <GitActionsControl
-            gitCwd={gitCwd}
-            activeThreadRef={scopeThreadRef(activeThreadEnvironmentId, activeThreadId)}
-            onOpenPullRequest={onOpenPullRequest}
-            {...(draftId ? { draftId } : {})}
-          />
-        )}
+        {activeProjectScripts || showOpenInPicker || activeProjectName ? (
+          <ChatHeaderOverflowMenu>
+            {activeProjectScripts && (
+              <ProjectScriptsControl
+                variant="menu"
+                scripts={activeProjectScripts}
+                fileScripts={fileScripts}
+                keybindings={keybindings}
+                preferredScriptId={preferredScriptId}
+                onRunScript={onRunProjectScript}
+                onAddScript={onAddProjectScript}
+                onUpdateScript={onUpdateProjectScript}
+                onDeleteScript={onDeleteProjectScript}
+              />
+            )}
+            {showOpenInPicker && (
+              <OpenInPicker
+                variant="menu"
+                environmentId={activeThreadEnvironmentId}
+                keybindings={keybindings}
+                availableEditors={availableEditors}
+                openInCwd={openInCwd}
+              />
+            )}
+            {activeProjectName && (
+              <GitActionsControl
+                variant="menu"
+                gitCwd={gitCwd}
+                activeThreadRef={scopeThreadRef(activeThreadEnvironmentId, activeThreadId)}
+                onOpenPullRequest={onOpenPullRequest}
+                {...(draftId ? { draftId } : {})}
+              />
+            )}
+          </ChatHeaderOverflowMenu>
+        ) : null}
       </div>
     </div>
   );

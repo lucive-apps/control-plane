@@ -1,0 +1,82 @@
+name: Sync upstream
+
+on:
+  schedule:
+    # 8:00 AM America/Denver during MDT (GitHub cron is UTC-only).
+    - cron: "0 15 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Open upstream sync PR
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Merge pingdotgg/t3code into a review PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/pingdotgg/t3code.git
+          git fetch origin main
+          git fetch upstream main
+
+          if git merge-base --is-ancestor upstream/main origin/main; then
+            echo "origin/main already contains upstream/main"
+            exit 0
+          fi
+
+          behind="$(git rev-list --count origin/main..upstream/main)"
+          range="$(git rev-parse --short origin/main)...$(git rev-parse --short upstream/main)"
+          compare="https://github.com/pingdotgg/t3code/compare/${range}"
+          git checkout -B sync/upstream origin/main
+
+          if git merge --no-edit upstream/main; then
+            git push --force origin sync/upstream
+            open_pr="$(gh pr list --head sync/upstream --base main --state open --json number --jq '.[0].number // empty')"
+            if [ -z "$open_pr" ]; then
+              gh pr create --base main --head sync/upstream \
+                --title "chore: sync ${behind} commit(s) from pingdotgg/t3code" \
+                --body "Automated merge of \`pingdotgg/t3code\` \`main\` into this fork.
+
+          - ${behind} upstream commit(s): ${compare}
+          - Review the merge before merging.
+          - Do not force-push \`main\`. This branch is bot-owned and may be replaced on the next run."
+            fi
+            exit 0
+          fi
+
+          git merge --abort
+          open_issue="$(gh issue list --state open --search 'in:title Upstream t3code sync has conflicts' --json number --jq '.[0].number // empty')"
+          if [ -z "$open_issue" ]; then
+            gh issue create --title "Upstream t3code sync has conflicts" \
+              --body "Weekday sync failed: \`upstream/main\` does not merge cleanly onto \`origin/main\`.
+
+          ${behind} upstream commit(s): ${compare}
+
+          Resolve locally:
+
+          \`\`\`sh
+          git fetch upstream
+          git merge upstream/main
+          \`\`\`
+
+          Then push \`main\` (or a PR). Do not force-push \`main\`."
+          fi
+          exit 1
