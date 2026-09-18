@@ -235,7 +235,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
     <>
       <SidebarContent className="overflow-x-hidden">
         <SidebarGroup className="gap-2 p-[var(--sidebar-content-inset)]">
-          <div className="flex h-8 items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground">
+          <div className="flex h-8 items-center gap-2 rounded-md px-2 py-1.5 text-[length:1em] font-medium leading-tight text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground">
             <SearchIcon className="size-4 shrink-0 text-sidebar-muted-foreground/80" />
             <Input
               ref={searchInputRef}
@@ -259,7 +259,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                   ? `settings-search-result-${results[activeResultIndex].id}`
                   : undefined
               }
-              className="min-w-0 flex-1 [&_[data-slot=input]]:h-auto [&_[data-slot=input]]:p-0 [&_[data-slot=input]]:leading-normal [&_[data-slot=input]]:text-sm [&_[data-slot=input]]:font-medium [&_[data-slot=input]]:text-sidebar-foreground [&_[data-slot=input]]:placeholder:text-sidebar-muted-foreground"
+              className="min-w-0 flex-1 [&_[data-slot=input]]:h-auto [&_[data-slot=input]]:p-0 [&_[data-slot=input]]:leading-normal [&_[data-slot=input]]:text-[length:1em] [&_[data-slot=input]]:font-medium [&_[data-slot=input]]:text-sidebar-foreground [&_[data-slot=input]]:placeholder:text-sidebar-muted-foreground"
             />
             {isSearching ? (
               <Button
@@ -309,10 +309,10 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                   >
                     <SettingsSectionIcon to={item.to} />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium text-sidebar-foreground">
+                      <span className="block truncate text-[length:1em] font-medium leading-tight text-sidebar-foreground">
                         {item.title}
                       </span>
-                      <span className="block truncate text-[11px] text-sidebar-muted-foreground/75">
+                      <span className="block truncate text-xs text-sidebar-muted-foreground/75">
                         {SETTINGS_SECTION_LABELS[item.to]}
                       </span>
                     </span>

@@ -1082,6 +1082,8 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
    zinc hierarchy: zinc-50 navigation, zinc-25 hover, and white selected/raised
    surfaces. */
 [data-app-sidebar] {
+  /* Appearance → interface size is html rem; compact titles used to lock 13px. */
+  font-size: 1rem;
   --background: var(--color-zinc-25);
   --foreground: var(--color-zinc-800);
   --card: var(--color-white);

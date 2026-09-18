@@ -1458,12 +1458,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       onBlur={handleRenameBlur}
       onClick={(event) => event.stopPropagation()}
       onDoubleClick={(event) => event.stopPropagation()}
-      className="min-w-0 flex-1 rounded-sm border border-input bg-card px-1 text-sm font-medium text-card-foreground outline-none focus:border-foreground"
+      className="min-w-0 flex-1 rounded-sm border border-input bg-card px-1 text-[length:1em] font-medium leading-tight text-card-foreground outline-none focus:border-foreground"
     />
   ) : (
     <span
       className={cn(
-        "min-w-0 flex-1 text-sm transition-opacity motion-reduce:transition-none",
+        "min-w-0 flex-1 text-[length:1em] leading-tight transition-opacity motion-reduce:transition-none",
         shouldRecede ? "font-normal" : "font-medium",
         variant === "card"
           ? cn(
@@ -1477,7 +1477,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                     : "text-foreground/90",
             )
           : cn(
-              "truncate text-[13px] group-focus-within/sidebar-row:text-foreground group-hover/sidebar-row:text-foreground",
+              "truncate text-[length:1em] leading-tight group-focus-within/sidebar-row:text-foreground group-hover/sidebar-row:text-foreground",
               shouldRecede
                 ? "text-secondary-label/70"
                 : props.isActive || isWoke || status === "input"
@@ -2104,7 +2104,7 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
               onMouseMove={props.onHighlight}
               onClick={props.onSelect}
               className={cn(
-                "flex h-9 w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 text-left text-sm outline-none",
+                "flex h-9 w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 text-left text-[length:1em] leading-tight outline-none",
                 props.isHighlighted || props.isRouteActive
                   ? "bg-sidebar-row-active text-sidebar-foreground"
                   : "text-sidebar-muted-foreground/75 hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
@@ -2178,7 +2178,9 @@ function SidebarListSectionHeader({
           onClick={() => setProjectExpanded(sectionKeys, !expanded)}
           onPointerDown={(event) => event.stopPropagation()}
         >
-          <span className="min-w-0 truncate text-[12px] font-medium">{title}</span>
+          <span className="min-w-0 truncate text-[length:1em] font-medium leading-tight">
+            {title}
+          </span>
         </button>
         <SidebarSectionIconButton label={actionLabel} onClick={onAction}>
           {children}
@@ -2287,7 +2289,7 @@ const SidebarProjectFolderBlock = memo(function SidebarProjectFolderBlock({
           aria-expanded={expanded}
           aria-label={`${expanded ? "Collapse" : "Expand"} ${displayName}`}
           className={cn(
-            "flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            "flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left text-[length:1em] leading-tight outline-none focus-visible:ring-2 focus-visible:ring-ring",
             sortable ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
           )}
           onClick={() => {
@@ -4942,7 +4944,7 @@ export default function Sidebar() {
                         items.push(
                           <li key="settled-view-header" className="list-none">
                             <div className="flex h-8 items-center gap-2 px-2">
-                              <span className="min-w-0 flex-1 truncate text-[13px] text-sidebar-muted-foreground">
+                              <span className="min-w-0 flex-1 truncate text-[length:1em] leading-tight text-sidebar-muted-foreground">
                                 Settled
                               </span>
                               <button
