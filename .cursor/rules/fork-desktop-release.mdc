@@ -1,0 +1,13 @@
+---
+description: Ship signed Mac builds for the nickrroberts/t3 fork
+alwaysApply: true
+---
+
+# Fork desktop releases
+
+This repo is Nick's public T3 Code fork (`nickrroberts/t3`), not pingdotgg/t3code.
+
+- Ship Mac builds with `vp run release:fork:desktop` after loading Apple notary credentials (`APPLE_ID`, `APPLE_PASSWORD` / `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`).
+- That command picks the next unpublished patch, signs, notarizes, and publishes a GitHub Release. Do not reuse a version that is already on GitHub.
+- Tags are `0.0.x`, never `v0.0.x`. Do not run official T3 `v*.*.*` Release, relay, or EAS workflows.
+- Always `gh --repo nickrroberts/t3`. Commit the version bump with the ship.

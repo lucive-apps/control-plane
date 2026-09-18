@@ -62,6 +62,10 @@ We need to be on the same page with terminology. When communicating, use this la
 2. **Writing to the live install.** `~/.t3/userdata` is the developer's real T3 Code database, in use while you work. Reading it and copying from it are fine, and a good way to get real test data (see Test data). Never start a server against it, never open it read-write, never clean it up.
 3. **Baking in origins.** Never set `VITE_HTTP_URL` or `VITE_WS_URL` for dev. Dev is single-origin and Vite proxies `/api`, `/ws`, `/oauth`, and `/.well-known`. Setting them bakes localhost into the bundle and silently breaks every remote browser.
 
+## This fork (nickrroberts/t3)
+
+This checkout is not pingdotgg/t3code. Ship signed Mac builds with `vp run release:fork:desktop` after loading Apple notary credentials. That command bumps the patch against GitHub, notarizes, and publishes. Do not reuse a published version, do not tag `v*.*.*`, do not run official Release / relay / EAS workflows, and always pass `--repo nickrroberts/t3` to `gh`. Commit the version bump with the ship.
+
 ## Hit every surface
 
 The most common defect in this repo is a change that works on the path you tested and is missing everywhere else. Before calling frontend work done, walk this list and say which entries applied:
