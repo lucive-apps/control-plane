@@ -455,7 +455,11 @@ const config: ExpoConfig = {
       tracesDataset: repoEnv.EXPO_PUBLIC_OTLP_TRACES_DATASET ?? null,
       tracesToken: repoEnv.EXPO_PUBLIC_OTLP_TRACES_TOKEN ?? null,
     },
+    eas: {
+      projectId: "5a481480-96fe-418e-9976-118de0e374f0",
+    },
   },
+  owner: "nickrroberts",
 };
 
 export default config;
