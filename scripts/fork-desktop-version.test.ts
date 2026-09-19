@@ -89,9 +89,9 @@ describe("stable desktop versions", () => {
 
   it("names the GitHub assets electron-updater needs", () => {
     assert.deepStrictEqual(forkDesktopReleaseAssetNames("0.0.44"), [
-      "T3-Code-0.0.44-arm64.dmg",
-      "T3-Code-0.0.44-arm64.zip",
-      "T3-Code-0.0.44-arm64.zip.blockmap",
+      "Control-Plane-0.0.44-arm64.dmg",
+      "Control-Plane-0.0.44-arm64.zip",
+      "Control-Plane-0.0.44-arm64.zip.blockmap",
       "latest-mac.yml",
     ]);
   });

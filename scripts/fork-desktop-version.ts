@@ -1,6 +1,8 @@
 import * as Schema from "effect/Schema";
 
-export const FORK_DESKTOP_UPDATE_REPOSITORY = "nickrroberts/t3";
+import { FORK_GITHUB_REPOSITORY } from "./lib/fork-identity.ts";
+
+export const FORK_DESKTOP_UPDATE_REPOSITORY = FORK_GITHUB_REPOSITORY;
 
 export class InvalidForkDesktopVersionError extends Schema.TaggedError<InvalidForkDesktopVersionError>()(
   "InvalidForkDesktopVersionError",
@@ -45,9 +47,9 @@ export function compareStableDesktopVersion(
 
 export function forkDesktopReleaseAssetNames(version: string): readonly string[] {
   return [
-    `T3-Code-${version}-arm64.dmg`,
-    `T3-Code-${version}-arm64.zip`,
-    `T3-Code-${version}-arm64.zip.blockmap`,
+    `Control-Plane-${version}-arm64.dmg`,
+    `Control-Plane-${version}-arm64.zip`,
+    `Control-Plane-${version}-arm64.zip.blockmap`,
     "latest-mac.yml",
   ];
 }

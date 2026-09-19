@@ -62,9 +62,9 @@ We need to be on the same page with terminology. When communicating, use this la
 2. **Writing to the live install.** `~/.t3/userdata` is the developer's real T3 Code database, in use while you work. Reading it and copying from it are fine, and a good way to get real test data (see Test data). Never start a server against it, never open it read-write, never clean it up.
 3. **Baking in origins.** Never set `VITE_HTTP_URL` or `VITE_WS_URL` for dev. Dev is single-origin and Vite proxies `/api`, `/ws`, `/oauth`, and `/.well-known`. Setting them bakes localhost into the bundle and silently breaks every remote browser.
 
-## This fork (nickrroberts/t3)
+## This fork (lucive-apps/control-plane)
 
-This checkout is not pingdotgg/t3code. Ship signed Mac builds with `vp run release:fork:desktop` after loading Apple notary credentials. That command bumps the patch against GitHub, notarizes, and publishes. Do not reuse a published version, do not tag `v*.*.*`, do not run official Release / relay / EAS workflows, and always pass `--repo nickrroberts/t3` to `gh`. Commit the version bump with the ship.
+This checkout is Control Plane, Lucive's public fork of pingdotgg/t3code. Ship signed Mac builds with `vp run release:fork:desktop` after loading Apple notary credentials. That command bumps the patch against GitHub, notarizes, and publishes. Do not reuse a published version, do not tag `v*.*.*`, do not run official Release / relay / EAS workflows, and always pass `--repo lucive-apps/control-plane` to `gh`. Commit the version bump with the ship.
 
 ## Hit every surface
 
@@ -100,13 +100,13 @@ This repo is a public fork of [pingdotgg/t3code](https://github.com/pingdotgg/t3
 
 - `--home-dir` is required when launching from T3 Code. Confirm the `[dev-runner]` line prints `baseDir=.../.t3`.
 - Do not touch the live install's data: `~/.t3/userdata` and `~/Library/Application Support/t3code`.
-- Apple Silicon: a Rosetta (x86) Node still reports `x64`, and an x86 Electron then pegs the renderer at ~100% CPU. `apps/desktop/scripts/ensure-electron-runtime.mjs` must install **arm64** Electron. After boot, `file` the binary under `apps/desktop/.electron-runtime/T3 Code (Dev).app` — it has to say `arm64`, not `x86_64`. If it does not, run that script and restart. `pnpm-workspace.yaml` `supportedArchitectures` includes `arm64` so native addons match.
+- Apple Silicon: a Rosetta (x86) Node still reports `x64`, and an x86 Electron then pegs the renderer at ~100% CPU. `apps/desktop/scripts/ensure-electron-runtime.mjs` must install **arm64** Electron. After boot, `file` the binary under `apps/desktop/.electron-runtime/Control Plane (Dev).app` — it has to say `arm64`, not `x86_64`. If it does not, run that script and restart. `pnpm-workspace.yaml` `supportedArchitectures` includes `arm64` so native addons match.
 - Desktop dev serves the built web client (no Vite). UI edits: rebuild `apps/web`, copy `apps/web/dist` to `apps/server/dist/client`. The desktop watcher restarts Electron when that `index.html` changes.
 - Do not set `VITE_HTTP_URL` / `VITE_WS_URL`. Do not auto-open DevTools.
 
 #### Upstream updates
 
-`origin` is this fork (`nickrroberts/t3`). `upstream` is `pingdotgg/t3code`. Git applies upstream commits that do not touch our lines automatically. We only resolve conflicts where both sides edited the same hunks.
+`origin` is this fork (`lucive-apps/control-plane`). `upstream` is `pingdotgg/t3code`. Git applies upstream commits that do not touch our lines automatically. We only resolve conflicts where both sides edited the same hunks.
 
 Pull upstream into `main` with a merge (not rebase — this is a public fork others clone):
 
