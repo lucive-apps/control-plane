@@ -14,6 +14,12 @@ This flavor of t3code includes:
 - A Cursor-style sidebar
 - Missing key bindings for things like the pull requests and usage views
 
+This flavor of T3 Code focuses on day-to-day polish. It includes:
+
+- A much cleaner interface
+- A Cursor-style sidebar
+- Missing key bindings for things like the pull requests and usage views
+
 Ship a new signed Mac build with `vp run release:fork:desktop` after loading Apple notary credentials. That bumps the patch version, notarizes, and publishes a GitHub Release. Commit the version bump with the ship.
 
 ## Run from source
