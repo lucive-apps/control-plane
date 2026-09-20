@@ -19,6 +19,7 @@ describe("appearancePreferences", () => {
       terminalFontSize: null,
       codeFontSize: null,
       codeWordBreak: false,
+      uiFont: "dm-sans",
     });
   });
 
@@ -63,6 +64,13 @@ describe("appearancePreferences", () => {
     expect(normalizeBaseFontSize(30)).toBe(22);
     expect(resolveAppearancePreferences({ codeFontSize: 4 }).codeFontSize).toBe(8);
     expect(resolveAppearancePreferences({ codeFontSize: 30 }).codeFontSize).toBe(18);
+  });
+
+  it("accepts the system UI font", () => {
+    expect(resolveAppearancePreferences({ uiFont: "system" }).uiFont).toBe("system");
+    expect(resolveAppearance(resolveAppearancePreferences({ uiFont: "system" })).uiFont).toBe(
+      "system",
+    );
   });
 
   it("steps terminal font size within bounds", () => {

@@ -2,6 +2,18 @@ import { canCreateProjectInEnvironment } from "@t3tools/client-runtime/operation
 import type { EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
 import type { EnvironmentId } from "@t3tools/contracts";
 
+let addProjectClosesSheet = false;
+
+export function setAddProjectClosesSheet(value: boolean) {
+  addProjectClosesSheet = value;
+}
+
+export function consumeAddProjectClosesSheet(): boolean {
+  const value = addProjectClosesSheet;
+  addProjectClosesSheet = false;
+  return value;
+}
+
 export function resolveAddProjectEnvironment<
   T extends {
     readonly environmentId: EnvironmentId;

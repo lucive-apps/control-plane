@@ -6,20 +6,30 @@ import {
   type TextProps as RNTextProps,
 } from "react-native";
 
+import { useUiFont } from "../features/settings/appearance/AppearancePreferencesProvider";
 import { cn } from "../lib/cn";
+import { resolveUiFontFamilies } from "../lib/uiFont";
 
 export type AppTextProps = RNTextProps & { readonly className?: string };
+
+function useSystemFontStyle(): { fontFamily: string } | undefined {
+  const uiFont = useUiFont();
+  if (uiFont !== "system") return undefined;
+  return { fontFamily: resolveUiFontFamilies("system", Platform.OS).regular };
+}
 
 /**
  * Thin wrapper around RN Text with default font-family and foreground color.
  * Uses Uniwind className — no manual style parsing.
  */
-export function AppText({ className, ...props }: AppTextProps) {
+export function AppText({ className, style, ...props }: AppTextProps) {
+  const systemFontStyle = useSystemFontStyle();
   return (
     <RNText
       className={cn("font-sans text-foreground", className)}
       selectionColorClassName={Platform.OS === "android" ? "accent-primary/32" : undefined}
       {...props}
+      style={systemFontStyle ? [systemFontStyle, style] : style}
     />
   );
 }
@@ -33,7 +43,8 @@ export type AppTextInputProps = Omit<RNTextInputProps, "placeholderTextColor"> &
  * Thin wrapper around RN TextInput with default input styling.
  * Uses Uniwind className — no manual style parsing.
  */
-export function AppTextInput({ className, ref, ...props }: AppTextInputProps) {
+export function AppTextInput({ className, ref, style, ...props }: AppTextInputProps) {
+  const systemFontStyle = useSystemFontStyle();
   return (
     <RNTextInput
       ref={ref}
@@ -50,6 +61,7 @@ export function AppTextInput({ className, ref, ...props }: AppTextInputProps) {
       }
       selectionHandleColorClassName={Platform.OS === "android" ? "accent-primary" : undefined}
       {...props}
+      style={systemFontStyle ? [systemFontStyle, style] : style}
     />
   );
 }

@@ -1,3 +1,5 @@
+export const MOBILE_APP_NAME = "Control Plane";
+
 export type MobileStageLabel = "Alpha" | "Dev" | "Nightly";
 
 export function resolveMobileStageLabel(appVariant: unknown): MobileStageLabel {

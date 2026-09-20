@@ -28,6 +28,7 @@ import { isSystemColorsAvailable, readSystemColorPalettes } from "../../../lib/m
 import { materialYouPaletteToMobileThemeVariables } from "../../../lib/materialYouTheme";
 import { getMobileThemeRuntimeVariables } from "../../../lib/mobileThemeVariables";
 import type { MobileThemeVariables } from "../../../lib/mobileTheme";
+import type { UiFont } from "../../../lib/uiFont";
 import {
   createMobileThemePairPatch,
   createMobileThemeSelectionPatch,
@@ -71,6 +72,7 @@ interface AppearancePreferencesContextValue {
   /** Pass null to clear the override and follow the base font size. */
   readonly setCodeFontSize: (value: number | null) => void;
   readonly setCodeWordBreak: (value: boolean) => void;
+  readonly setUiFont: (value: UiFont) => void;
 }
 
 const AppearancePreferencesContext = createContext<AppearancePreferencesContextValue | null>(null);
@@ -128,10 +130,17 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
   }, [themeIds, systemColorPalettes]);
   const themeVariables = themeVariablesByAppearance[themeAppearance];
   const activeThemeName = getMobileUniwindThemeName(themeId, themeAppearance);
-  const { baseFontSize, codeFontSize, codeWordBreak, terminalFontSize } = preferences;
+  const { baseFontSize, codeFontSize, codeWordBreak, terminalFontSize, uiFont } = preferences;
   const appearance = useMemo(
-    () => resolveAppearance({ baseFontSize, codeFontSize, codeWordBreak, terminalFontSize }),
-    [baseFontSize, codeFontSize, codeWordBreak, terminalFontSize],
+    () =>
+      resolveAppearance({
+        baseFontSize,
+        codeFontSize,
+        codeWordBreak,
+        terminalFontSize,
+        uiFont,
+      }),
+    [baseFontSize, codeFontSize, codeWordBreak, terminalFontSize, uiFont],
   );
   // Preference patches are optimistic. Keep controls interactive while a save is
   // in flight so rapid theme choices can supersede one another immediately.
@@ -139,10 +148,12 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
   const runtimeState = useMemo<MobileThemeRuntimeState>(
     () => ({
       baseFontSize,
+      uiFont,
+      os: Platform.OS,
       themeAppearance,
       themeMode,
     }),
-    [baseFontSize, themeAppearance, themeMode],
+    [baseFontSize, uiFont, themeAppearance, themeMode],
   );
   const appliedRuntimeStateRef = useRef<MobileThemeRuntimeState | null>(null);
   const selectedThemeIdsRef = useRef(themeIds);
@@ -272,6 +283,15 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
     [updatePreferences],
   );
 
+  const setUiFont = useCallback(
+    (value: UiFont) => {
+      const current = appliedRuntimeStateRef.current ?? runtimeState;
+      syncThemeRuntime({ ...current, uiFont: value });
+      updatePreferences({ uiFont: value });
+    },
+    [runtimeState, syncThemeRuntime, updatePreferences],
+  );
+
   const value = useMemo(
     (): AppearancePreferencesContextValue => ({
       appearance,
@@ -292,6 +312,7 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
       setTerminalFontSize,
       setCodeFontSize,
       setCodeWordBreak,
+      setUiFont,
     }),
     [
       appearance,
@@ -311,6 +332,7 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
       setTerminalFontSize,
       setCodeFontSize,
       setCodeWordBreak,
+      setUiFont,
     ],
   );
 
@@ -329,4 +351,8 @@ export function useAppearancePreferences(): AppearancePreferencesContextValue {
     throw new Error("useAppearancePreferences must be used within AppearancePreferencesProvider");
   }
   return context;
+}
+
+export function useUiFont(): UiFont {
+  return use(AppearancePreferencesContext)?.appearance.uiFont ?? "dm-sans";
 }

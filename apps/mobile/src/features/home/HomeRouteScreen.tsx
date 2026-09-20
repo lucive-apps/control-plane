@@ -1,7 +1,7 @@
 import * as Arr from "effect/Array";
 import * as Order from "effect/Order";
 import { useNavigation } from "@react-navigation/native";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Platform, useWindowDimensions } from "react-native";
 
 import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/StackHeader";
@@ -20,12 +20,13 @@ import { checkForAppUpdateOnLaunch, startAppUpdateForegroundRecheck } from "../u
 import { AndroidHomeFabLayout } from "./AndroidHomeFab";
 import { HomeScreen } from "./HomeScreen";
 import { HomeHeader } from "./HomeHeader";
+import type { HomeInboxLane } from "./HomeInbox";
+import { setAddProjectClosesSheet } from "../projects/AddProjectScreen.logic";
 import { useHomeListOptions } from "./home-list-options";
 import { useHomeThreadSelection } from "./home-thread-navigation";
 import { buildHomeProjectScopes } from "./homeThreadList";
 import { usePendingTaskListActions } from "./usePendingTaskListActions";
 import { useThreadListActions } from "./useThreadListActions";
-import { getConnectionAwareBrandHeaderOptions } from "./WorkspaceConnectionTitle";
 
 /* ─── Route screen ───────────────────────────────────────────────────── */
 
@@ -38,6 +39,7 @@ export function HomeRouteScreen() {
   const { savedConnectionsById } = useSavedRemoteConnections();
   const navigation = useNavigation();
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   const handleSelectThread = useHomeThreadSelection();
 
   useEffect(() => {
@@ -88,6 +90,12 @@ export function HomeRouteScreen() {
   } = useHomeListOptions(availableEnvironmentIds);
   const selectedEnvironmentId = listOptions.selectedEnvironmentId;
   const [selectedProjectKey, setSelectedProjectKey] = useState<string | null>(null);
+  const [inboxLane, setInboxLane] = useState<HomeInboxLane>("inbox");
+  const handleBackToInbox = useCallback(() => {
+    setInboxLane("inbox");
+    setSelectedProjectKey(null);
+  }, []);
+  const inboxDrilled = inboxLane !== "inbox" || selectedProjectKey !== null;
   const projectFilterOptions = useMemo(
     () =>
       buildHomeProjectScopes({
@@ -126,7 +134,7 @@ export function HomeRouteScreen() {
             <NativeHeaderToolbar.Button
               accessibilityLabel="New task"
               icon="square.and.pencil"
-              onPress={() => navigation.navigate("NewTaskSheet", { screen: "NewTask" })}
+              onPress={() => navigation.navigate("NewTaskSheet", { screen: "NewTaskDraft" })}
             />
           }
         />
@@ -146,7 +154,7 @@ export function HomeRouteScreen() {
           onStartNewTask={
             Platform.OS === "android" && panes.primarySidebarVisible
               ? undefined
-              : () => navigation.navigate("NewTaskSheet", { screen: "NewTask" })
+              : () => navigation.navigate("NewTaskSheet", { screen: "NewTaskDraft" })
           }
         />
       </>
@@ -155,23 +163,14 @@ export function HomeRouteScreen() {
 
   return (
     <AndroidHomeFabLayout
-      onStartNewTask={() => navigation.navigate("NewTaskSheet", { screen: "NewTask" })}
+      onStartNewTask={() => navigation.navigate("NewTaskSheet", { screen: "NewTaskDraft" })}
     >
       <>
-        {/* Restore the header after leaving split view; screen options are
-            shallow-merged. The brand slot also doubles as the connection
-            status surface while an environment reconnects. */}
+        {/* No brand title on Home. Keep the bar so iOS can host the mail
+            search toolbar and the settings item. */}
         <NativeStackScreenOptions
           optionsVersion={windowWidth}
           options={{
-            ...getConnectionAwareBrandHeaderOptions({
-              headerWidth: windowWidth,
-              onOpenEnvironments: () =>
-                navigation.navigate("SettingsSheet", {
-                  screen: "SettingsContent",
-                  params: { screen: "SettingsEnvironments" },
-                }),
-            }),
             headerShown: true,
           }}
         />
@@ -183,6 +182,15 @@ export function HomeRouteScreen() {
           selectedProjectKey={selectedProjectKey}
           projectSortOrder={listOptions.projectSortOrder}
           threadSortOrder={listOptions.threadSortOrder}
+          inboxBackTitle={
+            inboxLane === "working"
+              ? "Working"
+              : inboxLane === "attention"
+                ? "Needs Attention"
+                : (projectFilterOptions.find((project) => project.key === selectedProjectKey)
+                    ?.label ?? "")
+          }
+          onBackToInbox={inboxDrilled ? handleBackToInbox : undefined}
           onEnvironmentChange={setSelectedEnvironmentId}
           onProjectChange={setSelectedProjectKey}
           onOpenEnvironments={() =>
@@ -199,7 +207,8 @@ export function HomeRouteScreen() {
           }
           onProjectSortOrderChange={setProjectSortOrder}
           onSearchQueryChange={setSearchQuery}
-          onStartNewTask={() => navigation.navigate("NewTaskSheet", { screen: "NewTask" })}
+          onStartNewTask={() => navigation.navigate("NewTaskSheet", { screen: "NewTaskDraft" })}
+          onStartSearch={() => setSearchOpen(true)}
           onThreadSortOrderChange={setThreadSortOrder}
         />
 
@@ -232,6 +241,11 @@ export function HomeRouteScreen() {
             })
           }
           onProjectSortOrderChange={setProjectSortOrder}
+          searchOpen={searchOpen}
+          onCloseSearch={() => {
+            setSearchOpen(false);
+            setSearchQuery("");
+          }}
           onSearchQueryChange={setSearchQuery}
           onSelectThread={handleSelectThread}
           onSelectPendingTask={openPendingTask}
@@ -257,9 +271,18 @@ export function HomeRouteScreen() {
               },
             });
           }}
-          onStartNewTask={() => navigation.navigate("NewTaskSheet", { screen: "NewTask" })}
+          onAddProject={() => {
+            setAddProjectClosesSheet(true);
+            navigation.navigate("NewTaskSheet", {
+              screen: "AddProject",
+              initial: true,
+            });
+          }}
+          onStartNewTask={() => navigation.navigate("NewTaskSheet", { screen: "NewTaskDraft" })}
           onThreadSortOrderChange={setThreadSortOrder}
-          pendingTasks={pendingTasks}
+          inboxLane={inboxLane}
+          onInboxLaneChange={setInboxLane}
+          pendingTasks={pendingTasks.filter((task) => task.kind !== "draft")}
           projectGroupingMode={listOptions.projectGroupingMode}
           projects={projects}
           projectSortOrder={listOptions.projectSortOrder}

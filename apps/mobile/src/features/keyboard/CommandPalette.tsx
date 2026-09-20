@@ -162,7 +162,7 @@ export function CommandPalette(props: {
         kind: "action",
         title: "New thread in…",
         searchTerms: ["new task", "chat", "create", "project"],
-        run: () => navigation.navigate("NewTaskSheet", { screen: "NewTask" }),
+        run: () => navigation.navigate("NewTaskSheet", { screen: "NewTaskDraft" }),
       },
       {
         key: "addProject",

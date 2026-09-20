@@ -17,7 +17,7 @@ import {
   type NavigationAction,
 } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Platform, Pressable, ScrollView, View } from "react-native";
+import { Alert, Platform, Pressable, View } from "react-native";
 import {
   KeyboardController,
   KeyboardStickyView,
@@ -678,10 +678,10 @@ export function NewTaskDraftScreen(props: {
         return;
       }
 
-      if (projects.length > 0) {
-        // Never fall through to the flow provider's temporary first-project
-        // default. Return to the picker with the share id intact so the user
-        // can choose an available destination.
+      if (props.incomingShareId && projects.length > 0) {
+        // Shared content pointed at a project that is not on this device.
+        // Return to the picker with the share id intact so the user can
+        // choose an available destination.
         setIsReturningToProjectPicker(true);
       }
       return;
@@ -696,7 +696,9 @@ export function NewTaskDraftScreen(props: {
       return;
     }
 
-    navigation.dispatch(StackActions.replace("NewTask"));
+    if (projects.length === 0) {
+      navigation.dispatch(StackActions.replace("NewTask"));
+    }
   }, [
     projectScopes,
     projects,
@@ -1445,74 +1447,34 @@ export function NewTaskDraftScreen(props: {
     navigation.dispatch(StackActions.push(routeName));
   };
 
-  const hero = (
-    <View className="items-center gap-6 px-6" testID="new-task-hero">
-      <View className="w-full items-center gap-1.5">
-        <Text className="text-center text-2xl font-t3-medium tracking-tight text-foreground">
-          What should we build
-        </Text>
-        <View className="max-w-full flex-row items-center justify-center">
-          <Text className="text-2xl font-t3-medium tracking-tight text-foreground">in </Text>
-          <Pressable
-            accessibilityHint="Opens the project picker"
-            accessibilityLabel={`Change project from ${selectedProject.title}`}
-            accessibilityRole="button"
-            disabled={isComposerInteractionLocked}
-            onPress={chooseProject}
-            className="min-w-0 max-w-[250px] border-b border-foreground-muted active:opacity-65"
-          >
-            <Text
-              className="text-2xl font-t3-medium tracking-tight text-foreground"
-              numberOfLines={1}
-            >
-              {selectedProject.title}
-            </Text>
-          </Pressable>
-          <Text className="text-2xl font-t3-medium tracking-tight text-foreground">?</Text>
-        </View>
-      </View>
-
-      <ComposerInlineControl
-        accessibilityLabel={`Environment: ${selectedEnvironmentLabel}`}
-        chevronDirection="right"
-        disabled={isComposerInteractionLocked || voiceInput.isBusy}
-        iconNode={
-          <EnvironmentMachineSymbol
-            kind={resolveEnvironmentMachineKind(selectedEnvironmentServerConfig)}
-            size={16}
-            tintColorClassName="accent-icon-muted"
-          />
-        }
-        label={`on ${selectedEnvironmentLabel}`}
-        maxWidth={260}
-        onPress={
-          flow.environments.length > 1 ? () => openContextPicker("NewTaskEnvironment") : undefined
-        }
-        showChevron={flow.environments.length > 1}
-        static={flow.environments.length <= 1}
-      />
-    </View>
-  );
-  const heroViewport = (
-    <View className="flex-1" collapsable={false}>
-      <ScrollView
-        alwaysBounceVertical={isKeyboardVisible}
-        className="flex-1"
-        contentInsetAdjustmentBehavior="never"
-        contentContainerClassName="grow items-center pb-[236px] pt-12 ios:pt-[72px]"
-        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-        style={{ flex: 1 }}
-        testID="new-task-hero-scroll"
-      >
-        {hero}
-      </ScrollView>
-    </View>
-  );
-
   const workspaceControls = (
     <View className="flex-row items-center gap-1 px-2">
+      <ComposerInlineControl
+        accessibilityHint="Opens the project picker"
+        accessibilityLabel={`Project: ${selectedProject.title}`}
+        chevronDirection="down"
+        disabled={isComposerInteractionLocked}
+        label={selectedProject.title}
+        maxWidth={190}
+        onPress={chooseProject}
+      />
+      {flow.environments.length > 1 ? (
+        <ComposerInlineControl
+          accessibilityLabel={`Environment: ${selectedEnvironmentLabel}`}
+          chevronDirection="down"
+          disabled={isComposerInteractionLocked || voiceInput.isBusy}
+          iconNode={
+            <EnvironmentMachineSymbol
+              kind={resolveEnvironmentMachineKind(selectedEnvironmentServerConfig)}
+              size={16}
+              tintColorClassName="accent-icon-muted"
+            />
+          }
+          label={selectedEnvironmentLabel}
+          maxWidth={160}
+          onPress={() => openContextPicker("NewTaskEnvironment")}
+        />
+      ) : null}
       <ComposerInlineControl
         accessibilityHint={`Switches to ${flow.workspaceMode === "local" ? "a new worktree" : "the current checkout"}`}
         accessibilityLabel={workspaceLabel}
@@ -1763,7 +1725,7 @@ export function NewTaskDraftScreen(props: {
         <NativeStackScreenOptions options={{ headerShown: false }} />
         <AndroidScreenHeader title="New thread" hideBottomBorder onBack={closeNewTask} />
         <MaterialScreenContent>
-          {heroViewport}
+          <View className="flex-1" />
 
           <KeyboardStickyView
             style={{ position: "absolute", bottom: 0, left: 0, right: 0 }}
@@ -1793,7 +1755,7 @@ export function NewTaskDraftScreen(props: {
         />
       </NativeHeaderToolbar>
 
-      {heroViewport}
+      <View className="flex-1" />
       <KeyboardStickyView
         pointerEvents="box-none"
         style={{ position: "absolute", top: 0, bottom: 0, left: 0, right: 0 }}

@@ -61,3 +61,55 @@ export function createSidebarHeaderItems(input: {
     }),
   ];
 }
+
+/** Top-left Inbox back control for Working, Needs Attention, and project lists. */
+export function createHomeInboxBackHeaderItem(input: {
+  readonly onPress: () => void;
+}): NativeStackHeaderItem {
+  return withNativeGlassHeaderItem({
+    type: "button",
+    label: "",
+    accessibilityLabel: "Back to Inbox",
+    icon: sfSymbolIcon("chevron.left"),
+    onPress: input.onPress,
+  });
+}
+
+/** Home: search on the left, overflow menu (filter + settings) on the right. */
+export function createHomeListHeaderItems(input: {
+  readonly filterIcon: string;
+  readonly filterMenu: HomeListFilterMenu;
+  readonly onFocusSearch: () => void;
+  readonly onOpenSettings: () => void;
+}): NativeStackHeaderItem[] {
+  return [
+    withNativeGlassHeaderItem({
+      type: "menu",
+      label: "",
+      accessibilityLabel: "More",
+      icon: sfSymbolIcon(
+        input.filterIcon === "line.3.horizontal.decrease.circle.fill"
+          ? "ellipsis.circle.fill"
+          : "ellipsis",
+      ),
+      menu: {
+        title: "",
+        items: [
+          ...toNativeHeaderMenuItems(input.filterMenu.items),
+          {
+            type: "action",
+            label: "Settings",
+            onPress: input.onOpenSettings,
+          },
+        ],
+      },
+    }),
+    withNativeGlassHeaderItem({
+      type: "button",
+      label: "",
+      accessibilityLabel: "Search threads",
+      icon: sfSymbolIcon("magnifyingglass"),
+      onPress: input.onFocusSearch,
+    }),
+  ];
+}

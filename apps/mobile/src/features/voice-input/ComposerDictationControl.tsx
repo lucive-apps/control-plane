@@ -349,6 +349,37 @@ export function ComposerDictationStatus(props: {
   );
 }
 
+/** Compact recording chip that replaces the mic in place. Tap to stop and transcribe. */
+export function ComposerDictationStopChip(props: {
+  readonly audioLevels: SharedValue<number[]>;
+  readonly elapsedSeconds: number;
+  readonly onStop: () => void;
+}) {
+  const elapsedLabel = `${Math.floor(props.elapsedSeconds / 60)}:${String(props.elapsedSeconds % 60).padStart(2, "0")}`;
+  return (
+    <Pressable
+      accessibilityLabel="Stop dictation"
+      accessibilityRole="button"
+      className="h-9 flex-row items-center gap-2 rounded-full bg-subtle px-3 active:opacity-70"
+      onPress={props.onStop}
+    >
+      <View className="h-4 w-12 justify-center">
+        <VoiceWaveform audioLevels={props.audioLevels} />
+      </View>
+      <Text
+        className="text-xs text-foreground"
+        numberOfLines={1}
+        style={{ fontVariant: ["tabular-nums"] }}
+      >
+        {elapsedLabel}
+      </Text>
+      <View className="size-5 items-center justify-center rounded-full bg-foreground">
+        <View className="size-2 rounded-[2px] bg-sheet" />
+      </View>
+    </Pressable>
+  );
+}
+
 export function ComposerDictationCancelAction(props: {
   readonly presentation: VoiceComposerPresentation;
   readonly onCancel: () => void;

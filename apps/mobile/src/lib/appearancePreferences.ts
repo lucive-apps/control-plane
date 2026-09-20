@@ -1,4 +1,5 @@
 import { MOBILE_CODE_SURFACE, MOBILE_TYPOGRAPHY } from "./typography";
+import { normalizeUiFont, type UiFont } from "./uiFont";
 import {
   DEFAULT_TERMINAL_FONT_SIZE,
   MAX_TERMINAL_FONT_SIZE,
@@ -26,6 +27,7 @@ export interface AppearancePreferences {
   readonly terminalFontSize: number | null;
   readonly codeFontSize: number | null;
   readonly codeWordBreak: boolean;
+  readonly uiFont: UiFont;
 }
 
 /** Effective appearance values after applying base-size derivation. */
@@ -34,6 +36,7 @@ export interface ResolvedAppearance {
   readonly terminalFontSize: number;
   readonly codeFontSize: number;
   readonly codeWordBreak: boolean;
+  readonly uiFont: UiFont;
   readonly isTerminalFontSizeCustom: boolean;
   readonly isCodeFontSizeCustom: boolean;
 }
@@ -106,6 +109,7 @@ interface StoredAppearancePreferences {
   readonly terminalFontSize?: number | null | undefined;
   readonly codeFontSize?: number | null | undefined;
   readonly codeWordBreak?: boolean | null | undefined;
+  readonly uiFont?: UiFont | null | undefined;
 }
 
 export function resolveAppearancePreferences(
@@ -122,6 +126,7 @@ export function resolveAppearancePreferences(
         ? normalizeCodeFontSize(stored.codeFontSize)
         : null,
     codeWordBreak: normalizeCodeWordBreak(stored?.codeWordBreak),
+    uiFont: normalizeUiFont(stored?.uiFont),
   };
 }
 
@@ -132,6 +137,7 @@ export function resolveAppearance(preferences: AppearancePreferences): ResolvedA
       preferences.terminalFontSize ?? deriveTerminalFontSize(preferences.baseFontSize),
     codeFontSize: preferences.codeFontSize ?? deriveCodeFontSize(preferences.baseFontSize),
     codeWordBreak: preferences.codeWordBreak,
+    uiFont: preferences.uiFont,
     isTerminalFontSizeCustom: preferences.terminalFontSize !== null,
     isCodeFontSizeCustom: preferences.codeFontSize !== null,
   };

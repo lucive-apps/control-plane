@@ -25,6 +25,7 @@ import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
 import { useIncomingShare } from "../sharing/IncomingShareProvider";
 import { useNewTaskFlow } from "./new-task-flow-provider";
 import { getProjectScopeSelectionTarget } from "./new-task-project-selection";
+import { setAddProjectClosesSheet } from "../projects/AddProjectScreen.logic";
 
 type NewTaskRouteParams = {
   readonly incomingShareId?: string | string[];
@@ -116,6 +117,11 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
       ) ?? null)
     : null;
 
+  function openAddProject() {
+    setAddProjectClosesSheet(false);
+    navigation.dispatch(StackActions.push("AddProject"));
+  }
+
   async function selectProject(project: EnvironmentProject): Promise<void> {
     if (incomingShare?.destination && !reservedDestinationProject) {
       try {
@@ -195,7 +201,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                     {
                       accessibilityLabel: "Add project",
                       icon: "plus",
-                      onPress: () => navigation.dispatch(StackActions.push("AddProject")),
+                      onPress: openAddProject,
                     },
                   ]
                 : []
@@ -220,11 +226,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
               />
             ) : null}
             {catalogState.hasReadyEnvironment ? (
-              <NativeHeaderToolbar.Button
-                icon="plus"
-                onPress={() => navigation.dispatch(StackActions.push("AddProject"))}
-                separateBackground
-              />
+              <NativeHeaderToolbar.Button icon="plus" onPress={openAddProject} separateBackground />
             ) : null}
           </NativeHeaderToolbar>
         </>
@@ -268,7 +270,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                   tone="primary"
                   onPress={() =>
                     catalogState.hasReadyEnvironment
-                      ? navigation.dispatch(StackActions.push("AddProject"))
+                      ? openAddProject()
                       : navigation.navigate("ConnectionsNew")
                   }
                 />
@@ -284,7 +286,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
               ) : (
                 <Pressable
                   className="mt-1 rounded-full bg-primary px-4 py-2.5 active:opacity-70"
-                  onPress={() => navigation.dispatch(StackActions.push("AddProject"))}
+                  onPress={openAddProject}
                 >
                   <Text className="text-sm font-t3-bold text-primary-foreground">
                     Add new project

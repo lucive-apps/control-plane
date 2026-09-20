@@ -738,7 +738,7 @@ function ThreadRouteContent(
         accessibilityLabel: "New task",
         icon: { name: "square.and.pencil", type: "sfSymbol" as const },
         identifier: "thread-left-new-task",
-        onPress: () => navigation.navigate("NewTaskSheet", { screen: "NewTask" }),
+        onPress: () => navigation.navigate("NewTaskSheet", { screen: "NewTaskDraft" }),
         type: "button" as const,
       }),
     ],

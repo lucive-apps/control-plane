@@ -4,7 +4,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { MenuAction } from "@react-native-menu/menu";
 
 import { AndroidHeaderIconButton } from "../../components/AndroidScreenHeader";
-import { CompactBrandTitle } from "../../components/CompactBrandTitle";
 import { MaterialFloatingActionButton } from "../../components/MaterialFloatingActionButton";
 import { AndroidAnchoredMenu } from "../../components/AndroidAnchoredMenu";
 import { ControlPillMenu } from "../../components/ControlPill";
@@ -23,6 +22,7 @@ export function MaterialThreadListToolbar(props: {
   readonly onFilterAction: NonNullable<ComponentProps<typeof ControlPillMenu>["onPressAction"]>;
   readonly onOpenSettings: () => void;
   readonly onOpenEnvironments: () => void;
+  readonly onBack?: () => void;
   readonly sidebar?: boolean;
   readonly onLayout?: (event: LayoutChangeEvent) => void;
   readonly onRequestVisibility?: () => void;
@@ -94,13 +94,16 @@ export function MaterialThreadListToolbar(props: {
             </>
           ) : (
             <>
-              {/* Match the visible inset of the trailing 48dp icon button. */}
-              <View className="min-w-0 flex-1 pl-4">
-                <WorkspaceConnectionTitle
-                  grow
-                  onPress={props.onOpenEnvironments}
-                  brand={<CompactBrandTitle allowFontScaling={false} />}
+              {props.onBack ? (
+                <AndroidHeaderIconButton
+                  accessibilityLabel="Back to Inbox"
+                  icon="chevron.left"
+                  onPress={props.onBack}
                 />
+              ) : null}
+              {/* Match the visible inset of the trailing 48dp icon button. */}
+              <View className={props.onBack ? "min-w-0 flex-1" : "min-w-0 flex-1 pl-4"}>
+                <WorkspaceConnectionTitle grow onPress={props.onOpenEnvironments} brand={null} />
               </View>
               <AndroidHeaderIconButton
                 accessibilityLabel="Search threads"
