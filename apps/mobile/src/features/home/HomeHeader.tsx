@@ -44,6 +44,7 @@ export function HomeHeader(props: {
   readonly onOpenSettings: () => void;
   readonly onStartNewTask: () => void;
   readonly onStartSearch: () => void;
+  readonly searchOpen?: boolean;
   readonly onBackToInbox?: () => void;
   readonly inboxBackTitle?: string;
 }) {
@@ -226,11 +227,13 @@ function IosHomeHeader(props: HomeHeaderProps) {
 
   const backTitle = props.inboxBackTitle ?? "";
   const showBack = props.onBackToInbox !== undefined;
+  const searchOpen = props.searchOpen === true;
 
   return (
     <NativeStackScreenOptions
-      optionsVersion={[filterMenu.items, showBack, backTitle]}
+      optionsVersion={[filterMenu.items, showBack, backTitle, searchOpen]}
       options={{
+        headerShown: !searchOpen,
         headerTintColor: iconColor,
         headerBackVisible: false,
         headerTitle: showBack && backTitle.length > 0 ? backTitle : () => null,

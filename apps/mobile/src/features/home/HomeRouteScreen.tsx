@@ -169,9 +169,9 @@ export function HomeRouteScreen() {
         {/* No brand title on Home. Keep the bar so iOS can host the mail
             search toolbar and the settings item. */}
         <NativeStackScreenOptions
-          optionsVersion={windowWidth}
+          optionsVersion={`${windowWidth}:${searchOpen ? "search" : "header"}`}
           options={{
-            headerShown: true,
+            headerShown: !searchOpen,
           }}
         />
         <HomeHeader
@@ -209,6 +209,7 @@ export function HomeRouteScreen() {
           onSearchQueryChange={setSearchQuery}
           onStartNewTask={() => navigation.navigate("NewTaskSheet", { screen: "NewTaskDraft" })}
           onStartSearch={() => setSearchOpen(true)}
+          searchOpen={searchOpen}
           onThreadSortOrderChange={setThreadSortOrder}
         />
 

@@ -38,6 +38,7 @@ export function HomeInbox(props: {
   readonly onOpenAttention: () => void;
   readonly onOpenProject: (projectKey: string) => void;
   readonly onAddProject: () => void;
+  readonly nativeHeaderHidden?: boolean;
 }) {
   const insets = useSafeAreaInsets();
   let workingCount = 0;
@@ -54,7 +55,11 @@ export function HomeInbox(props: {
         contentContainerStyle={{
           paddingBottom: Math.max(insets.bottom, 12) + (props.showComposer ? 88 : 24),
           paddingHorizontal: HOME_HORIZONTAL_INSET,
-          paddingTop: NATIVE_LIQUID_GLASS_SUPPORTED ? insets.top + 56 : 16,
+          paddingTop: props.nativeHeaderHidden
+            ? 12
+            : NATIVE_LIQUID_GLASS_SUPPORTED
+              ? insets.top + 56
+              : 16,
         }}
         keyboardShouldPersistTaps="handled"
       >

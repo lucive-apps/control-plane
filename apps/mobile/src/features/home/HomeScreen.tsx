@@ -1153,6 +1153,7 @@ export function HomeScreen(props: HomeScreenProps) {
           projects={projectScopes.map((scope) => ({ key: scope.key, title: scope.title }))}
           showComposer
           threads={props.threads}
+          nativeHeaderHidden={props.searchOpen}
           onAddProject={props.onAddProject}
           onOpenAttention={() => props.onInboxLaneChange("attention")}
           onOpenProject={props.onProjectChange}
@@ -1242,8 +1243,10 @@ export function HomeScreen(props: HomeScreenProps) {
       />
     ) : selectedProjectScope !== null ? (
       <EmptyState
-        title={`No threads in ${selectedProjectScope.title}`}
-        detail="Choose another project or create a new task."
+        title={`No tasks in ${selectedProjectScope.title}`}
+        detail="Create a task to start working in this project."
+        actionLabel="Create task"
+        onAction={() => props.onNewThreadInProject(selectedProjectScope.representative)}
         variant={Platform.OS === "android" ? "plain" : undefined}
       />
     ) : selectedEnvironmentLabel ? (
@@ -1283,8 +1286,10 @@ export function HomeScreen(props: HomeScreenProps) {
       />
     ) : v2ScopedProjectGroup !== null ? (
       <EmptyState
-        title={`No threads in ${v2ScopedProjectGroup.title}`}
-        detail="Choose another project or create a new task."
+        title={`No tasks in ${v2ScopedProjectGroup.title}`}
+        detail="Create a task to start working in this project."
+        actionLabel="Create task"
+        onAction={() => props.onNewThreadInProject(v2ScopedProjectGroup.representative)}
         variant={Platform.OS === "android" ? "plain" : undefined}
       />
     ) : (
@@ -1441,11 +1446,12 @@ function HomeSearchField(props: {
   readonly onChange: (query: string) => void;
   readonly onClose: () => void;
 }) {
+  const insets = useSafeAreaInsets();
   return (
-    <View className="flex-row items-center gap-3 px-4 pb-2 pt-1">
+    <View className="flex-row items-center gap-3 px-4 pb-2" style={{ paddingTop: insets.top + 8 }}>
       <AppTextInput
         autoFocus
-        className="min-h-11 flex-1 rounded-full px-4 py-2"
+        className="min-h-11 flex-1 rounded-full bg-card px-4 py-2"
         onChangeText={props.onChange}
         placeholder="Search"
         returnKeyType="search"
