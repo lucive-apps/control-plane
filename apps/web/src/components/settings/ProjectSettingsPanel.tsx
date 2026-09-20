@@ -13,9 +13,9 @@ import * as Cause from "effect/Cause";
 import { Trash2Icon } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { useComposerDraftStore } from "../../composerDraftStore";
-import { releaseProjectDraftUploads } from "../../lib/composerDraftUploads";
+import { clearRemovedProjectLocalState } from "../../lib/composerDraftUploads";
 import { readLocalApi } from "../../localApi";
+import { buildRemoveProjectConfirmMessage } from "../sidebarProjectActions.logic";
 import {
   type SidebarProjectGroupMember,
   type SidebarProjectSnapshot,
@@ -302,39 +302,20 @@ function ProjectDetail({
         memberKeys.has(`${thread.environmentId}:${thread.projectId}`),
       );
       const isWholeGroup = members.length === group.memberProjects.length;
-      const targetKind = hasOtherMembers || !isWholeGroup ? "checkout" : "project";
-      const singleMember = members.length === 1 ? members[0]! : null;
-      const targetLabel = singleMember?.title ?? group.displayName;
       const confirmed = await settlePromise(() =>
         api.dialogs.confirm(
-          [
-            projectThreads.length > 0
-              ? `Remove ${targetKind} "${targetLabel}" and delete its ${projectThreads.length} thread${projectThreads.length === 1 ? "" : "s"}?`
-              : `Remove ${targetKind} "${targetLabel}"?`,
-            ...(singleMember
-              ? [
-                  `Path: ${singleMember.workspaceRoot}`,
-                  ...(singleMember.environmentLabel
-                    ? [`Environment: ${singleMember.environmentLabel}`]
-                    : []),
-                ]
-              : [`This removes ${members.length} grouped project entries.`]),
-            ...(projectThreads.length > 0
-              ? [
-                  "This permanently clears conversation history for those threads and any archived threads.",
-                ]
-              : ["This permanently clears any archived conversation history."]),
-            isWholeGroup && !hasOtherMembers
-              ? "This removes only the project entries, not the files on disk."
-              : "Other entries in this grouped project are unaffected.",
-            "This action cannot be undone.",
-          ].join("\n"),
+          buildRemoveProjectConfirmMessage({
+            members,
+            groupDisplayName: group.displayName,
+            groupMemberCount: group.memberProjects.length,
+            threadCount: projectThreads.length,
+            hasOtherMembers,
+          }),
           { variant: "destructive" },
         ),
       );
       if (confirmed._tag === "Failure" || !confirmed.value) return;
 
-      const draftStore = useComposerDraftStore.getState();
       for (const member of members) {
         const memberThreads = projectThreads.filter(
           (thread) =>
@@ -354,16 +335,10 @@ function ProjectDetail({
           reportFailure(`Failed to remove "${member.title}"`, result);
           return;
         }
-        const projectRef = scopeProjectRef(member.environmentId, member.id);
-        releaseProjectDraftUploads(
-          projectRef,
+        clearRemovedProjectLocalState(
+          scopeProjectRef(member.environmentId, member.id),
           memberThreads.map((thread) => scopeThreadRef(thread.environmentId, thread.id)),
         );
-        const projectDraftThread = draftStore.getDraftThreadByProjectRef(projectRef);
-        if (projectDraftThread) {
-          draftStore.clearDraftThread(projectDraftThread.draftId);
-        }
-        draftStore.clearProjectDraftThreadId(projectRef);
       }
 
       if (isWholeGroup && !hasOtherMembers) {

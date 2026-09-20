@@ -38,3 +38,17 @@ export function releaseProjectDraftUploads(
     }
   }
 }
+
+/** Drop local drafts after a project entry is deleted from this client. */
+export function clearRemovedProjectLocalState(
+  projectRef: ScopedProjectRef,
+  projectThreadRefs: ReadonlyArray<ScopedThreadRef> = [],
+): void {
+  const store = useComposerDraftStore.getState();
+  releaseProjectDraftUploads(projectRef, projectThreadRefs);
+  const projectDraftThread = store.getDraftThreadByProjectRef(projectRef);
+  if (projectDraftThread) {
+    store.clearDraftThread(projectDraftThread.draftId);
+  }
+  store.clearProjectDraftThreadId(projectRef);
+}

@@ -102,7 +102,10 @@ import { isModelPickerOpen } from "../modelPickerVisibility";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { isMacPlatform } from "~/lib/utils";
 import { useOpenPrLink } from "../lib/openPullRequestLink";
-import { releaseComposerDraftUploads } from "../lib/composerDraftUploads";
+import {
+  clearRemovedProjectLocalState,
+  releaseComposerDraftUploads,
+} from "../lib/composerDraftUploads";
 import { readLocalApi } from "../localApi";
 import {
   isSameSidebarThreadRef,
@@ -111,6 +114,7 @@ import {
 import { getProjectOrderKey, selectProjectGroupingSettings } from "../logicalProject";
 import {
   buildSidebarProjectSnapshots,
+  type SidebarProjectGroupMember,
   type SidebarProjectSnapshot,
 } from "../sidebarProjectGrouping";
 import {
@@ -141,8 +145,9 @@ import {
   useThreadShells,
 } from "../state/entities";
 import { environmentServerConfigsAtom, primaryServerKeybindingsAtom } from "../state/server";
-import { vcsEnvironment } from "../state/vcs";
+import { projectEnvironment } from "../state/projects";
 import { threadEnvironment } from "../state/threads";
+import { vcsEnvironment } from "../state/vcs";
 import { useEnvironmentQuery } from "../state/query";
 import { useAtomCommand } from "../state/use-atom-command";
 import {
@@ -155,6 +160,12 @@ import type { SidebarThreadSummary } from "../types";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { cn } from "~/lib/utils";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
+import {
+  buildProjectFolderActionMenuItems,
+  buildRemoveProjectConfirmMessage,
+  resolveProjectFolderMenuAction,
+  routeBelongsToProjectMembers,
+} from "./sidebarProjectActions.logic";
 import { buildThreadActionMenuItems } from "./threadActionMenu.logic";
 import {
   animateSidebarLayoutChanges,
@@ -2230,6 +2241,7 @@ const SidebarProjectFolderBlock = memo(function SidebarProjectFolderBlock({
   sortable = false,
   consumeToggleSuppression,
   onNewThreadInProject,
+  onProjectContextMenu,
   children,
 }: {
   project: SidebarProjectSnapshot | null;
@@ -2239,6 +2251,10 @@ const SidebarProjectFolderBlock = memo(function SidebarProjectFolderBlock({
   sortable?: boolean;
   consumeToggleSuppression?: () => boolean;
   onNewThreadInProject?: (project: SidebarProjectSnapshot) => void;
+  onProjectContextMenu?: (
+    project: SidebarProjectSnapshot,
+    position: { x: number; y: number },
+  ) => void;
   children: ReactNode;
 }) {
   const preferenceKeys = useMemo(
@@ -2282,6 +2298,15 @@ const SidebarProjectFolderBlock = memo(function SidebarProjectFolderBlock({
           sortable && "cursor-grab active:cursor-grabbing",
         )}
         {...(sortable ? listeners : undefined)}
+        onContextMenu={
+          project !== null && onProjectContextMenu !== undefined
+            ? (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onProjectContextMenu(project, { x: event.clientX, y: event.clientY });
+              }
+            : undefined
+        }
       >
         <button
           type="button"
@@ -2378,6 +2403,9 @@ export default function Sidebar() {
     deleteThread,
   } = useThreadActions();
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
+    reportFailure: false,
+  });
+  const deleteProject = useAtomCommand(projectEnvironment.delete, {
     reportFailure: false,
   });
   const { copyToClipboard: copyPathToClipboard } = useCopyToClipboard<{ path: string }>({
@@ -4585,6 +4613,128 @@ export default function Sidebar() {
     suppressFolderToggleRef.current = false;
     return true;
   }, []);
+  const handleRemoveProjectMembers = useCallback(
+    async (project: SidebarProjectSnapshot, members: readonly SidebarProjectGroupMember[]) => {
+      const api = readLocalApi();
+      if (!api || members.length === 0) return;
+
+      const memberKeys = new Set(members.map((member) => `${member.environmentId}:${member.id}`));
+      const projectThreads = threads.filter((thread) =>
+        memberKeys.has(`${thread.environmentId}:${thread.projectId}`),
+      );
+      const confirmed = await settlePromise(() =>
+        api.dialogs.confirm(
+          buildRemoveProjectConfirmMessage({
+            members,
+            groupDisplayName: project.displayName,
+            groupMemberCount: project.memberProjects.length,
+            threadCount: projectThreads.length,
+            hasOtherMembers: false,
+          }),
+          { variant: "destructive" },
+        ),
+      );
+      if (confirmed._tag === "Failure" || !confirmed.value) return;
+
+      const routeThread =
+        routeThreadRef === null
+          ? null
+          : (readThreadShell(routeThreadRef) ??
+            threads.find(
+              (thread) =>
+                thread.environmentId === routeThreadRef.environmentId &&
+                thread.id === routeThreadRef.threadId,
+            ) ??
+            null);
+      const leaveRoute = routeBelongsToProjectMembers({
+        members,
+        routeThread,
+        routeDraft: routeDraftThread,
+      });
+
+      for (const member of members) {
+        const memberThreads = projectThreads.filter(
+          (thread) =>
+            thread.environmentId === member.environmentId && thread.projectId === member.id,
+        );
+        const result = await deleteProject({
+          environmentId: member.environmentId,
+          input: {
+            projectId: member.id,
+            force: true,
+          },
+        });
+        if (result._tag === "Failure") {
+          if (!isAtomCommandInterrupted(result)) {
+            const error = squashAtomCommandFailure(result);
+            toastManager.add(
+              stackedThreadToast({
+                type: "error",
+                title: `Failed to remove "${member.title}"`,
+                description: error instanceof Error ? error.message : "An error occurred.",
+              }),
+            );
+          }
+          return;
+        }
+        clearRemovedProjectLocalState(
+          scopeProjectRef(member.environmentId, member.id),
+          memberThreads.map((thread) => scopeThreadRef(thread.environmentId, thread.id)),
+        );
+      }
+
+      if (
+        projectScopeKey === project.projectKey &&
+        members.length === project.memberProjects.length
+      ) {
+        setProjectScopeKey(null);
+      }
+      if (leaveRoute) {
+        void router.navigate({ to: "/", replace: true });
+      }
+    },
+    [
+      deleteProject,
+      projectScopeKey,
+      routeDraftThread,
+      routeThreadRef,
+      router,
+      setProjectScopeKey,
+      threads,
+    ],
+  );
+  const handleProjectFolderContextMenu = useCallback(
+    (project: SidebarProjectSnapshot, position: { x: number; y: number }) => {
+      suppressFolderToggleRef.current = true;
+      window.setTimeout(() => {
+        suppressFolderToggleRef.current = false;
+      }, 400);
+      void (async () => {
+        const api = readLocalApi();
+        if (!api) return;
+        const clicked = await settlePromise(() =>
+          api.contextMenu.show(buildProjectFolderActionMenuItems(project), position),
+        );
+        if (clicked._tag === "Failure" || clicked.value === null) return;
+        const action = resolveProjectFolderMenuAction(project, clicked.value);
+        if (action === null) return;
+        switch (action.kind) {
+          case "project-settings":
+            openProjectSettings(project);
+            return;
+          case "copy-path":
+            copyPathToClipboard(action.member.workspaceRoot, {
+              path: action.member.workspaceRoot,
+            });
+            return;
+          case "delete":
+            await handleRemoveProjectMembers(project, action.members);
+            return;
+        }
+      })();
+    },
+    [copyPathToClipboard, handleRemoveProjectMembers, openProjectSettings],
+  );
   const folderCollisionDetection = useCallback<CollisionDetection>((args) => {
     const pointerCollisions = pointerWithin(args);
     if (pointerCollisions.length > 0) return pointerCollisions;
@@ -4978,6 +5128,7 @@ export default function Sidebar() {
                             onNewThreadInProject={
                               settledViewOpen ? undefined : handleNewThreadInProject
                             }
+                            onProjectContextMenu={handleProjectFolderContextMenu}
                           >
                             {folder.entries.map((entry) =>
                               renderThreadRow(entry.thread, entry.section),
