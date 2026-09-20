@@ -25,6 +25,13 @@ in a new thread's model picker to add or remove them. A regular click returns to
 single model. Choose a base branch and send. Each selection starts a separate thread
 and worktree while you stay in the new thread composer. This requires a Git project.
 
+## Remove a project
+
+On web and desktop, right-click a project folder in the sidebar and choose **Remove**.
+This deletes the project entry and its threads. Files on disk stay. Grouped checkouts
+show one Remove item per machine. You can also remove a project from
+[Project settings](./project-settings.md).
+
 ## Pin and reorder threads
 
 Pin a thread from its menu to keep it above your active work.
