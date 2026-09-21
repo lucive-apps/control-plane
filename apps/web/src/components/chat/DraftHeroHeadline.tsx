@@ -234,5 +234,5 @@ export function DraftHeroHeadline({
     </button>
   );
 
-  return <div className="flex justify-center">{projectSelector}</div>;
+  return <div className="flex justify-start">{projectSelector}</div>;
 }
