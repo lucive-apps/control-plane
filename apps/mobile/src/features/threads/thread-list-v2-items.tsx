@@ -89,6 +89,8 @@ function ThreadListV2Section(props: {
   readonly label: string;
   readonly pane?: "screen" | "sidebar";
   readonly tone?: "default" | "snoozed";
+  /** Full-width hairline after the label. Off for shelf headers (label + chevron). */
+  readonly showRule?: boolean;
   readonly disclosure?: {
     readonly expanded: boolean;
     readonly disabled?: boolean;
@@ -98,8 +100,10 @@ function ThreadListV2Section(props: {
   };
 }) {
   const snoozed = props.tone === "snoozed";
+  const showRule = props.showRule !== false;
   const className = cn(
-    "mb-1.5 mt-4 flex-row items-center gap-2.5",
+    "mb-1.5 mt-4 flex-row items-center",
+    showRule ? "gap-2.5" : "gap-1",
     props.pane === "sidebar" ? "px-3" : "px-5",
   );
   const content = (
@@ -112,7 +116,9 @@ function ThreadListV2Section(props: {
       >
         {props.label}
       </Text>
-      <View className={cn("h-px flex-1", snoozed ? "bg-primary/20" : "bg-border")} />
+      {showRule ? (
+        <View className={cn("h-px flex-1", snoozed ? "bg-primary/20" : "bg-border")} />
+      ) : null}
       {props.disclosure ? (
         <SymbolView
           name="chevron.down"
@@ -168,8 +174,9 @@ function ThreadListV2ShelfHeader(
   const label = props.kind === "snoozed" ? "Snoozed" : "Settled";
   return (
     <ThreadListV2Section
-      label={props.expanded ? label : `${label} (${props.count})`}
+      label={label}
       pane={props.pane}
+      showRule={false}
       tone={props.kind === "snoozed" ? "snoozed" : "default"}
       disclosure={{
         expanded: props.expanded,
@@ -238,8 +245,6 @@ export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props
   readonly pane?: "screen" | "sidebar";
   /** Draws the "Unsent" divider above the first draft or queued row. */
   readonly showPendingDivider: boolean;
-  /** Keeps row hairlines inside a section; section headers draw their own rule. */
-  readonly showTrailingDivider?: boolean;
   readonly onSelectPendingTask: (pendingTask: PendingNewTask) => void;
   readonly onDeletePendingTask: (pendingTask: PendingNewTask) => void;
 }) {
@@ -311,12 +316,7 @@ export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props
           {sidebarPane ? (
             rowContent
           ) : (
-            <View>
-              <View className="min-h-[68px] justify-center px-5 py-4">{rowContent}</View>
-              {props.showTrailingDivider !== false ? (
-                <View className="ml-5 h-px bg-border-subtle" />
-              ) : null}
-            </View>
+            <View className="min-h-[68px] justify-center px-5 py-4">{rowContent}</View>
           )}
         </RowPressable>
       </ControlPillMenu>
@@ -351,13 +351,11 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       the label is null. */
   readonly environmentMachine?: EnvironmentMachineKind;
   /** Hosting surface. "screen" (default) renders the compact Home idiom:
-      flat edge-to-edge rows on the screen background with inset hairlines.
+      flat edge-to-edge rows on the screen background.
       "sidebar" renders the iPad split-view idiom: rounded rows blending
-      into the drawer surface, selection filled with the accent color —
+      into the drawer surface, selection filled with the accent color,
       matching the v1 sidebar rows. */
   readonly pane?: "screen" | "sidebar";
-  /** Keeps row hairlines inside a section; section headers draw their own rule. */
-  readonly showTrailingDivider?: boolean;
   /** Highlights the thread open in the detail pane (iPad split view). The
       compact Home list never sets it — phones navigate away on select. */
   readonly selected?: boolean;
@@ -791,23 +789,17 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         {sidebarPane ? (
           cardContent
         ) : (
-          /* Flat native list rows: no tonal containers — colored status
-             labels and text hierarchy carry state, an inset hairline
-             separates rows. The opaque screen background stays so swipe
-             actions reveal behind the row. */
-          <View>
-            <View
-              className={
-                Platform.OS === "android"
-                  ? "min-h-[68px] justify-center px-3 py-4"
-                  : "min-h-[68px] justify-center px-5 py-4"
-              }
-            >
-              {cardContent}
-            </View>
-            {Platform.OS !== "android" && props.showTrailingDivider !== false ? (
-              <View className="ml-5 h-px bg-border-subtle" />
-            ) : null}
+          /* Flat native list rows: no tonal containers. Colored status
+             labels and text hierarchy carry state. The opaque screen
+             background stays so swipe actions reveal behind the row. */
+          <View
+            className={
+              Platform.OS === "android"
+                ? "min-h-[68px] justify-center px-3 py-4"
+                : "min-h-[68px] justify-center px-5 py-4"
+            }
+          >
+            {cardContent}
           </View>
         )}
       </RowPressable>
