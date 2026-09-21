@@ -20,6 +20,7 @@ import {
   forkDesktopReleaseAssetNames,
   resolveNextForkDesktopVersion,
 } from "./fork-desktop-version.ts";
+import { FORK_APP_BASE_NAME } from "./lib/fork-identity.ts";
 import { updateReleasePackageVersions } from "./update-release-package-versions.ts";
 
 const REPO_ROOT = NodePath.dirname(NodePath.dirname(NodeURL.fileURLToPath(import.meta.url)));
@@ -289,7 +290,8 @@ export const releaseForkDesktopCommand = Command.make(
       }
 
       const exists = yield* releaseExists(repo, nextVersion, repoRoot);
-      const releaseNotes = Option.getOrUndefined(notes)?.trim() || `T3 Code ${nextVersion}`;
+      const releaseNotes =
+        Option.getOrUndefined(notes)?.trim() || `${FORK_APP_BASE_NAME} ${nextVersion}`;
       const targetSha = (yield* readCommandStdout("git", ["rev-parse", "HEAD"], repoRoot)).trim();
       if (exists) {
         yield* runInheritedCommand(
@@ -310,7 +312,7 @@ export const releaseForkDesktopCommand = Command.make(
             "--target",
             targetSha,
             "--title",
-            `T3 Code ${nextVersion}`,
+            `${FORK_APP_BASE_NAME} ${nextVersion}`,
             "--notes",
             releaseNotes,
             ...artifacts,
