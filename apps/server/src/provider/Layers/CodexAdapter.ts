@@ -755,6 +755,17 @@ function itemTitle(
       return "File change";
     case "mcp_tool_call":
       return "MCP tool call";
+    case "collab_agent_tool_call":
+      if (item?.type === "collabAgentToolCall") {
+        if (
+          item.tool === "sendMessage" ||
+          item.tool === "sendInput" ||
+          item.tool === "followupTask"
+        ) {
+          return "messaged agent";
+        }
+      }
+      return undefined;
     case "dynamic_tool_call":
       return "Tool call";
     case "web_search":

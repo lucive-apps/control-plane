@@ -1,4 +1,7 @@
 import {
+  agentMessageDisplayName,
+  agentMessageToolLabel,
+  agentThreadNameFromUnknown,
   isToolLifecycleItemType,
   type AssetResource,
   type RuntimeItemStatus,
@@ -90,7 +93,7 @@ const T3_MCP_TOOL_LABELS: Record<
   t3_thread_start: ["Start", "Starting", "Started", "a T3 thread"],
   t3_thread_list: ["List", "Listing", "Listed", "T3 threads"],
   t3_thread_read: ["Read", "Reading", "Read", "a T3 thread"],
-  t3_thread_send: ["Send", "Sending", "Sent", "to a T3 thread"],
+  t3_thread_send: ["Message", "Messaging", "Messaged", "agent"],
   t3_thread_wait: ["Wait", "Waiting", "Waited", "for a T3 thread"],
   t3_thread_interrupt: ["Interrupt", "Interrupting", "Interrupted", "a T3 thread"],
   t3_worktree_handoff: ["Hand off", "Handing off", "Handed off", "thread to a git worktree"],
@@ -161,6 +164,22 @@ function resolveT3McpToolPresentation(
   const payload = asRecord(data);
   const input =
     asRecord(payload?.arguments) ?? asRecord(payload?.input) ?? asRecord(payload?.rawInput);
+  if (name === "t3_thread_send") {
+    const threadTitle = agentThreadNameFromUnknown(data);
+    const source = { kind: "agent" as const, ...(threadTitle ? { threadTitle } : {}) };
+    const peer = agentMessageDisplayName(source);
+    const displayName =
+      status === "inProgress"
+        ? `messaging ${peer}`
+        : status === "failed"
+          ? `Failed to message ${peer}`
+          : status === "declined"
+            ? `Declined to message ${peer}`
+            : status === "stopped"
+              ? `Stopped messaging ${peer}`
+              : agentMessageToolLabel(source);
+    return { displayName, icon: "t3-code" as const };
+  }
   const urlTarget = typeof input?.url === "string" ? parseChangeRequestUrl(input.url) : null;
   const number = urlTarget?.number ?? input?.number;
   const target =

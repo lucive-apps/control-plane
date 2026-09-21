@@ -26,6 +26,11 @@ import {
   OrchestrationThreadShell,
   ProjectCreateCommand,
   OrchestrationMessage,
+  agentMessageDisplayName,
+  agentMessageToolLabel,
+  agentThreadNameFromUnknown,
+  isAgentOriginatedUserMessage,
+  isOpaqueThreadId,
   ThreadMessageSentPayload,
   ThreadMetaUpdatedPayload,
   ThreadLinkedPullRequest,
@@ -320,6 +325,86 @@ it.effect("accepts inline images, uploaded images, and uploaded files from clien
 // Attachments ride on persisted events and thread streams with no client
 // version negotiation. A type this build does not know must decode instead of
 // failing the whole message.
+it("labels agent messages with a thread title, never a thread id", () => {
+  assert.equal(isOpaqueThreadId("5f13b410-5497-44d6-af9c-6bfad3804593"), true);
+  assert.equal(isOpaqueThreadId("Coordinator"), false);
+  assert.equal(
+    agentMessageDisplayName({ kind: "agent", threadTitle: "Coordinator" }),
+    "Coordinator",
+  );
+  assert.equal(
+    agentMessageDisplayName({
+      kind: "agent",
+      threadId: ThreadId.make("5f13b410-5497-44d6-af9c-6bfad3804593"),
+      threadTitle: "5f13b410-5497-44d6-af9c-6bfad3804593",
+    }),
+    "agent",
+  );
+  assert.equal(
+    agentMessageToolLabel({ kind: "agent", threadTitle: "Coordinator" }),
+    "messaged Coordinator",
+  );
+  assert.equal(
+    agentMessageToolLabel({ kind: "agent", threadTitle: "Coordinator" }, "inProgress"),
+    "messaging Coordinator",
+  );
+  assert.equal(isAgentOriginatedUserMessage({ role: "user", source: { kind: "agent" } }), true);
+  assert.equal(isAgentOriginatedUserMessage({ role: "user" }), false);
+  assert.equal(
+    agentThreadNameFromUnknown({
+      arguments: {
+        threadTitle: "weekly-daily-plan",
+        threadId: "5f13b410-5497-44d6-af9c-6bfad3804593",
+      },
+    }),
+    "weekly-daily-plan",
+  );
+  assert.equal(
+    agentThreadNameFromUnknown({ rawInput: { threadId: "5f13b410-5497-44d6-af9c-6bfad3804593" } }),
+    undefined,
+  );
+});
+
+it.effect("decodes an agent message source on persisted messages and turn starts", () =>
+  Effect.gen(function* () {
+    const source = { kind: "agent" as const, threadTitle: "Coordinator", threadId: "sender-1" };
+    const message = yield* decodeOrchestrationMessage({
+      id: "message-1",
+      role: "user",
+      text: "Scheduled specialist results are ready.",
+      source,
+      turnId: null,
+      streaming: false,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    assert.deepStrictEqual(message.source, {
+      kind: "agent",
+      threadTitle: "Coordinator",
+      threadId: "sender-1",
+    });
+
+    const command = yield* decodeThreadTurnStartCommand({
+      type: "thread.turn.start",
+      commandId: "cmd-turn-1",
+      threadId: "thread-1",
+      message: {
+        messageId: "msg-1",
+        role: "user",
+        text: "hello from coordinator",
+        attachments: [],
+        source,
+      },
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    assert.deepStrictEqual(command.message.source, {
+      kind: "agent",
+      threadTitle: "Coordinator",
+      threadId: "sender-1",
+    });
+  }),
+);
+
 it.effect("tolerates attachment types from newer builds when decoding messages", () =>
   Effect.gen(function* () {
     const futureAttachment = {

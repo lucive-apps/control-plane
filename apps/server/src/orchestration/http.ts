@@ -2,6 +2,7 @@ import {
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
   EnvironmentHttpApi,
+  type OrchestrationCommand,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -19,6 +20,19 @@ import {
 import * as ProjectCloneTracker from "../project/ProjectCloneTracker.ts";
 import { OrchestrationEngineService } from "./Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "./Services/ProjectionSnapshotQuery.ts";
+
+function withHttpAgentMessageSource(command: OrchestrationCommand): OrchestrationCommand {
+  if (command.type !== "thread.turn.start" || command.message.source !== undefined) {
+    return command;
+  }
+  return {
+    ...command,
+    message: {
+      ...command.message,
+      source: { kind: "agent" },
+    },
+  };
+}
 
 export const orchestrationHttpApiLayer = HttpApiBuilder.group(
   EnvironmentHttpApi,
@@ -106,8 +120,10 @@ export const orchestrationHttpApiLayer = HttpApiBuilder.group(
               failEnvironmentInternal("orchestration_dispatch_failed", cause),
             ),
           );
-          const normalizedCommand = yield* normalizeDispatchCommand(args.payload).pipe(
-            Effect.catch(() => failEnvironmentInvalidRequest("invalid_command")),
+          const normalizedCommand = withHttpAgentMessageSource(
+            yield* normalizeDispatchCommand(args.payload).pipe(
+              Effect.catch(() => failEnvironmentInvalidRequest("invalid_command")),
+            ),
           );
           const result = yield* orchestrationEngine.dispatch(normalizedCommand).pipe(
             Effect.tapError(() =>

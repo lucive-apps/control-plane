@@ -1143,6 +1143,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               text: event.payload.text,
               ...(attachments !== undefined ? { attachments: [...attachments] } : {}),
               ...(event.payload.context !== undefined ? { context: event.payload.context } : {}),
+              ...(event.payload.source !== undefined ? { source: event.payload.source } : {}),
               createdAt: event.payload.createdAt,
               updatedAt: event.payload.updatedAt,
             });
@@ -1173,6 +1174,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             ...(nextAttachments !== undefined ? { attachments: [...nextAttachments] } : {}),
             ...((event.payload.context ?? previousMessage?.context) !== undefined
               ? { context: event.payload.context ?? previousMessage?.context }
+              : {}),
+            ...((event.payload.source ?? previousMessage?.source) !== undefined
+              ? { source: event.payload.source ?? previousMessage?.source }
               : {}),
             isStreaming: false,
             createdAt: previousMessage?.createdAt ?? event.payload.createdAt,

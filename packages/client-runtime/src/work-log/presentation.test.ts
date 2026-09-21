@@ -296,7 +296,7 @@ describe("resolveWorkEntryToolPresentation", () => {
       "Stopped recording the preview browser",
     ],
     ["t3_thread_read", "Reading a T3 thread", "Read a T3 thread"],
-    ["t3_thread_send", "Sending to a T3 thread", "Sent to a T3 thread"],
+    ["t3_thread_send", "messaging agent", "messaged agent"],
     [
       "t3_worktree_handoff",
       "Handing off thread to a git worktree",
@@ -311,6 +311,28 @@ describe("resolveWorkEntryToolPresentation", () => {
     expect(
       resolveWorkEntryToolPresentation({ ...entry, toolLifecycleStatus: "completed" })?.displayName,
     ).toBe(completed);
+  });
+
+  it("labels t3_thread_send with the peer thread title, never a thread id", () => {
+    expect(
+      resolveWorkEntryToolPresentation({
+        label: "t3-code.t3_thread_send",
+        toolLifecycleStatus: "completed",
+        toolData: {
+          rawInput: {
+            threadTitle: "Coordinator",
+            threadId: "5f13b410-5497-44d6-af9c-6bfad3804593",
+          },
+        },
+      })?.displayName,
+    ).toBe("messaged Coordinator");
+    expect(
+      resolveWorkEntryToolPresentation({
+        label: "t3-code.t3_thread_send",
+        toolLifecycleStatus: "completed",
+        toolData: { arguments: { threadId: "5f13b410-5497-44d6-af9c-6bfad3804593" } },
+      })?.displayName,
+    ).toBe("messaged agent");
   });
 
   it("keeps T3 branding for non-browser tools and falls back to the original tool label", () => {

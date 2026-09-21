@@ -6,15 +6,17 @@ import {
 import * as Haptics from "expo-haptics";
 import { KeyboardAwareLegendList } from "@legendapp/list/keyboard";
 import { useViewabilityAmount, type LegendListRef } from "@legendapp/list/react-native";
-import type {
-  ChatAttachment,
-  ChatFileAttachment,
-  ChatImageAttachment,
-  EnvironmentId,
-  MessageId,
-  OrchestrationMessageContext,
-  ThreadId,
-  TurnId,
+import {
+  agentMessageToolLabel,
+  isAgentOriginatedUserMessage,
+  type ChatAttachment,
+  type ChatFileAttachment,
+  type ChatImageAttachment,
+  type EnvironmentId,
+  type MessageId,
+  type OrchestrationMessageContext,
+  type ThreadId,
+  type TurnId,
 } from "@t3tools/contracts";
 import { renderAssistantCitationsAsText } from "@t3tools/shared/assistantCitations";
 import { encodeComposerContextFragment } from "@t3tools/shared/composerContextClipboard";
@@ -1338,6 +1340,52 @@ function useMarkdownStyles(
   ]);
 }
 
+function ThreadAgentMessageRow(props: {
+  readonly label: string;
+  readonly text: string;
+  readonly iconSubtleColor: ColorValue;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const body = props.text.trim();
+  return (
+    <View className="mb-1 px-1">
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={props.label}
+        accessibilityState={{ expanded }}
+        onPress={() => {
+          if (body.length > 0) setExpanded((value) => !value);
+        }}
+        className="min-h-11 flex-row items-center gap-2"
+      >
+        <SymbolView name="text.bubble" size={14} tintColor={props.iconSubtleColor} />
+        <Text
+          className="min-w-0 flex-1 font-t3-medium text-sm text-foreground-muted"
+          numberOfLines={1}
+        >
+          {props.label}
+        </Text>
+        {body.length > 0 ? (
+          <ThreadDisclosureChevron
+            expanded={expanded}
+            collapsedDirection="right"
+            size={15}
+            tintColor={props.iconSubtleColor}
+          />
+        ) : null}
+      </Pressable>
+      {expanded && body.length > 0 ? (
+        <Text
+          selectable
+          className="mb-2 ml-6 font-t3-regular text-xs leading-5 text-foreground-muted"
+        >
+          {body}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
 function renderFeedEntry(
   info: { item: PendingThreadFeedEntry; index: number },
   props: Pick<
@@ -1503,6 +1551,15 @@ function renderFeedEntry(
       );
     }
     const isUser = message.role === "user";
+    if (isAgentOriginatedUserMessage(message)) {
+      return (
+        <ThreadAgentMessageRow
+          label={agentMessageToolLabel(message.source)}
+          text={message.text}
+          iconSubtleColor={iconSubtleColor}
+        />
+      );
+    }
     const renderedText = renderAssistantCitationsAsText(message.text);
     const styles = isUser ? markdownStyles.user : markdownStyles.assistant;
     const attachments = message.attachments ?? [];

@@ -13,6 +13,8 @@ import {
 } from "./timelineMinimapItems";
 import {
   COMPOSER_CONTEXT_KINDS,
+  agentMessageToolLabel,
+  isAgentOriginatedUserMessage,
   type AssistantCitation,
   type EnvironmentId,
   type MessageId,
@@ -1715,7 +1717,16 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       {row.kind === "work-toggle" ? <WorkGroupToggleTimelineRow row={row} /> : null}
       {row.kind === "turn-fold" ? <TurnFoldTimelineRow row={row} /> : null}
       {row.kind === "context-compaction" ? <ContextCompactionTimelineRow row={row} /> : null}
-      {row.kind === "message" && row.message.role === "user" ? <UserTimelineRow row={row} /> : null}
+      {row.kind === "message" &&
+      row.message.role === "user" &&
+      isAgentOriginatedUserMessage(row.message) ? (
+        <AgentMessageTimelineRow row={row} />
+      ) : null}
+      {row.kind === "message" &&
+      row.message.role === "user" &&
+      !isAgentOriginatedUserMessage(row.message) ? (
+        <UserTimelineRow row={row} />
+      ) : null}
       {row.kind === "message" && row.message.role === "assistant" ? (
         <AssistantTimelineRow row={row} />
       ) : null}
@@ -4780,6 +4791,88 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
       displayLabel={displayLabel}
       onToggleEntry={props.onToggleEntry}
     />
+  );
+});
+
+const AgentMessageTimelineRow = memo(function AgentMessageTimelineRow({
+  row,
+}: {
+  row: Extract<TimelineRow, { kind: "message" }>;
+}) {
+  const { timestampFormat } = use(TimelineRowCtx);
+  const [expanded, setExpanded] = useState(false);
+  const label = agentMessageToolLabel(row.message.source);
+  const body = row.message.text.trim();
+  const canExpand = body.length > 0;
+  const toggleExpanded = () => {
+    if (canExpand) setExpanded((value) => !value);
+  };
+
+  return (
+    <div
+      className={cn(
+        "group/timeline-row relative flex flex-col rounded-md px-0.5 py-0.5 transition-colors",
+        expanded && "mb-1",
+        canExpand &&
+          "cursor-pointer hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70",
+      )}
+      data-agent-message="true"
+      data-agent-message-expanded={expanded ? "true" : "false"}
+      {...(canExpand
+        ? {
+            role: "button" as const,
+            tabIndex: 0 as const,
+            "aria-label": label,
+            "aria-expanded": expanded,
+            onClick: toggleExpanded,
+            onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                toggleExpanded();
+              }
+            },
+          }
+        : {})}
+    >
+      <MessageAuthorHeading>Agent</MessageAuthorHeading>
+      <div className="flex select-none items-center gap-1.5">
+        <span className="flex size-6 shrink-0 items-center justify-center text-icon-muted">
+          <WorkEntryIcon name="bot" className="block size-4 shrink-0 stroke-[1.8] opacity-70" />
+        </span>
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          <p className="min-w-0 flex-1 truncate text-secondary-label text-sm leading-relaxed">
+            {label}
+          </p>
+          <TimelineRowTimestamp
+            createdAt={row.message.createdAt}
+            timestampFormat={timestampFormat}
+          />
+          <span
+            className={cn(
+              "flex size-4 shrink-0 items-center justify-center",
+              !canExpand && "invisible",
+            )}
+            aria-hidden
+          >
+            <ChevronRightIcon
+              className={cn(
+                "size-3 shrink-0 text-icon-muted opacity-70 transition-transform duration-200",
+                expanded && "rotate-90",
+              )}
+            />
+          </span>
+        </div>
+      </div>
+      {expanded && canExpand ? (
+        <div
+          className="mt-1 ms-7 cursor-default rounded-md bg-muted/40 px-3 py-2"
+          onClick={stopRowToggle}
+          onPointerDown={stopRowToggle}
+        >
+          <pre className={toolCallExpandedBodyClassName}>{body}</pre>
+        </div>
+      ) : null}
+    </div>
   );
 });
 
