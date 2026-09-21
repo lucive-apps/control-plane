@@ -116,9 +116,9 @@ a shortcut.
 `thread.stop` interrupts the running turn in the focused thread. It has no default
 shortcut; assign one in **Settings → Keybindings**.
 
-`chat.new` may ask you to choose a project when there is more than one.
-`chat.newLocal` skips that chooser. Both use your
-[new-thread defaults](./thread-sidebar.md#start-a-thread).
+`chat.new` and `chat.newLocal` start a new thread in the current project.
+Use **New thread in...** in the command palette to choose a different project
+first. Both use your [new-thread defaults](./thread-sidebar.md#start-a-thread).
 
 ## Reserved shortcuts
 
