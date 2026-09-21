@@ -1232,62 +1232,34 @@ export function HomeScreen(props: HomeScreenProps) {
 
   const listEmpty = !hasResults ? (
     hasSearchQuery && threadSearch.isPending ? null : hasSearchQuery ? (
-      <EmptyState
+      <CenteredListEmpty
         title="No results"
         detail={`No threads matching "${props.searchQuery}".`}
-        variant={Platform.OS === "android" ? "plain" : undefined}
       />
     ) : props.inboxLane === "working" ? (
-      <EmptyState
-        title="No working threads"
-        detail="Threads that are running will show up here."
-        variant={Platform.OS === "android" ? "plain" : undefined}
-      />
+      <CenteredListEmpty title="Nothing working" />
     ) : props.inboxLane === "attention" ? (
-      <EmptyState
-        title="Nothing needs attention"
-        detail="Threads that need a decision will show up here."
-        variant={Platform.OS === "android" ? "plain" : undefined}
-      />
+      <CenteredListEmpty title="Nothing needs attention" />
     ) : selectedProjectScope !== null ? (
-      <EmptyState title="No tasks yet" detail="" variant="plain" />
+      <CenteredListEmpty title="No tasks yet" />
     ) : selectedEnvironmentLabel ? (
-      <EmptyState
-        title={`No threads in ${selectedEnvironmentLabel}`}
-        detail="Choose another environment or create a new task."
-        variant={Platform.OS === "android" ? "plain" : undefined}
-      />
+      <CenteredListEmpty title={`No threads in ${selectedEnvironmentLabel}`} />
     ) : (
-      <EmptyState
-        title="No threads yet"
-        detail="Create a task to start a new coding session."
-        variant={Platform.OS === "android" ? "plain" : undefined}
-      />
+      <CenteredListEmpty title="No threads yet" />
     )
   ) : null;
-  // Use the v2 project scope for its empty state. Snoozed threads need no
-  // special empty state: their shelf header is a list row even while collapsed.
   const v2ListEmpty =
     hasSearchQuery && threadSearch.isPending ? null : hasSearchQuery ? (
-      <EmptyState
+      <CenteredListEmpty
         title="No results"
         detail={`No threads matching "${props.searchQuery}".`}
-        variant={Platform.OS === "android" ? "plain" : undefined}
       />
     ) : props.inboxLane === "working" ? (
-      <EmptyState
-        title="No working threads"
-        detail="Threads that are running will show up here."
-        variant={Platform.OS === "android" ? "plain" : undefined}
-      />
+      <CenteredListEmpty title="Nothing working" />
     ) : props.inboxLane === "attention" ? (
-      <EmptyState
-        title="Nothing needs attention"
-        detail="Threads that need a decision will show up here."
-        variant={Platform.OS === "android" ? "plain" : undefined}
-      />
+      <CenteredListEmpty title="Nothing needs attention" />
     ) : v2ScopedProjectGroup !== null ? (
-      <EmptyState title="No tasks yet" detail="" variant="plain" />
+      <CenteredListEmpty title="No tasks yet" />
     ) : (
       listEmpty
     );
@@ -1352,11 +1324,15 @@ export function HomeScreen(props: HomeScreenProps) {
               contentContainerStyle={{
                 flexGrow: threadListV2Items.length === 0 ? 1 : undefined,
                 justifyContent: threadListV2Items.length === 0 ? "center" : undefined,
-                paddingTop: 16,
+                paddingTop: threadListV2Items.length === 0 ? 0 : 16,
                 paddingBottom:
-                  Platform.OS === "ios"
-                    ? Math.max(insets.bottom, 24) + 96 + iosBottomToolbarClearance
-                    : Math.max(insets.bottom, 16) + (Platform.OS === "android" ? 148 : 88),
+                  threadListV2Items.length === 0
+                    ? showComposer
+                      ? 88
+                      : Math.max(insets.bottom, 24)
+                    : Platform.OS === "ios"
+                      ? Math.max(insets.bottom, 24) + 96 + iosBottomToolbarClearance
+                      : Math.max(insets.bottom, 16) + (Platform.OS === "android" ? 148 : 88),
               }}
             />
           </SwipeableScrollGateProvider>
@@ -1414,11 +1390,15 @@ export function HomeScreen(props: HomeScreenProps) {
             contentContainerStyle={{
               flexGrow: listLayout.items.length === 0 ? 1 : undefined,
               justifyContent: listLayout.items.length === 0 ? "center" : undefined,
-              paddingTop: 16,
+              paddingTop: listLayout.items.length === 0 ? 0 : 16,
               paddingBottom:
-                Platform.OS === "ios"
-                  ? Math.max(insets.bottom, 24) + 24 + iosBottomToolbarClearance
-                  : Math.max(insets.bottom, 16) + (Platform.OS === "android" ? 148 : 88),
+                listLayout.items.length === 0
+                  ? showComposer
+                    ? 88
+                    : Math.max(insets.bottom, 24)
+                  : Platform.OS === "ios"
+                    ? Math.max(insets.bottom, 24) + 24 + iosBottomToolbarClearance
+                    : Math.max(insets.bottom, 16) + (Platform.OS === "android" ? 148 : 88),
             }}
             scrollIndicatorInsets={
               Platform.OS === "ios"
@@ -1434,6 +1414,22 @@ export function HomeScreen(props: HomeScreenProps) {
       {showComposer ? (
         <HomeComposerBar lockedProject={selectedProjectScope?.representative ?? null} />
       ) : null}
+    </View>
+  );
+}
+
+function CenteredListEmpty(props: { readonly title: string; readonly detail?: string }) {
+  return (
+    <View className="flex-1 items-center justify-center px-8">
+      <EmptyState title={props.title} detail={props.detail ?? ""} variant="plain" />
+    </View>
+  );
+}
+
+function CenteredListEmpty(props: { readonly title: string; readonly detail?: string }) {
+  return (
+    <View className="flex-1 items-center justify-center px-8">
+      <EmptyState title={props.title} detail={props.detail ?? ""} variant="plain" />
     </View>
   );
 }
