@@ -8,36 +8,13 @@ import { HOME_HORIZONTAL_INSET } from "../../lib/layoutMetrics";
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { useThreadVisitMap } from "../../state/thread-visits";
-import { resolveThreadStatus } from "../threads/threadPresentation";
 import { HomeComposerBar } from "./HomeComposerBar";
+import { classifyHomeThread } from "./classifyHomeThread";
 
 export type HomeInboxLane = "inbox" | "working" | "attention";
+export { classifyHomeThread } from "./classifyHomeThread";
 
 const INBOX_FOLDER_ICON_SIZE = 28;
-
-export function classifyHomeThread(
-  thread: EnvironmentThreadShell,
-  lastVisitedAt?: string,
-): "working" | "attention" | null {
-  const status = resolveThreadStatus(thread);
-  if (status?.kind === "working" || status?.kind === "connecting") return "working";
-  if (
-    status?.kind === "awaiting-input" ||
-    status?.kind === "pending-approval" ||
-    status?.kind === "plan-ready" ||
-    status?.kind === "error"
-  ) {
-    return "attention";
-  }
-  const completedAt = thread.latestTurn?.completedAt;
-  if (!completedAt || thread.session?.status === "running") return null;
-  const completedMs = Date.parse(completedAt);
-  if (!Number.isFinite(completedMs)) return null;
-  if (lastVisitedAt === undefined) return "attention";
-  const visitedMs = Date.parse(lastVisitedAt);
-  if (!Number.isFinite(visitedMs) || completedMs > visitedMs) return "attention";
-  return null;
-}
 
 export function HomeInbox(props: {
   readonly projects: ReadonlyArray<{ readonly key: string; readonly title: string }>;
