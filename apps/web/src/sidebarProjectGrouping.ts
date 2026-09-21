@@ -133,6 +133,8 @@ export function buildSidebarProjectSnapshots(input: {
   });
 }
 
+// One row per logical repo. `targetProject` is the checkout on the current
+// machine when that member exists, so the picker is not a machine selector.
 export function buildSidebarProjectPickerEntries(input: {
   groups: ReadonlyArray<SidebarProjectSnapshot>;
   preferredProjectRef: ScopedProjectRef | null;
