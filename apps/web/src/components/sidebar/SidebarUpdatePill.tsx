@@ -84,7 +84,6 @@ function resolveSidebarUpdatePresentation({
   return {
     iconStatus,
     showUpdateDetails,
-    showUpdateIconState: showUpdateDetails && !showCheckIcon,
   } as const;
 }
 
@@ -138,7 +137,7 @@ function SidebarUpdateControl() {
     isChecking: state?.status === "checking",
     prefersReducedMotion,
   });
-  const { iconStatus, showUpdateDetails, showUpdateIconState } = resolveSidebarUpdatePresentation({
+  const { iconStatus, showUpdateDetails } = resolveSidebarUpdatePresentation({
     action,
     isDownloading,
     showCheckIcon,
@@ -297,10 +296,6 @@ function SidebarUpdateControl() {
     );
   }, [prefersReducedMotion, state?.status]);
 
-  if (!showUpdateDetails) {
-    return null;
-  }
-
   const buttonLabel =
     action === "install"
       ? "Restart"
@@ -314,10 +309,15 @@ function SidebarUpdateControl() {
       aria-label={tooltip}
       aria-disabled={isInteractionDisabled || undefined}
       className={cn(
-        "inline-flex h-8 w-full items-center justify-center rounded-full bg-[#0A84FF] px-4 text-sm font-medium text-white outline-hidden ring-ring transition-colors focus-visible:ring-2",
+        "inline-flex h-8 items-center justify-center outline-hidden ring-ring transition-colors focus-visible:ring-2",
+        showUpdateDetails
+          ? "rounded-full bg-[#0A84FF] px-4 text-sm font-medium text-white"
+          : "w-8 rounded-md text-muted-foreground",
         isInteractionDisabled
           ? "cursor-not-allowed opacity-80"
-          : "cursor-pointer hover:bg-[#0077ED]",
+          : showUpdateDetails
+            ? "cursor-pointer hover:bg-[#0077ED]"
+            : "cursor-pointer hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
       )}
       onClick={handleAction}
       onBlur={() => {
@@ -340,12 +340,21 @@ function SidebarUpdateControl() {
         );
       }}
     >
-      {buttonLabel}
+      {showUpdateDetails ? (
+        buttonLabel
+      ) : (
+        <DesktopUpdateStatusIcon
+          key={checkAnimationKey}
+          status={iconStatus}
+          isCheckAnimating={showCheckIcon && !prefersReducedMotion}
+          onCheckAnimationIteration={handleCheckAnimationIteration}
+        />
+      )}
     </button>
   );
 
   return (
-    <SidebarMenuItem className="px-1 pb-1">
+    <SidebarMenuItem className="ml-auto shrink-0">
       <Popover
         handle={releaseNotesPopoverHandle}
         onOpenChange={(open, details) => {

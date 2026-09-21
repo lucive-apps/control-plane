@@ -214,6 +214,7 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu({
           ) : null}
         </>
       )}
+      <SidebarUpdatePill />
     </SidebarMenu>
   );
 });
@@ -229,7 +230,6 @@ export const SidebarChromeFooter = memo(function SidebarChromeFooter({
     <SidebarFooter className="px-[var(--sidebar-content-inset)] py-1">
       <SidebarProviderUpdatePill />
       <SidebarUpdateArchitectureWarning />
-      <SidebarUpdatePill />
       <SidebarUtilityMenu
         settledViewOpen={settledViewOpen}
         onToggleSettledView={onToggleSettledView}
