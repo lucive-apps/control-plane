@@ -524,7 +524,9 @@ export const make = Effect.gen(function* () {
 
       return {
         state: toContractState(nextState),
-        requiresRelaunch: result.changed,
+        // Enabling always relaunches so Tailscale Serve is applied even when
+        // the persisted flag was already true from a previous attempt.
+        requiresRelaunch: result.changed || input.enabled,
       };
     },
   );

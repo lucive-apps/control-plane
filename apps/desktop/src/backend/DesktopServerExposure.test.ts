@@ -227,11 +227,11 @@ describe("DesktopServerExposure", () => {
         assert.equal(changed.state.tailscaleServeEnabled, true);
         assert.equal(changed.state.tailscaleServePort, 8443);
 
-        const unchanged = yield* serverExposure.setTailscaleServeEnabled({
+        const alreadyEnabled = yield* serverExposure.setTailscaleServeEnabled({
           enabled: true,
           port: 8443,
         });
-        assert.equal(unchanged.requiresRelaunch, false);
+        assert.equal(alreadyEnabled.requiresRelaunch, true);
 
         const persisted = yield* settings.get;
         assert.equal(persisted.tailscaleServeEnabled, true);
