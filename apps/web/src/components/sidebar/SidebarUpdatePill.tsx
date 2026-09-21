@@ -132,11 +132,14 @@ function SidebarUpdateControl() {
 
   const action = state ? resolveDesktopUpdateButtonAction(state) : "none";
   const isDownloading = state?.status === "downloading";
-  const showCheckIcon = shouldShowDesktopUpdateCheckIcon({
-    isAnimationLatched: isCheckAnimationLatched,
-    isChecking: state?.status === "checking",
-    prefersReducedMotion,
-  });
+  const showCheckIcon =
+    action === "none" &&
+    !isDownloading &&
+    shouldShowDesktopUpdateCheckIcon({
+      isAnimationLatched: isCheckAnimationLatched,
+      isChecking: state?.status === "checking",
+      prefersReducedMotion,
+    });
   const { iconStatus, showUpdateDetails } = resolveSidebarUpdatePresentation({
     action,
     isDownloading,
