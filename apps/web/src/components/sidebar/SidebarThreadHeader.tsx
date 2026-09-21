@@ -63,7 +63,7 @@ export function SidebarThreadHeader({
               aria-label="New Chat"
               disabled={newChatDisabled}
               onClick={onNewChat}
-              className="flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-[length:1em] font-medium leading-tight text-sidebar-foreground outline-none hover:bg-sidebar-row-hover disabled:cursor-not-allowed disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-ring"
+              className="flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-[length:1em] font-normal leading-tight text-sidebar-foreground outline-none hover:bg-sidebar-row-hover disabled:cursor-not-allowed disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-ring"
             />
           }
         >
@@ -75,7 +75,7 @@ export function SidebarThreadHeader({
       <div className="flex items-center gap-1">
         <div
           ref={searchFieldRef}
-          className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-[length:1em] font-medium leading-tight text-sidebar-foreground hover:bg-sidebar-row-hover"
+          className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-[length:1em] font-normal leading-tight text-sidebar-foreground hover:bg-sidebar-row-hover"
         >
           <SearchIcon className="size-3.5 shrink-0 text-[var(--sidebar-icon-color)]" />
           <Input
@@ -97,7 +97,7 @@ export function SidebarThreadHeader({
                 ? `sidebar-thread-search-result-${activeSearchResultIndex}`
                 : undefined
             }
-            className="min-w-0 flex-1 [&_[data-slot=input]]:h-auto [&_[data-slot=input]]:p-0 [&_[data-slot=input]]:leading-normal [&_[data-slot=input]]:text-[length:1em] [&_[data-slot=input]]:font-medium [&_[data-slot=input]]:text-sidebar-foreground [&_[data-slot=input]]:placeholder:text-sidebar-foreground"
+            className="min-w-0 flex-1 [&_[data-slot=input]]:h-auto [&_[data-slot=input]]:p-0 [&_[data-slot=input]]:leading-normal [&_[data-slot=input]]:text-[length:1em] [&_[data-slot=input]]:font-normal [&_[data-slot=input]]:text-sidebar-foreground [&_[data-slot=input]]:placeholder:text-sidebar-foreground"
           />
           {isSearching ? (
             <Button

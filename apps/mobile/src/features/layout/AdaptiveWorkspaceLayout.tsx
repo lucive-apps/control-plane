@@ -422,7 +422,7 @@ function AdaptiveWorkspaceLayoutContent(
   }, [navigation]);
 
   const handleStartNewTask = useCallback(() => {
-    navigation.navigate("NewTaskSheet", { screen: "NewTask" });
+    navigation.navigate("NewTaskSheet", { screen: "NewTaskDraft" });
   }, [navigation]);
 
   // Minted here (root stack navigation) so the sidebar pane stays free of

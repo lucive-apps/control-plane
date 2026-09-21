@@ -2162,37 +2162,22 @@ function sidebarProjectExpansionKeys(project: SidebarProjectSnapshot | null, pro
 }
 
 function SidebarListSectionHeader({
-  sectionKeys,
   title,
   actionLabel,
   onAction,
   children,
 }: {
-  sectionKeys: string | readonly string[];
   title: string;
   actionLabel: string;
   onAction: () => void;
   children: ReactNode;
 }) {
-  const expanded = useUiStateStore((state) =>
-    resolveProjectExpanded(state.projectExpandedById, sectionKeys),
-  );
-  const setProjectExpanded = useUiStateStore((state) => state.setProjectExpanded);
   return (
     <li className="list-none w-full" data-testid={`sidebar-section-${title.toLowerCase()}`}>
-      <div className="group/section flex h-8 w-full items-center gap-0.5 px-2">
-        <button
-          type="button"
-          aria-expanded={expanded}
-          aria-label={`${expanded ? "Collapse" : "Expand"} ${title}`}
-          className="flex h-8 min-w-0 flex-1 cursor-pointer items-center rounded-md text-left text-sidebar-muted-foreground outline-none hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={() => setProjectExpanded(sectionKeys, !expanded)}
-          onPointerDown={(event) => event.stopPropagation()}
-        >
-          <span className="min-w-0 truncate text-[length:1em] font-medium leading-tight">
-            {title}
-          </span>
-        </button>
+      <div className="group/section flex h-7 w-full items-center gap-0.5 px-2">
+        <span className="min-w-0 flex-1 truncate text-[length:1em] font-normal leading-tight text-sidebar-muted-foreground">
+          {title}
+        </span>
         <SidebarSectionIconButton label={actionLabel} onClick={onAction}>
           {children}
         </SidebarSectionIconButton>
@@ -2294,7 +2279,7 @@ const SidebarProjectFolderBlock = memo(function SidebarProjectFolderBlock({
       <div
         ref={sortable ? setActivatorNodeRef : undefined}
         className={cn(
-          "group/folder flex h-8 w-full items-center rounded-md text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
+          "group/folder flex h-8 w-full items-center rounded-md text-sidebar-foreground hover:bg-sidebar-row-hover",
           sortable && "cursor-grab active:cursor-grabbing",
         )}
         {...(sortable ? listeners : undefined)}
@@ -2328,14 +2313,20 @@ const SidebarProjectFolderBlock = memo(function SidebarProjectFolderBlock({
           <ChevronRightIcon
             aria-hidden
             className={cn(
-              "size-3.5 shrink-0 text-muted-foreground/70 transition-transform duration-150",
+              "size-3.5 shrink-0 text-[var(--sidebar-icon-color)] transition-transform duration-150",
               expanded && "rotate-90",
             )}
           />
           {expanded ? (
-            <FolderOpenIcon aria-hidden className="size-3.5 shrink-0" />
+            <FolderOpenIcon
+              aria-hidden
+              className="size-3.5 shrink-0 text-[var(--sidebar-icon-color)]"
+            />
           ) : (
-            <FolderIcon aria-hidden className="size-3.5 shrink-0" />
+            <FolderIcon
+              aria-hidden
+              className="size-3.5 shrink-0 text-[var(--sidebar-icon-color)]"
+            />
           )}
           <span className="min-w-0 flex-1 truncate">{displayName}</span>
         </button>
@@ -2372,12 +2363,6 @@ export default function Sidebar() {
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const reorderProjects = useUiStateStore((store) => store.reorderProjects);
   const setProjectExpanded = useUiStateStore((store) => store.setProjectExpanded);
-  const projectsSectionExpanded = useUiStateStore((store) =>
-    resolveProjectExpanded(store.projectExpandedById, [
-      SIDEBAR_PROJECTS_SECTION_KEY,
-      SIDEBAR_REPOSITORIES_SECTION_KEY,
-    ]),
-  );
   const updateSettings = useUpdateClientSettings();
   const [folderOrderLocked, setFolderOrderLocked] = useState(false);
   const threads = useThreadShells();
@@ -2960,12 +2945,12 @@ export default function Sidebar() {
   ]);
   const sortableFolderIds = useMemo(
     () =>
-      settledViewOpen || !projectsSectionExpanded
+      settledViewOpen
         ? []
         : projectFolders
             .filter((folder) => folder.project !== null)
             .map((folder) => folder.projectKey),
-    [projectFolders, projectsSectionExpanded, settledViewOpen],
+    [projectFolders, settledViewOpen],
   );
   const orderedThreadKeys = useMemo(
     () =>
@@ -4839,7 +4824,7 @@ export default function Sidebar() {
           </SidebarGroup>
         }
       >
-        <SidebarGroup className="ps-[calc(var(--sidebar-content-inset)+1px)] pe-[var(--sidebar-content-inset)] pb-1 pt-0 flex-1">
+        <SidebarGroup className="flex-1 px-[var(--sidebar-content-inset)] pb-1 pt-3">
           {isSearchingThreads ? (
             threadSearchResults.length > 0 ? (
               <TooltipProvider
@@ -5079,10 +5064,6 @@ export default function Sidebar() {
                         items.push(
                           <SidebarListSectionHeader
                             key="projects-section"
-                            sectionKeys={[
-                              SIDEBAR_PROJECTS_SECTION_KEY,
-                              SIDEBAR_REPOSITORIES_SECTION_KEY,
-                            ]}
                             title="Projects"
                             actionLabel="New Project"
                             onAction={handleNewProject}
@@ -5110,7 +5091,6 @@ export default function Sidebar() {
                         );
                       }
                       for (const folder of folders) {
-                        if (!settledViewOpen && !projectsSectionExpanded) break;
                         items.push(
                           <SidebarProjectFolderBlock
                             key={folder.projectKey}

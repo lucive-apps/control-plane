@@ -117,7 +117,13 @@ git merge upstream/main
 
 GitHub → **Sync fork** does the same merge when there are no conflicts. If Git reports conflicts, fix those files, commit the merge, and push. Do not force-push `main`.
 
-A weekday GitHub Action (`.github/workflows/sync-upstream.yml`) fetches `upstream` and opens (or updates) a `sync/upstream` PR. It never merges to `main`. Conflicts open an issue instead. Enable Actions on this repo and run **Sync upstream** once so the schedule is allowed. Manual merge above still works anytime.
+A weekday GitHub Action (`.github/workflows/sync-upstream.yml`) fetches `upstream` and opens (or updates) a `sync/upstream` PR. It classifies each commit with `vp run sync:upstream:classify`:
+
+- **Infra** (server, relay, CI, packaging, native): merge. The action auto-merges when the whole range is infra.
+- **Mixed** (contracts, client-runtime, shared protocol): review. Take it when it unblocks infra, skip if it only exists to feed a UI change we are holding.
+- **UI** (web, mobile, marketing, brand assets, desktop window chrome): hold. Merge only when T3 shipped something we specifically want.
+
+Do not take a full upstream merge that includes UI just to pick up infra. Conflicts open an issue. Enable Actions on this repo and run **Sync upstream** once so the schedule is allowed. Manual merge above still works anytime. Path rules live in `scripts/lib/upstream-sync-policy.ts`.
 
 ## Test data
 

@@ -211,18 +211,6 @@ const WIDE_MARKDOWN_BLOCK_OPTIONS = {
   includeOrderedLists: Platform.OS === "android",
 } as const;
 
-const MESSAGE_TIME_FORMATTER = new Intl.DateTimeFormat(undefined, {
-  hour: "numeric",
-  minute: "2-digit",
-});
-function formatMessageTime(input: string): string {
-  const timestamp = Date.parse(input);
-  if (Number.isNaN(timestamp)) {
-    return "";
-  }
-  return MESSAGE_TIME_FORMATTER.format(timestamp);
-}
-
 // Fixed heights mirror renderFeedEntry's classNames and are only used while
 // text fits at the current font settings. Larger accessibility text is measured.
 const TURN_FOLD_HEIGHT = 42; // min-h-11 (38.5) + mb-1 (3.5), with the mobile 14px rem
@@ -1517,7 +1505,6 @@ function renderFeedEntry(
     const isUser = message.role === "user";
     const renderedText = renderAssistantCitationsAsText(message.text);
     const styles = isUser ? markdownStyles.user : markdownStyles.assistant;
-    const timestampLabel = formatMessageTime(isUser ? message.createdAt : message.updatedAt);
     const attachments = message.attachments ?? [];
     const hasReviewCommentContext = message.text.includes("<review_comment");
     // A bubble that sizes itself from its content cannot lay out a block whose
@@ -1550,9 +1537,24 @@ function renderFeedEntry(
       const visibleAttachments = attachments.filter(
         (attachment) => isImageAttachment(attachment) || !inlineAttachmentIds.has(attachment.id),
       );
+      const copyUserMessage = () => {
+        if (message.text.trim().length === 0) return;
+        if (message.context) {
+          void writeComposerContextClipboard(message.text, {
+            version: 1,
+            source: { environmentId: props.environmentId, messageId: message.id },
+            records: message.context.records,
+          });
+          return;
+        }
+        copyTextWithHaptic(message.text, { target: "thread-message", feedback: "selection" });
+      };
       return (
         <View className="mb-5 items-end">
-          <View
+          <Pressable
+            accessibilityHint="Long press to copy"
+            delayLongPress={350}
+            onLongPress={copyUserMessage}
             className="min-w-0 gap-2 rounded-[20px] px-3.5 py-2.5"
             style={{
               backgroundColor: userBubbleColor,
@@ -1634,47 +1636,28 @@ function renderFeedEntry(
                 />
               </MarkdownImageAvailableWidthContext>
             ) : null}
-          </View>
-          <View className="mt-1 flex-row items-center justify-end gap-1 pr-0.5">
-            <Text className="font-t3-medium text-xs tabular-nums text-adaptive-neutral-600-400">
-              {entry.pendingMessage && !entry.acknowledged ? "Pending" : timestampLabel}
-            </Text>
-            {entry.pendingMessage &&
-            !entry.acknowledged &&
-            !entry.pendingMessage.creation &&
-            entry.pendingMessage.messageId !== props.dispatchingMessageId ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Edit pending message"
-                hitSlop={8}
-                className="size-7 items-center justify-center"
-                onPress={() => {
-                  if (entry.pendingMessage) props.onEditPendingMessage(entry.pendingMessage);
-                }}
-              >
-                <SymbolView name="pencil" size={14} tintColor={iconSubtleColor} />
-              </Pressable>
-            ) : null}
-            {message.text.trim().length > 0 ? (
-              <CopyTextButton
-                accessibilityLabel="Copy message"
-                text={message.text}
-                onCopy={
-                  message.context
-                    ? () =>
-                        writeComposerContextClipboard(message.text, {
-                          version: 1,
-                          source: { environmentId: props.environmentId, messageId: message.id },
-                          records: message.context!.records,
-                        })
-                    : undefined
-                }
-                tintColor={iconSubtleColor}
-                buttonSize={28}
-                iconSize={13}
-              />
-            ) : null}
-          </View>
+          </Pressable>
+          {entry.pendingMessage && !entry.acknowledged ? (
+            <View className="mt-1 flex-row items-center justify-end gap-1 pr-0.5">
+              <Text className="font-t3-medium text-xs tabular-nums text-adaptive-neutral-600-400">
+                Pending
+              </Text>
+              {!entry.pendingMessage.creation &&
+              entry.pendingMessage.messageId !== props.dispatchingMessageId ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Edit pending message"
+                  hitSlop={8}
+                  className="size-7 items-center justify-center"
+                  onPress={() => {
+                    if (entry.pendingMessage) props.onEditPendingMessage(entry.pendingMessage);
+                  }}
+                >
+                  <SymbolView name="pencil" size={14} tintColor={iconSubtleColor} />
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
         </View>
       );
     }
@@ -1690,22 +1673,32 @@ function renderFeedEntry(
     // intrinsic width before the container is clamped, overlapping the
     // timestamp/copy button row. Pinning the width removes that pass.
     const enterAnimated = isFreshTimestamp(message.createdAt);
+    const copyAssistantMessage = () => {
+      if (renderedText.trim().length === 0) return;
+      copyTextWithHaptic(renderedText, { target: "thread-message", feedback: "selection" });
+    };
     return (
       <Animated.View
         className={cn(showAssistantMeta ? "mb-5 px-1" : "mb-1 px-1", hasWideBlock && "w-full")}
         {...(enterAnimated ? { entering: FadeIn.duration(220) } : {})}
       >
         {renderedText.trim().length > 0 ? (
-          <MarkdownImageAvailableWidthContext value={props.markdownContentWidth}>
-            <AssistantMarkdownContent
-              markdown={renderedText}
-              markdownStyles={styles}
-              linkHandlers={props.markdownLinkHandlers}
-              onUseArtifactTemplate={props.onUseArtifactTemplate}
-              renderImage={props.renderMarkdownImage}
-              skills={props.skills}
-            />
-          </MarkdownImageAvailableWidthContext>
+          <Pressable
+            accessibilityHint="Long press to copy"
+            delayLongPress={350}
+            onLongPress={copyAssistantMessage}
+          >
+            <MarkdownImageAvailableWidthContext value={props.markdownContentWidth}>
+              <AssistantMarkdownContent
+                markdown={renderedText}
+                markdownStyles={styles}
+                linkHandlers={props.markdownLinkHandlers}
+                onUseArtifactTemplate={props.onUseArtifactTemplate}
+                renderImage={props.renderMarkdownImage}
+                skills={props.skills}
+              />
+            </MarkdownImageAvailableWidthContext>
+          </Pressable>
         ) : null}
         {attachments.map((attachment) => {
           return isImageAttachment(attachment) ? (
@@ -1730,20 +1723,6 @@ function renderFeedEntry(
             <MessageAttachmentUnknown key={attachment.id} name={attachment.name} />
           );
         })}
-        {showAssistantMeta ? (
-          <View className="mt-1 flex-row items-center gap-1">
-            <CopyTextButton
-              accessibilityLabel="Copy message"
-              text={renderedText}
-              tintColor={iconSubtleColor}
-              buttonSize={28}
-              iconSize={13}
-            />
-            <Text className="font-t3-medium text-xs tabular-nums text-adaptive-neutral-600-400">
-              {timestampLabel}
-            </Text>
-          </View>
-        ) : null}
       </Animated.View>
     );
   }

@@ -8,6 +8,8 @@ import {
 
 const initialState: MobileThemeRuntimeState = {
   baseFontSize: 16,
+  uiFont: "dm-sans",
+  os: "ios",
   themeAppearance: "light",
   themeMode: "system",
 };
@@ -73,6 +75,23 @@ describe("mobileThemeRuntime", () => {
     expect(operations.at(-1)).toMatchObject({
       kind: "update-text-variables",
       themeName: "iris-dark",
+    });
+  });
+
+  it("updates font CSS variables when the UI font changes", () => {
+    const operations = createMobileThemeRuntimeOperations(initialState, {
+      ...initialState,
+      uiFont: "system",
+    });
+
+    expect(operations).toHaveLength(12);
+    expect(operations[0]).toMatchObject({
+      kind: "update-text-variables",
+      variables: {
+        "--font-sans": "System",
+        "--font-medium": "System",
+        "--font-bold": "System",
+      },
     });
   });
 

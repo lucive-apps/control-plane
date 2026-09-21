@@ -703,7 +703,7 @@ export const ThreadListRow = memo(function ThreadListRow(props: {
             <View className="flex-row items-center justify-between gap-2">
               <Text
                 className={cn(
-                  "flex-1 text-lg font-t3-bold",
+                  "flex-1 text-lg font-t3-medium",
                   visuallySelected
                     ? Platform.OS === "android"
                       ? "text-thread-selected-foreground"
@@ -714,30 +714,9 @@ export const ThreadListRow = memo(function ThreadListRow(props: {
               >
                 {thread.title}
               </Text>
-              <View className="flex-row items-center gap-2">
-                {props.hasQueuedMessages ? (
-                  <QueuedMessageIcon selected={visuallySelected && Platform.OS !== "android"} />
-                ) : null}
-                {statusPill}
-                <Text
-                  className={cn(
-                    "text-base tabular-nums",
-                    visuallySelected
-                      ? Platform.OS === "android"
-                        ? "text-thread-selected-foreground-muted"
-                        : "text-user-bubble-foreground-muted"
-                      : "text-foreground-tertiary",
-                  )}
-                >
-                  {timestamp}
-                </Text>
-                <SymbolView
-                  name="chevron.right"
-                  size={13}
-                  tintColorClassName="accent-icon-subtle"
-                  type="monochrome"
-                />
-              </View>
+              {props.hasQueuedMessages ? (
+                <QueuedMessageIcon selected={visuallySelected && Platform.OS !== "android"} />
+              ) : null}
             </View>
             {props.searchMatch ? (
               <ThreadSearchMatchExcerpt

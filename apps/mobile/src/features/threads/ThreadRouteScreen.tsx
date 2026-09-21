@@ -51,6 +51,7 @@ import {
 import { AndroidWorkspaceSidebarButton } from "../layout/workspace-sidebar-toolbar";
 import { LoadingScreen } from "../../components/LoadingScreen";
 import { scopedThreadKey } from "../../lib/scopedEntities";
+import { markThreadVisited } from "../../state/thread-visits";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { connectionTone } from "../connection/connectionTone";
 import {
@@ -255,6 +256,19 @@ function ThreadRouteContent(
   } = useThreadSelection();
   const selectedThreadDetailState = props.selectedThreadDetailState;
   const selectedThreadDetail = Option.getOrNull(selectedThreadDetailState.data);
+  useFocusEffect(
+    useCallback(() => {
+      if (selectedThread === null) return;
+      markThreadVisited(
+        scopedThreadKey(selectedThread.environmentId, selectedThread.id),
+        selectedThread.latestTurn?.completedAt ?? new Date().toISOString(),
+      );
+    }, [
+      selectedThread?.environmentId,
+      selectedThread?.id,
+      selectedThread?.latestTurn?.completedAt,
+    ]),
+  );
   // "Load earlier turns" header state for windowed (paginated) thread loads.
   const loadEarlierTurns = useMemo(() => {
     if (selectedThread === null || !threadHasOlderTurns(selectedThreadDetailState)) {
@@ -359,12 +373,6 @@ function ThreadRouteContent(
 
   /* ─── Native header theming ──────────────────────────────────────── */
   const usesNativeHeaderGlass = NATIVE_LIQUID_GLASS_SUPPORTED;
-  const headerSubtitle = [
-    selectedThreadProject?.title ?? null,
-    selectedEnvironmentConnection?.environmentLabel ?? null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
   /* ─── Git status for native header trigger ───────────────────────── */
   const gitStatus = useEnvironmentQuery(
     selectedThread !== null && selectedThreadCwd !== null
@@ -738,7 +746,7 @@ function ThreadRouteContent(
         accessibilityLabel: "New task",
         icon: { name: "square.and.pencil", type: "sfSymbol" as const },
         identifier: "thread-left-new-task",
-        onPress: () => navigation.navigate("NewTaskSheet", { screen: "NewTask" }),
+        onPress: () => navigation.navigate("NewTaskSheet", { screen: "NewTaskDraft" }),
         type: "button" as const,
       }),
     ],
@@ -1079,7 +1087,7 @@ function ThreadRouteContent(
           headerTitleStyle: usesNativeHeaderGlass
             ? {
                 fontSize: 17,
-                fontWeight: "800",
+                fontWeight: "400",
               }
             : undefined,
           title: selectedThread.title,
@@ -1102,7 +1110,7 @@ function ThreadRouteContent(
             Platform.OS === "ios"
               ? () => (layout.usesSplitView ? threadCenterHeaderItems : compactRightHeaderItems)
               : undefined,
-          unstable_headerSubtitle: usesNativeHeaderGlass ? headerSubtitle : undefined,
+          unstable_headerSubtitle: undefined,
           contentStyle:
             Platform.OS === "android" && true ? { backgroundColor: headerColor } : undefined,
         }}
@@ -1111,7 +1119,7 @@ function ThreadRouteContent(
       {Platform.OS === "android" ? (
         <AndroidScreenHeader
           title={selectedThread.title}
-          subtitle={headerSubtitle}
+          subtitle={null}
           leading={<AndroidWorkspaceSidebarButton />}
           trailing={
             fileInspector.supported && selectedThreadCwd !== null ? (
@@ -1138,6 +1146,7 @@ function ThreadRouteContent(
                 }
           }
           actions={androidHeaderActions}
+          overflowOnly
           hideBottomBorder
         />
       ) : null}

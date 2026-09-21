@@ -12,6 +12,7 @@ import {
 } from "@t3tools/client-runtime/state/vcs";
 import { useNavigation } from "@react-navigation/native";
 import { NativeHeaderToolbar } from "../../native/StackHeader";
+import { withNativeGlassHeaderItem } from "../layout/native-glass-header-items";
 import { useCallback, useMemo } from "react";
 import { Alert } from "react-native";
 import { tryOpenExternalUrl } from "../../lib/openExternalUrl";
@@ -390,11 +391,49 @@ function useThreadGitHeaderActionItems(props: ThreadGitControlsProps): ThreadGit
   );
 }
 
+function headerMenuItems(item: HeaderItem): unknown[] {
+  const menu = item.menu;
+  if (menu !== null && typeof menu === "object" && "items" in menu && Array.isArray(menu.items)) {
+    return menu.items;
+  }
+  return [];
+}
+
 export function useThreadGitRightHeaderItems(props: ThreadGitControlsProps): HeaderItems {
   const actionItems = useThreadGitHeaderActionItems(props);
   return useMemo(
-    () => [actionItems.git, actionItems.files, actionItems.terminal] as HeaderItems,
-    [actionItems],
+    () => [
+      withNativeGlassHeaderItem({
+        accessibilityLabel: "More",
+        icon: { name: "ellipsis", type: "sfSymbol" },
+        identifier: "thread-right-more",
+        label: "",
+        menu: {
+          items: [
+            {
+              disabled: !props.canOpenFiles,
+              icon: { name: "folder", type: "sfSymbol" as const },
+              label: "Files",
+              onPress: actionItems.files.onPress as (() => void) | undefined,
+              type: "action" as const,
+            },
+            {
+              items: headerMenuItems(actionItems.terminal),
+              label: "Terminal",
+              type: "submenu" as const,
+            },
+            {
+              items: headerMenuItems(actionItems.git),
+              label: "Git",
+              type: "submenu" as const,
+            },
+          ],
+          title: "",
+        },
+        type: "menu",
+      }),
+    ],
+    [actionItems, props.canOpenFiles],
   );
 }
 

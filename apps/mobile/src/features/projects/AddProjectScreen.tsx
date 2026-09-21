@@ -69,7 +69,10 @@ import {
   useRemoteEnvironmentRuntime,
   useSavedRemoteConnections,
 } from "../../state/use-remote-environment-registry";
-import { resolveAddProjectEnvironment } from "./AddProjectScreen.logic";
+import {
+  consumeAddProjectClosesSheet,
+  resolveAddProjectEnvironment,
+} from "./AddProjectScreen.logic";
 
 interface EnvironmentOption {
   readonly environmentId: EnvironmentId;
@@ -621,10 +624,18 @@ export function AddProjectSourceScreen() {
   );
 }
 
-function openNewTaskDraft(
-  navigation: { dispatch: (action: ReturnType<typeof CommonActions.reset>) => void },
+function completeAddProject(
+  navigation: {
+    dispatch: (action: ReturnType<typeof CommonActions.reset>) => void;
+    goBack: () => void;
+    getParent: () => { goBack: () => void } | undefined;
+  },
   params: { environmentId: EnvironmentId; projectId: ProjectId; title: string; cloning?: "1" },
 ) {
+  if (consumeAddProjectClosesSheet()) {
+    (navigation.getParent() ?? navigation).goBack();
+    return;
+  }
   navigation.dispatch(
     CommonActions.reset({ index: 0, routes: [{ name: "NewTaskDraft", params }] }),
   );
@@ -646,21 +657,11 @@ function useCreateProject(environment: EnvironmentOption | null) {
       });
       if (existing) {
         Alert.alert("Project already exists", existing.title);
-        navigation.dispatch(
-          CommonActions.reset({
-            index: 0,
-            routes: [
-              {
-                name: "NewTaskDraft",
-                params: {
-                  environmentId: existing.environmentId,
-                  projectId: existing.id,
-                  title: existing.title,
-                },
-              },
-            ],
-          }),
-        );
+        completeAddProject(navigation, {
+          environmentId: existing.environmentId,
+          projectId: existing.id,
+          title: existing.title,
+        });
         return;
       }
 
@@ -678,21 +679,11 @@ function useCreateProject(environment: EnvironmentOption | null) {
       if (AsyncResult.isFailure(result)) {
         return result;
       }
-      navigation.dispatch(
-        CommonActions.reset({
-          index: 0,
-          routes: [
-            {
-              name: "NewTaskDraft",
-              params: {
-                environmentId: environment.environmentId,
-                projectId,
-                title: inferProjectTitleFromPath(workspaceRoot),
-              },
-            },
-          ],
-        }),
-      );
+      completeAddProject(navigation, {
+        environmentId: environment.environmentId,
+        projectId,
+        title: inferProjectTitleFromPath(workspaceRoot),
+      });
       return result;
     },
     [createProject, environment, projects, navigation],
@@ -1028,7 +1019,7 @@ export function AddProjectDestinationScreen(props: {
             "The project was created but has not reached this device yet. It will appear in the project list once the connection catches up.",
           );
         } else {
-          openNewTaskDraft(navigation, {
+          completeAddProject(navigation, {
             environmentId: environment.environmentId,
             projectId,
             title,

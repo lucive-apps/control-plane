@@ -37,6 +37,7 @@ export function AndroidScreenHeader(props: {
   readonly onBack?: () => void;
   readonly embedded?: boolean;
   readonly hideBottomBorder?: boolean;
+  readonly overflowOnly?: boolean;
 }) {
   const insets = useSafeAreaInsets();
   const titleTypography = useScaledTextRole("title");
@@ -44,7 +45,13 @@ export function AndroidScreenHeader(props: {
   const materialToolbarHeight = useMaterialToolbarHeight();
   const [headerWidth, setHeaderWidth] = useState(0);
   const actions = props.actions ?? [];
-  const directCount = actions.length > 2 ? (headerWidth >= 600 ? 3 : 1) : actions.length;
+  const directCount = props.overflowOnly
+    ? 0
+    : actions.length > 2
+      ? headerWidth >= 600
+        ? 3
+        : 1
+      : actions.length;
   const visibleActions = actions.slice(0, directCount);
   const overflowActions = actions.slice(directCount);
 

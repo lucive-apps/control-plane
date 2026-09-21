@@ -15,7 +15,6 @@ import { Platform, Pressable, ScrollView, StyleSheet, View } from "react-native"
 import { useResolveClassNames } from "uniwind";
 
 import { AppText as Text } from "./components/AppText";
-import { getCompactBrandHeaderOptions } from "./components/CompactBrandTitle";
 import { ArchivedThreadsRouteScreen } from "./features/archive/ArchivedThreadsRouteScreen";
 import { useAgentNotificationNavigation } from "./features/agent-awareness/notificationNavigation";
 import { ConnectOnboardingRouteScreen } from "./features/cloud/ConnectOnboardingRouteScreen";
@@ -116,7 +115,7 @@ const GLASS_HEADER_OPTIONS: AppScreenOptions = {
   headerShadowVisible: false,
   headerShown: true,
   headerStyle: NATIVE_LIQUID_GLASS_SUPPORTED ? { backgroundColor: "transparent" } : undefined,
-  headerTitleStyle: { fontSize: 18, fontWeight: "800" },
+  headerTitleStyle: { fontSize: 17, fontWeight: "400" },
   headerTransparent: NATIVE_LIQUID_GLASS_SUPPORTED,
   scrollEdgeEffects: NATIVE_LIQUID_GLASS_SUPPORTED ? HEADER_SCROLL_EDGE_EFFECTS : undefined,
   unstable_navigationItemStyle: NATIVE_LIQUID_GLASS_SUPPORTED ? "editor" : undefined,
@@ -130,7 +129,7 @@ const SOLID_HEADER_OPTIONS: AppScreenOptions = {
   headerLargeTitle: false,
   headerShadowVisible: false,
   headerShown: true,
-  headerTitleStyle: { fontSize: 18, fontWeight: "800" },
+  headerTitleStyle: { fontSize: 17, fontWeight: "400" },
   headerTransparent: false,
   unstable_navigationItemStyle: Platform.OS === "ios" ? "editor" : undefined,
 };
@@ -212,7 +211,7 @@ const SettingsContentStack = createNativeStackNavigator({
     SettingsAbout: createNativeStackScreen({
       screen: SettingsAboutRouteScreen,
       linking: "about",
-      options: { title: "About T3 Code" },
+      options: { title: "About Control Plane" },
     }),
     SettingsEnvironmentNew: createNativeStackScreen({
       screen: ConnectionsNewRouteScreen,
@@ -582,7 +581,8 @@ export const RootStack = createNativeStackNavigator({
         ...GLASS_HEADER_OPTIONS,
         contentStyle: { backgroundColor: "transparent" },
         headerBackVisible: false,
-        ...getCompactBrandHeaderOptions(),
+        headerTitle: () => null,
+        title: "",
       },
     }),
     Thread: createNativeStackScreen({

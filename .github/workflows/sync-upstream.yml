@@ -5,6 +5,11 @@ on:
     # 8:00 AM America/Denver during MDT (GitHub cron is UTC-only).
     - cron: "0 15 * * 1-5"
   workflow_dispatch:
+    inputs:
+      auto_merge_infra:
+        description: Merge when every upstream commit is infra (no UI).
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -19,16 +24,22 @@ jobs:
   sync:
     name: Open upstream sync PR
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
       - name: Merge pingdotgg/t3code into a review PR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AUTO_MERGE_INFRA: ${{ github.event_name == 'schedule' && 'true' || inputs.auto_merge_infra }}
         run: |
           set -eu
           git config user.name "github-actions[bot]"
@@ -45,38 +56,49 @@ jobs:
           behind="$(git rev-list --count origin/main..upstream/main)"
           range="$(git rev-parse --short origin/main)...$(git rev-parse --short upstream/main)"
           compare="https://github.com/pingdotgg/t3code/compare/${range}"
-          git checkout -B sync/upstream origin/main
+          report="$(node --experimental-strip-types scripts/classify-upstream-sync.ts --base origin/main --upstream upstream/main)"
+          recommendation="$(node --experimental-strip-types scripts/classify-upstream-sync.ts --json --base origin/main --upstream upstream/main | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>process.stdout.write(JSON.parse(s).recommendation))')"
+          body="$(printf '%s\n\n---\n\nAutomated merge of `pingdotgg/t3code` `main` into this fork.\n\n- %s upstream commit(s): %s\n- Do not force-push `main`. This branch is bot-owned and may be replaced on the next run.\n' "$report" "$behind" "$compare")"
 
+          ensure_label() {
+            local name="$1"
+            local color="$2"
+            local description="$3"
+            gh label create "$name" --color "$color" --description "$description" --force >/dev/null
+          }
+          ensure_label upstream-infra 0E8A16 "Upstream range is infra only"
+          ensure_label upstream-mixed FBCA04 "Upstream range touches shared runtime or contracts"
+          ensure_label upstream-ui D93F0B "Upstream range touches web, mobile, or brand UI"
+
+          git checkout -B sync/upstream origin/main
           if git merge --no-edit upstream/main; then
             git push --force origin sync/upstream
             open_pr="$(gh pr list --head sync/upstream --base main --state open --json number --jq '.[0].number // empty')"
             if [ -z "$open_pr" ]; then
-              gh pr create --base main --head sync/upstream \
+              pr_url="$(gh pr create --base main --head sync/upstream \
                 --title "chore: sync ${behind} commit(s) from pingdotgg/t3code" \
-                --body "Automated merge of \`pingdotgg/t3code\` \`main\` into this fork.
-
-          - ${behind} upstream commit(s): ${compare}
-          - Review the merge before merging.
-          - Do not force-push \`main\`. This branch is bot-owned and may be replaced on the next run."
+                --body "$body")"
+              open_pr="${pr_url##*/}"
+            else
+              gh pr edit "$open_pr" --body "$body"
+            fi
+            case "$recommendation" in
+              merge) gh pr edit "$open_pr" --add-label upstream-infra ;;
+              review-mixed) gh pr edit "$open_pr" --add-label upstream-mixed ;;
+              *) gh pr edit "$open_pr" --add-label upstream-ui ;;
+            esac
+            if [ "$recommendation" = "merge" ] && [ "$AUTO_MERGE_INFRA" = "true" ]; then
+              gh pr merge "$open_pr" --merge --auto
             fi
             exit 0
           fi
 
           git merge --abort
           open_issue="$(gh issue list --state open --search 'in:title Upstream t3code sync has conflicts' --json number --jq '.[0].number // empty')"
+          issue_body="$(printf 'Weekday sync failed: `upstream/main` does not merge cleanly onto `origin/main`.\n\n%s\n\nResolve locally:\n\n```sh\ngit fetch upstream\ngit merge upstream/main\n```\n\nThen push `main` (or a PR). Do not force-push `main`.\n' "$report")"
           if [ -z "$open_issue" ]; then
-            gh issue create --title "Upstream t3code sync has conflicts" \
-              --body "Weekday sync failed: \`upstream/main\` does not merge cleanly onto \`origin/main\`.
-
-          ${behind} upstream commit(s): ${compare}
-
-          Resolve locally:
-
-          \`\`\`sh
-          git fetch upstream
-          git merge upstream/main
-          \`\`\`
-
-          Then push \`main\` (or a PR). Do not force-push \`main\`."
+            gh issue create --title "Upstream t3code sync has conflicts" --body "$issue_body"
+          else
+            gh issue comment "$open_issue" --body "$issue_body"
           fi
           exit 1

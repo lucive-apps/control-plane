@@ -23,16 +23,21 @@ import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, Platform, View } from "react-native";
+import { ActivityIndicator, FlatList, Platform, Pressable, View } from "react-native";
 import type { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { cn } from "../../lib/cn";
+import { AppText as Text } from "../../components/AppText";
+import { AppTextInput } from "../../components/AppText";
 import { EmptyState } from "../../components/EmptyState";
+import { HomeComposerBar } from "./HomeComposerBar";
+import { classifyHomeThread, HomeInbox, type HomeInboxLane } from "./HomeInbox";
 import { MaterialFloatingActionButton } from "../../components/MaterialFloatingActionButton";
 import type { WorkspaceEnvironment, WorkspaceState } from "../../state/workspaceModel";
 import type { SavedRemoteConnection } from "../../lib/connection";
-import { scopedProjectKey } from "../../lib/scopedEntities";
+import { scopedProjectKey, scopedThreadKey } from "../../lib/scopedEntities";
+import { useThreadVisitMap } from "../../state/thread-visits";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import { useThreadSearch } from "../../state/queries";
@@ -97,8 +102,12 @@ interface HomeScreenProps {
     HomeListFilterMenuEnvironment & Pick<WorkspaceEnvironment, "connectionState">
   >;
   readonly searchQuery: string;
+  readonly searchOpen: boolean;
+  readonly onCloseSearch: () => void;
   readonly selectedEnvironmentId: EnvironmentId | null;
   readonly selectedProjectKey: string | null;
+  readonly inboxLane: HomeInboxLane;
+  readonly onInboxLaneChange: (lane: HomeInboxLane) => void;
   readonly projectSortOrder: HomeProjectSortOrder;
   readonly threadSortOrder: SidebarThreadSortOrder;
   readonly projectGroupingMode: SidebarProjectGroupingMode;
@@ -133,6 +142,7 @@ interface HomeScreenProps {
   readonly onDeletePendingTask: (pendingTask: PendingNewTask) => void;
   readonly onNewThreadOnBranch: (thread: EnvironmentThreadShell) => void;
   readonly onNewThreadInProject: (project: EnvironmentProject) => void;
+  readonly onAddProject: () => void;
 }
 
 /* ─── Layout constants ───────────────────────────────────────────────── */
@@ -367,29 +377,44 @@ export function HomeScreen(props: HomeScreenProps) {
             ),
     [threadListV2Enabled, props.projects, selectedProjectRefKeys],
   );
+  const threadVisits = useThreadVisitMap();
+  const laneThreads = useMemo(() => {
+    if (props.inboxLane !== "working" && props.inboxLane !== "attention") {
+      return props.threads;
+    }
+    return props.threads.filter(
+      (thread) =>
+        classifyHomeThread(
+          thread,
+          threadVisits[scopedThreadKey(thread.environmentId, thread.id)],
+        ) === props.inboxLane,
+    );
+  }, [props.inboxLane, props.threads, threadVisits]);
   const scopedThreads = useMemo(
     () =>
       threadListV2Enabled
         ? []
         : selectedProjectRefKeys === null
-          ? props.threads
-          : props.threads.filter((thread) =>
+          ? laneThreads
+          : laneThreads.filter((thread) =>
               selectedProjectRefKeys.has(scopedProjectKey(thread.environmentId, thread.projectId)),
             ),
-    [threadListV2Enabled, props.threads, selectedProjectRefKeys],
+    [threadListV2Enabled, laneThreads, selectedProjectRefKeys],
   );
   const scopedPendingTasks = useMemo(
     () =>
       threadListV2Enabled
         ? []
-        : selectedProjectRefKeys === null
-          ? props.pendingTasks
-          : props.pendingTasks.filter((pendingTask) =>
-              selectedProjectRefKeys.has(
-                scopedProjectKey(pendingTask.environmentId, pendingTask.projectId),
+        : props.inboxLane !== "inbox"
+          ? []
+          : selectedProjectRefKeys === null
+            ? props.pendingTasks
+            : props.pendingTasks.filter((pendingTask) =>
+                selectedProjectRefKeys.has(
+                  scopedProjectKey(pendingTask.environmentId, pendingTask.projectId),
+                ),
               ),
-            ),
-    [threadListV2Enabled, props.pendingTasks, selectedProjectRefKeys],
+    [threadListV2Enabled, props.inboxLane, props.pendingTasks, selectedProjectRefKeys],
   );
 
   const projectGroups = useMemo(
@@ -706,7 +731,7 @@ export function HomeScreen(props: HomeScreenProps) {
     // "hidden from lists" meaning.
     return buildThreadListV2Items({
       pendingOrder,
-      threads: props.threads.filter((thread) => thread.archivedAt === null),
+      threads: laneThreads.filter((thread) => thread.archivedAt === null),
       environmentId: props.selectedEnvironmentId,
       projectRefs: v2ScopedProjectGroup === null ? null : v2ScopedProjectGroup.projectRefs,
       searchQuery: props.searchQuery,
@@ -732,7 +757,7 @@ export function HomeScreen(props: HomeScreenProps) {
     snoozeEnvironmentIds,
     props.searchQuery,
     props.selectedEnvironmentId,
-    props.threads,
+    laneThreads,
     matchedThreadKeys,
     threadListV2Enabled,
     v2ScopedProjectGroup,
@@ -758,18 +783,26 @@ export function HomeScreen(props: HomeScreenProps) {
   const v2SearchQuery = props.searchQuery.trim().toLocaleLowerCase();
   const v2PendingTasks = useMemo(
     () =>
-      props.pendingTasks.filter(
-        (pendingTask) =>
-          (props.selectedEnvironmentId === null ||
-            pendingTask.environmentId === props.selectedEnvironmentId) &&
-          (v2ScopedProjectKeys === null ||
-            v2ScopedProjectKeys.has(
-              scopedProjectKey(pendingTask.environmentId, pendingTask.projectId),
-            )) &&
-          (v2SearchQuery.length === 0 ||
-            pendingTask.title.toLocaleLowerCase().includes(v2SearchQuery)),
-      ),
-    [props.pendingTasks, props.selectedEnvironmentId, v2ScopedProjectKeys, v2SearchQuery],
+      props.inboxLane !== "inbox"
+        ? []
+        : props.pendingTasks.filter(
+            (pendingTask) =>
+              (props.selectedEnvironmentId === null ||
+                pendingTask.environmentId === props.selectedEnvironmentId) &&
+              (v2ScopedProjectKeys === null ||
+                v2ScopedProjectKeys.has(
+                  scopedProjectKey(pendingTask.environmentId, pendingTask.projectId),
+                )) &&
+              (v2SearchQuery.length === 0 ||
+                pendingTask.title.toLocaleLowerCase().includes(v2SearchQuery)),
+          ),
+    [
+      props.inboxLane,
+      props.pendingTasks,
+      props.selectedEnvironmentId,
+      v2ScopedProjectKeys,
+      v2SearchQuery,
+    ],
   );
   const threadListV2Items = useMemo(
     () =>
@@ -1104,16 +1137,57 @@ export function HomeScreen(props: HomeScreenProps) {
     projectCount: props.projects.length,
   });
 
-  if (!hasAnyThreads) {
+  const hasSavedEnvironment =
+    props.catalogState.hasConnections || Object.keys(props.savedConnectionsById).length > 0;
+  const showComposer = hasSavedEnvironment || props.catalogState.hasReadyEnvironment;
+  const drilled = props.inboxLane !== "inbox" || props.selectedProjectKey !== null;
+  const showInbox =
+    (showComposer || hasSavedEnvironment) &&
+    props.searchQuery.trim() === "" &&
+    props.selectedProjectKey === null &&
+    props.inboxLane === "inbox";
+
+  if (showInbox) {
+    return (
+      <View className="flex-1 bg-screen">
+        {props.searchOpen ? (
+          <HomeSearchField
+            query={props.searchQuery}
+            onChange={props.onSearchQueryChange}
+            onClose={props.onCloseSearch}
+          />
+        ) : null}
+        <HomeInbox
+          projects={projectScopes.map((scope) => ({ key: scope.key, title: scope.title }))}
+          showComposer
+          threads={props.threads}
+          nativeHeaderHidden={props.searchOpen}
+          onAddProject={props.onAddProject}
+          onOpenAttention={() => props.onInboxLaneChange("attention")}
+          onOpenProject={props.onProjectChange}
+          onOpenWorking={() => props.onInboxLaneChange("working")}
+        />
+      </View>
+    );
+  }
+
+  if (!hasAnyThreads && !drilled) {
     return (
       <View className={Platform.OS === "android" ? "flex-1 bg-header" : "flex-1 bg-screen"}>
+        {props.searchOpen ? (
+          <HomeSearchField
+            query={props.searchQuery}
+            onChange={props.onSearchQueryChange}
+            onClose={props.onCloseSearch}
+          />
+        ) : null}
         <View
           className={cn(
             "flex-1 items-center justify-center bg-screen px-8",
             Platform.OS === "android" && "overflow-hidden rounded-t-[28px]",
           )}
           style={{
-            paddingBottom: Math.max(insets.bottom, 24) + iosBottomToolbarClearance,
+            paddingBottom: Math.max(insets.bottom, 24) + (showComposer ? 88 : 0),
             paddingTop: NATIVE_LIQUID_GLASS_SUPPORTED ? insets.top + 72 : 0,
           }}
         >
@@ -1143,6 +1217,9 @@ export function HomeScreen(props: HomeScreenProps) {
             ) : null}
           </View>
         </View>
+        {showComposer ? (
+          <HomeComposerBar lockedProject={selectedProjectScope?.representative ?? null} />
+        ) : null}
       </View>
     );
   }
@@ -1155,46 +1232,34 @@ export function HomeScreen(props: HomeScreenProps) {
 
   const listEmpty = !hasResults ? (
     hasSearchQuery && threadSearch.isPending ? null : hasSearchQuery ? (
-      <EmptyState
+      <CenteredListEmpty
         title="No results"
         detail={`No threads matching "${props.searchQuery}".`}
-        variant={Platform.OS === "android" ? "plain" : undefined}
       />
+    ) : props.inboxLane === "working" ? (
+      <CenteredListEmpty title="Nothing working" />
+    ) : props.inboxLane === "attention" ? (
+      <CenteredListEmpty title="Nothing needs attention" />
     ) : selectedProjectScope !== null ? (
-      <EmptyState
-        title={`No threads in ${selectedProjectScope.title}`}
-        detail="Choose another project or create a new task."
-        variant={Platform.OS === "android" ? "plain" : undefined}
-      />
+      <CenteredListEmpty title="No tasks yet" />
     ) : selectedEnvironmentLabel ? (
-      <EmptyState
-        title={`No threads in ${selectedEnvironmentLabel}`}
-        detail="Choose another environment or create a new task."
-        variant={Platform.OS === "android" ? "plain" : undefined}
-      />
+      <CenteredListEmpty title={`No threads in ${selectedEnvironmentLabel}`} />
     ) : (
-      <EmptyState
-        title="No threads yet"
-        detail="Create a task to start a new coding session."
-        variant={Platform.OS === "android" ? "plain" : undefined}
-      />
+      <CenteredListEmpty title="No threads yet" />
     )
   ) : null;
-  // Use the v2 project scope for its empty state. Snoozed threads need no
-  // special empty state: their shelf header is a list row even while collapsed.
   const v2ListEmpty =
     hasSearchQuery && threadSearch.isPending ? null : hasSearchQuery ? (
-      <EmptyState
+      <CenteredListEmpty
         title="No results"
         detail={`No threads matching "${props.searchQuery}".`}
-        variant={Platform.OS === "android" ? "plain" : undefined}
       />
+    ) : props.inboxLane === "working" ? (
+      <CenteredListEmpty title="Nothing working" />
+    ) : props.inboxLane === "attention" ? (
+      <CenteredListEmpty title="Nothing needs attention" />
     ) : v2ScopedProjectGroup !== null ? (
-      <EmptyState
-        title={`No threads in ${v2ScopedProjectGroup.title}`}
-        detail="Choose another project or create a new task."
-        variant={Platform.OS === "android" ? "plain" : undefined}
-      />
+      <CenteredListEmpty title="No tasks yet" />
     ) : (
       listEmpty
     );
@@ -1218,6 +1283,13 @@ export function HomeScreen(props: HomeScreenProps) {
   if (threadListV2Enabled) {
     return (
       <View className={Platform.OS === "android" ? "flex-1 bg-header" : "flex-1 bg-screen"}>
+        {props.searchOpen ? (
+          <HomeSearchField
+            query={props.searchQuery}
+            onChange={props.onSearchQueryChange}
+            onClose={props.onCloseSearch}
+          />
+        ) : null}
         <View
           className={
             Platform.OS === "android"
@@ -1250,20 +1322,37 @@ export function HomeScreen(props: HomeScreenProps) {
               {...scrollGateHandlers}
               scrollEventThrottle={16}
               contentContainerStyle={{
+                flexGrow: threadListV2Items.length === 0 ? 1 : undefined,
+                justifyContent: threadListV2Items.length === 0 ? "center" : undefined,
+                paddingTop: threadListV2Items.length === 0 ? 0 : 16,
                 paddingBottom:
-                  Platform.OS === "ios"
-                    ? Math.max(insets.bottom, 24) + 96 + iosBottomToolbarClearance
-                    : Math.max(insets.bottom, 16) + (Platform.OS === "android" ? 148 : 88),
+                  threadListV2Items.length === 0
+                    ? showComposer
+                      ? 88
+                      : Math.max(insets.bottom, 24)
+                    : Platform.OS === "ios"
+                      ? Math.max(insets.bottom, 24) + 96 + iosBottomToolbarClearance
+                      : Math.max(insets.bottom, 16) + (Platform.OS === "android" ? 148 : 88),
               }}
             />
           </SwipeableScrollGateProvider>
         </View>
+        {showComposer ? (
+          <HomeComposerBar lockedProject={selectedProjectScope?.representative ?? null} />
+        ) : null}
       </View>
     );
   }
 
   return (
     <View className={Platform.OS === "android" ? "flex-1 bg-header" : "flex-1 bg-screen"}>
+      {props.searchOpen ? (
+        <HomeSearchField
+          query={props.searchQuery}
+          onChange={props.onSearchQueryChange}
+          onClose={props.onCloseSearch}
+        />
+      ) : null}
       <View
         className={
           Platform.OS === "android"
@@ -1299,15 +1388,17 @@ export function HomeScreen(props: HomeScreenProps) {
             recycleItems
             scrollEventThrottle={16}
             contentContainerStyle={{
-              // Android reserves room for the floating new-task FAB
-              // (56 button + 16 gap + bottom inset). Pre-glass iOS shows a
-              // standard 44pt bottom toolbar that overlays the list and is not
-              // reflected in insets while contentInsetAdjustmentBehavior is
-              // "never".
+              flexGrow: listLayout.items.length === 0 ? 1 : undefined,
+              justifyContent: listLayout.items.length === 0 ? "center" : undefined,
+              paddingTop: listLayout.items.length === 0 ? 0 : 16,
               paddingBottom:
-                Platform.OS === "ios"
-                  ? Math.max(insets.bottom, 24) + 24 + iosBottomToolbarClearance
-                  : Math.max(insets.bottom, 16) + (Platform.OS === "android" ? 148 : 88),
+                listLayout.items.length === 0
+                  ? showComposer
+                    ? 88
+                    : Math.max(insets.bottom, 24)
+                  : Platform.OS === "ios"
+                    ? Math.max(insets.bottom, 24) + 24 + iosBottomToolbarClearance
+                    : Math.max(insets.bottom, 16) + (Platform.OS === "android" ? 148 : 88),
             }}
             scrollIndicatorInsets={
               Platform.OS === "ios"
@@ -1320,6 +1411,40 @@ export function HomeScreen(props: HomeScreenProps) {
           />
         </SwipeableScrollGateProvider>
       </View>
+      {showComposer ? (
+        <HomeComposerBar lockedProject={selectedProjectScope?.representative ?? null} />
+      ) : null}
+    </View>
+  );
+}
+
+function CenteredListEmpty(props: { readonly title: string; readonly detail?: string }) {
+  return (
+    <View className="flex-1 items-center justify-center px-8">
+      <EmptyState title={props.title} detail={props.detail ?? ""} variant="plain" />
+    </View>
+  );
+}
+
+function HomeSearchField(props: {
+  readonly query: string;
+  readonly onChange: (query: string) => void;
+  readonly onClose: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  return (
+    <View className="flex-row items-center gap-3 px-4 pb-2" style={{ paddingTop: insets.top + 8 }}>
+      <AppTextInput
+        autoFocus
+        className="min-h-11 flex-1 rounded-full bg-card px-4 py-2"
+        onChangeText={props.onChange}
+        placeholder="Search"
+        returnKeyType="search"
+        value={props.query}
+      />
+      <Pressable accessibilityRole="button" onPress={props.onClose}>
+        <Text className="text-base text-foreground">Cancel</Text>
+      </Pressable>
     </View>
   );
 }
