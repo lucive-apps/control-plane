@@ -297,24 +297,27 @@ function SidebarUpdateControl() {
     );
   }, [prefersReducedMotion, state?.status]);
 
+  if (!showUpdateDetails) {
+    return null;
+  }
+
+  const buttonLabel =
+    action === "install"
+      ? "Restart"
+      : isDownloading && typeof state?.downloadPercent === "number"
+        ? `Update ${Math.floor(state.downloadPercent)}%`
+        : "Update";
+
   const updateButton = (
     <button
       type="button"
       aria-label={tooltip}
       aria-disabled={isInteractionDisabled || undefined}
       className={cn(
-        "inline-flex size-8 items-center justify-center rounded-full outline-hidden ring-ring transition-colors focus-visible:ring-2",
-        isInteractionDisabled ? "cursor-not-allowed" : "cursor-pointer",
-        showUpdateIconState
-          ? cn(
-              "bg-sidebar-control-surface text-sidebar-foreground",
-              !isInteractionDisabled && "hover:bg-sidebar-row-hover",
-            )
-          : cn(
-              "text-[var(--sidebar-icon-color)]",
-              !isInteractionDisabled && "hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
-            ),
-        disabled && !showUpdateIconState && "opacity-60",
+        "inline-flex h-8 w-full items-center justify-center rounded-full bg-[#0A84FF] px-4 text-sm font-medium text-white outline-hidden ring-ring transition-colors focus-visible:ring-2",
+        isInteractionDisabled
+          ? "cursor-not-allowed opacity-80"
+          : "cursor-pointer hover:bg-[#0077ED]",
       )}
       onClick={handleAction}
       onBlur={() => {
@@ -337,18 +340,12 @@ function SidebarUpdateControl() {
         );
       }}
     >
-      <DesktopUpdateStatusIcon
-        key={showCheckIcon ? checkAnimationKey : iconStatus}
-        downloadPercent={state?.downloadPercent ?? null}
-        isCheckAnimating={showCheckIcon && !prefersReducedMotion}
-        onCheckAnimationIteration={handleCheckAnimationIteration}
-        status={iconStatus}
-      />
+      {buttonLabel}
     </button>
   );
 
   return (
-    <SidebarMenuItem className="ml-auto shrink-0">
+    <SidebarMenuItem className="px-1 pb-1">
       <Popover
         handle={releaseNotesPopoverHandle}
         onOpenChange={(open, details) => {
