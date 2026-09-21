@@ -136,15 +136,14 @@ const runInheritedCommand = (
           }),
   });
 
-const readPublishedReleaseTags = (repo: string, repoRoot: string) =>
+const readCommandStdout = (command: string, args: readonly string[], cwd: string) =>
   Effect.tryPromise({
     try: () =>
       new Promise<string>((resolve, reject) => {
-        const child = NodeChildProcess.spawn(
-          "gh",
-          ["release", "list", "--repo", repo, "--limit", "50", "--json", "tagName"],
-          { cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"] },
-        );
+        const child = NodeChildProcess.spawn(command, [...args], {
+          cwd,
+          stdio: ["ignore", "pipe", "pipe"],
+        });
         let stdout = "";
         let stderr = "";
         child.stdout.on("data", (chunk: Buffer | string) => {
@@ -161,7 +160,7 @@ const readPublishedReleaseTags = (repo: string, repoRoot: string) =>
           }
           reject(
             new ForkDesktopReleaseCommandError({
-              command: `gh release list --repo ${repo}${stderr.trim() ? `: ${stderr.trim()}` : ""}`,
+              command: `${[command, ...args].join(" ")}${stderr.trim() ? `: ${stderr.trim()}` : ""}`,
               exitCode: exitCode ?? 1,
             }),
           );
@@ -171,10 +170,17 @@ const readPublishedReleaseTags = (repo: string, repoRoot: string) =>
       cause instanceof ForkDesktopReleaseCommandError
         ? cause
         : new ForkDesktopReleaseCommandError({
-            command: `gh release list --repo ${repo}`,
+            command: [command, ...args].join(" "),
             exitCode: 1,
           }),
-  }).pipe(
+  });
+
+const readPublishedReleaseTags = (repo: string, repoRoot: string) =>
+  readCommandStdout(
+    "gh",
+    ["release", "list", "--repo", repo, "--limit", "50", "--json", "tagName"],
+    repoRoot,
+  ).pipe(
     Effect.flatMap((stdout) => decodeGitHubReleaseList(stdout)),
     Effect.map((releases) => releases.map((release) => release.tagName)),
   );
@@ -284,6 +290,7 @@ export const releaseForkDesktopCommand = Command.make(
 
       const exists = yield* releaseExists(repo, nextVersion, repoRoot);
       const releaseNotes = Option.getOrUndefined(notes)?.trim() || `T3 Code ${nextVersion}`;
+      const targetSha = (yield* readCommandStdout("git", ["rev-parse", "HEAD"], repoRoot)).trim();
       if (exists) {
         yield* runInheritedCommand(
           "gh",
@@ -300,6 +307,8 @@ export const releaseForkDesktopCommand = Command.make(
             nextVersion,
             "--repo",
             repo,
+            "--target",
+            targetSha,
             "--title",
             `T3 Code ${nextVersion}`,
             "--notes",
