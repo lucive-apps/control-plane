@@ -19,11 +19,16 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppText as Text } from "../../components/AppText";
 import { AppTextInput } from "../../components/AppText";
 import { SymbolView } from "../../components/AppSymbol";
+import { ComposerAttachmentStrip } from "../../components/ComposerAttachmentStrip";
 import { ComposerInlineControl } from "../../components/ComposerToolbar";
 import { ControlPillMenu } from "../../components/ControlPill";
 import { GlassSurface } from "../../components/GlassSurface";
 import { makeTurnCommandMetadata } from "../../lib/commandMetadata";
-import { convertPastedImagesToAttachments, pickComposerMedia } from "../../lib/composerImages";
+import {
+  composerStripAttachments,
+  convertPastedImagesToAttachments,
+  pickComposerMedia,
+} from "../../lib/composerImages";
 import { useNativePaste } from "../../lib/useNativePaste";
 import { enqueueThreadOutboxMessage } from "../../state/thread-outbox";
 import { mobilePreferencesAtom } from "../../state/preferences";
@@ -38,6 +43,14 @@ import { useVoiceInputController } from "../voice-input/useVoiceInputController"
 
 const COLLAPSED_INPUT_HEIGHT = 52;
 const MIN_INPUT_HEIGHT = 52;
+const COMPOSER_IMAGE_MARKDOWN = /!\[[^\]]*]\(t3-context:\/\/v1\/image\/[^)]+\)/g;
+
+function stripComposerImageMarkdown(text: string): string {
+  return text
+    .replace(COMPOSER_IMAGE_MARKDOWN, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .trimStart();
+}
 
 type PickerKind = "workspace" | "environments" | "model";
 
@@ -264,6 +277,10 @@ function HomeComposerBarInner(props: { readonly lockedProject: EnvironmentProjec
     if (!expanded || flow.selectedProject !== null || firstProject === null) return;
     setProject(firstProject);
   }, [expanded, firstProject, flow.selectedProject, lockedProject, setProject]);
+  useEffect(() => {
+    const stripped = stripComposerImageMarkdown(flow.prompt);
+    if (stripped !== flow.prompt) flow.setPrompt(stripped);
+  }, [flow.prompt, flow.setPrompt]);
 
   const voiceInput = useVoiceInputController({
     ownerKey: "home-composer",
@@ -297,13 +314,19 @@ function HomeComposerBarInner(props: { readonly lockedProject: EnvironmentProjec
   });
 
   const expand = () => {
-    inputHeight.value = COLLAPSED_INPUT_HEIGHT;
     setExpanded(true);
     requestAnimationFrame(() => inputRef.current?.focus());
   };
 
+  const startDictation = () => {
+    if (!expanded) setExpanded(true);
+    voiceInput.start();
+  };
+
   const send = async () => {
-    if (flow.prompt.trim().length === 0 || flow.submitting) return;
+    if ((flow.prompt.trim().length === 0 && flow.attachments.length === 0) || flow.submitting) {
+      return;
+    }
     if (flow.selectedProject === null && firstProject !== null) setProject(firstProject);
     const message = flow.buildPendingTaskMessage(makeTurnCommandMetadata(), {
       currentCheckoutBranch: flow.currentCheckoutBranchName,
@@ -393,10 +416,7 @@ function HomeComposerBarInner(props: { readonly lockedProject: EnvironmentProjec
       accessibilityLabel="Start dictation"
       disabled={flow.submitting}
       icon="mic"
-      onPress={() => {
-        expand();
-        voiceInput.start();
-      }}
+      onPress={startDictation}
     />
   );
   const sendButton = (
@@ -482,6 +502,17 @@ function HomeComposerBarInner(props: { readonly lockedProject: EnvironmentProjec
                     onPress={() => setPicker("environments")}
                   />
                 </View>
+                {composerStripAttachments(flow.attachments).length > 0 ? (
+                  <View className="pb-2">
+                    <ComposerAttachmentStrip
+                      environmentId={flow.selectedEnvironmentId ?? undefined}
+                      attachments={composerStripAttachments(flow.attachments)}
+                      imageBorderRadius={16}
+                      imageSize={72}
+                      onRemove={flow.removeAttachment}
+                    />
+                  </View>
+                ) : null}
                 <TextInputWrapper onPaste={handlePasteImages}>
                   <Animated.View style={inputHeightStyle}>
                     <AppTextInput
@@ -489,7 +520,7 @@ function HomeComposerBarInner(props: { readonly lockedProject: EnvironmentProjec
                       autoFocus
                       className="border-0 bg-transparent px-1 py-2"
                       multiline
-                      onChangeText={flow.setPrompt}
+                      onChangeText={(text) => flow.setPrompt(stripComposerImageMarkdown(text))}
                       placeholder="Plan, ask, build..."
                       value={flow.prompt}
                     />
