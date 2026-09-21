@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
   CloudPublicConfigMissingError,
+  hasCloudPublicConfig,
   hasTracingPublicConfig,
   resolveCloudPublicConfig,
   resolveRelayClerkTokenOptions,
@@ -20,6 +21,10 @@ describe("resolveCloudPublicConfig", () => {
     expect(() => resolveRelayClerkTokenOptions()).toThrowError(
       new CloudPublicConfigMissingError({ key: "T3CODE_CLERK_JWT_TEMPLATE" }),
     );
+  });
+
+  it("keeps T3 Connect off on this fork", () => {
+    expect(hasCloudPublicConfig()).toBe(false);
   });
 
   it("returns no cloud configuration for an unconfigured build", () => {

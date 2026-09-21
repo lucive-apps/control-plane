@@ -73,7 +73,13 @@ export function resolveCloudPublicConfig(extra: ExpoExtra = Constants.expoConfig
   } satisfies CloudPublicConfig;
 }
 
+/** T3 Connect stays off until this fork has its own Clerk and relay. */
+const FORK_CLOUD_CONNECT_ENABLED = false;
+
 export function hasCloudPublicConfig(): boolean {
+  if (!FORK_CLOUD_CONNECT_ENABLED) {
+    return false;
+  }
   const config = resolveCloudPublicConfig();
   return Boolean(config.clerk.publishableKey && config.clerk.jwtTemplate && config.relay.url);
 }
