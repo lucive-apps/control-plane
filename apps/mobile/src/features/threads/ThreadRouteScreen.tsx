@@ -51,6 +51,7 @@ import {
 import { AndroidWorkspaceSidebarButton } from "../layout/workspace-sidebar-toolbar";
 import { LoadingScreen } from "../../components/LoadingScreen";
 import { scopedThreadKey } from "../../lib/scopedEntities";
+import { markThreadVisited } from "../../state/thread-visits";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { connectionTone } from "../connection/connectionTone";
 import {
@@ -255,6 +256,19 @@ function ThreadRouteContent(
   } = useThreadSelection();
   const selectedThreadDetailState = props.selectedThreadDetailState;
   const selectedThreadDetail = Option.getOrNull(selectedThreadDetailState.data);
+  useFocusEffect(
+    useCallback(() => {
+      if (selectedThread === null) return;
+      markThreadVisited(
+        scopedThreadKey(selectedThread.environmentId, selectedThread.id),
+        selectedThread.latestTurn?.completedAt ?? new Date().toISOString(),
+      );
+    }, [
+      selectedThread?.environmentId,
+      selectedThread?.id,
+      selectedThread?.latestTurn?.completedAt,
+    ]),
+  );
   // "Load earlier turns" header state for windowed (paginated) thread loads.
   const loadEarlierTurns = useMemo(() => {
     if (selectedThread === null || !threadHasOlderTurns(selectedThreadDetailState)) {

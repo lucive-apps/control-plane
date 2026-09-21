@@ -36,7 +36,8 @@ import { classifyHomeThread, HomeInbox, type HomeInboxLane } from "./HomeInbox";
 import { MaterialFloatingActionButton } from "../../components/MaterialFloatingActionButton";
 import type { WorkspaceEnvironment, WorkspaceState } from "../../state/workspaceModel";
 import type { SavedRemoteConnection } from "../../lib/connection";
-import { scopedProjectKey } from "../../lib/scopedEntities";
+import { scopedProjectKey, scopedThreadKey } from "../../lib/scopedEntities";
+import { useThreadVisitMap } from "../../state/thread-visits";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import { useThreadSearch } from "../../state/queries";
@@ -376,12 +377,19 @@ export function HomeScreen(props: HomeScreenProps) {
             ),
     [threadListV2Enabled, props.projects, selectedProjectRefKeys],
   );
+  const threadVisits = useThreadVisitMap();
   const laneThreads = useMemo(() => {
     if (props.inboxLane !== "working" && props.inboxLane !== "attention") {
       return props.threads;
     }
-    return props.threads.filter((thread) => classifyHomeThread(thread) === props.inboxLane);
-  }, [props.inboxLane, props.threads]);
+    return props.threads.filter(
+      (thread) =>
+        classifyHomeThread(
+          thread,
+          threadVisits[scopedThreadKey(thread.environmentId, thread.id)],
+        ) === props.inboxLane,
+    );
+  }, [props.inboxLane, props.threads, threadVisits]);
   const scopedThreads = useMemo(
     () =>
       threadListV2Enabled

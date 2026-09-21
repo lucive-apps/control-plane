@@ -5,7 +5,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppText as Text } from "../../components/AppText";
 import { SymbolView } from "../../components/AppSymbol";
 import { HOME_HORIZONTAL_INSET } from "../../lib/layoutMetrics";
+import { scopedThreadKey } from "../../lib/scopedEntities";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
+import { useThreadVisitMap } from "../../state/thread-visits";
 import { resolveThreadStatus } from "../threads/threadPresentation";
 import { HomeComposerBar } from "./HomeComposerBar";
 
@@ -13,7 +15,10 @@ export type HomeInboxLane = "inbox" | "working" | "attention";
 
 const INBOX_FOLDER_ICON_SIZE = 28;
 
-export function classifyHomeThread(thread: EnvironmentThreadShell): "working" | "attention" | null {
+export function classifyHomeThread(
+  thread: EnvironmentThreadShell,
+  lastVisitedAt?: string,
+): "working" | "attention" | null {
   const status = resolveThreadStatus(thread);
   if (status?.kind === "working" || status?.kind === "connecting") return "working";
   if (
@@ -24,9 +29,13 @@ export function classifyHomeThread(thread: EnvironmentThreadShell): "working" | 
   ) {
     return "attention";
   }
-  if (thread.latestTurn?.completedAt && thread.session?.status !== "running") {
-    return "attention";
-  }
+  const completedAt = thread.latestTurn?.completedAt;
+  if (!completedAt || thread.session?.status === "running") return null;
+  const completedMs = Date.parse(completedAt);
+  if (!Number.isFinite(completedMs)) return null;
+  if (lastVisitedAt === undefined) return "attention";
+  const visitedMs = Date.parse(lastVisitedAt);
+  if (!Number.isFinite(visitedMs) || completedMs > visitedMs) return "attention";
   return null;
 }
 
@@ -41,10 +50,14 @@ export function HomeInbox(props: {
   readonly nativeHeaderHidden?: boolean;
 }) {
   const insets = useSafeAreaInsets();
+  const visits = useThreadVisitMap();
   let workingCount = 0;
   let attentionCount = 0;
   for (const thread of props.threads) {
-    const lane = classifyHomeThread(thread);
+    const lane = classifyHomeThread(
+      thread,
+      visits[scopedThreadKey(thread.environmentId, thread.id)],
+    );
     if (lane === "working") workingCount += 1;
     if (lane === "attention") attentionCount += 1;
   }

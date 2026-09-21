@@ -312,7 +312,7 @@ export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props
             rowContent
           ) : (
             <View>
-              <View className="px-5 py-2.5">{rowContent}</View>
+              <View className="min-h-[68px] justify-center px-5 py-4">{rowContent}</View>
               {props.showTrailingDivider !== false ? (
                 <View className="ml-5 h-px bg-border-subtle" />
               ) : null}
@@ -796,7 +796,13 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
              separates rows. The opaque screen background stays so swipe
              actions reveal behind the row. */
           <View>
-            <View className={Platform.OS === "android" ? "px-3 py-2.5" : "px-5 py-2.5"}>
+            <View
+              className={
+                Platform.OS === "android"
+                  ? "min-h-[68px] justify-center px-3 py-4"
+                  : "min-h-[68px] justify-center px-5 py-4"
+              }
+            >
               {cardContent}
             </View>
             {Platform.OS !== "android" && props.showTrailingDivider !== false ? (
