@@ -392,6 +392,7 @@ describe("buildProjectActionItems", () => {
     });
 
     expect(item?.title).toBe("t3dotgg/fleet");
+    expect(item?.description).toBe("/Users/theo/Code/p/fleet");
     expect(item?.searchTerms).toEqual(
       expect.arrayContaining(["t3dotgg/fleet", "fleet", "/Users/theo/Code/p/fleet"]),
     );

@@ -1,3 +1,5 @@
+import type { EnvironmentId } from "@t3tools/contracts";
+
 export interface CommandPaletteItem {
   readonly key: string;
   readonly kind: "action" | "project" | "thread";
@@ -5,6 +7,54 @@ export interface CommandPaletteItem {
   readonly detail?: string;
   readonly searchTerms: ReadonlyArray<string>;
   readonly run: () => void;
+}
+
+export interface CommandPaletteProjectScope<
+  TProject extends {
+    readonly environmentId: EnvironmentId;
+    readonly title: string;
+    readonly workspaceRoot: string;
+  },
+> {
+  readonly key: string;
+  readonly title: string;
+  readonly representative: TProject;
+  readonly projects: ReadonlyArray<TProject>;
+}
+
+// One row per logical repo. Detail is the current-machine checkout path;
+// machine names stay in searchTerms only.
+export function buildCommandPaletteProjectRows<
+  TProject extends {
+    readonly environmentId: EnvironmentId;
+    readonly title: string;
+    readonly workspaceRoot: string;
+  },
+>(input: {
+  readonly scopes: ReadonlyArray<CommandPaletteProjectScope<TProject>>;
+  readonly preferredEnvironmentId: EnvironmentId | null;
+  readonly environmentLabelById: ReadonlyMap<string, string>;
+}) {
+  return input.scopes.map((scope) => {
+    const target =
+      scope.projects.find((project) => project.environmentId === input.preferredEnvironmentId) ??
+      scope.representative;
+    return {
+      key: `project:${scope.key}`,
+      title: scope.title,
+      detail: target.workspaceRoot,
+      searchTerms: [
+        ...scope.projects.flatMap((project) => [
+          project.title,
+          project.workspaceRoot,
+          input.environmentLabelById.get(project.environmentId) ?? "",
+        ]),
+        "new thread",
+        "project",
+      ],
+      target,
+    };
+  });
 }
 
 /** `>` narrows to actions, matching the desktop palette. Stable ties retain recent-thread order. */

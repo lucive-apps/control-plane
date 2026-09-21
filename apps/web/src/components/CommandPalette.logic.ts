@@ -217,6 +217,8 @@ export type CommandPaletteMode = "root" | "root-browse" | "submenu" | "submenu-b
 // every other surface uses the real title, so overriding it desyncs the icon.
 export type CommandPaletteProject = Project & { readonly displayName: string };
 
+// Environment labels stay searchable so a machine name still finds the repo.
+// Visible project rows use the workspace path, not the machine.
 export function buildCommandPaletteProjectMetadata(input: {
   readonly projects: ReadonlyArray<Pick<Project, "environmentId" | "title" | "workspaceRoot">>;
   readonly locationByEnvironmentId: ReadonlyMap<EnvironmentId, { readonly label: string }>;

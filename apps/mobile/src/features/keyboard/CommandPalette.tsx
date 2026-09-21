@@ -23,12 +23,15 @@ import { SymbolView, type AppSymbolName } from "../../components/AppSymbol";
 import { scopedProjectKey, scopedThreadKey } from "../../lib/scopedEntities";
 import { T3KeyboardCommands } from "../../native/T3KeyboardCommands";
 import { useProjects, useThreadShell, useThreadShells } from "../../state/entities";
+import { useMobileProjectGroupingSettings } from "../../state/project-grouping";
 import { useThreadSearch } from "../../state/queries";
 import { useWorkspaceState } from "../../state/workspace";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
+import { buildHomeProjectScopes } from "../home/homeThreadList";
 import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
 import { ThreadSearchMatchExcerpt } from "../threads/thread-search-match";
 import {
+  buildCommandPaletteProjectRows,
   filterCommandPaletteItems,
   nextPaletteIndex,
   type CommandPaletteItem,
@@ -120,6 +123,16 @@ export function CommandPalette(props: {
   const { selectThread } = useAdaptiveWorkspaceLayout();
   const runCommand = props.onCommand;
   const projects = useProjects();
+  const groupingSettings = useMobileProjectGroupingSettings();
+  const projectScopes = useMemo(
+    () =>
+      buildHomeProjectScopes({
+        projects,
+        environmentId: null,
+        projectGroupingMode: groupingSettings.sidebarProjectGroupingMode,
+      }),
+    [groupingSettings.sidebarProjectGroupingMode, projects],
+  );
   const threads = useThreadShells();
   const activeThreadRef = useMemo(() => parseActiveThreadPath(props.pathname), [props.pathname]);
   const activeThread = useThreadShell(activeThreadRef);
@@ -267,19 +280,29 @@ export function CommandPalette(props: {
         })),
       );
     }
-    const projectItems: CommandPaletteItem[] = projects.map((project) => ({
-      key: `project:${scopedProjectKey(project.environmentId, project.id)}`,
-      kind: "project",
-      title: project.title,
-      detail: `New thread · ${savedConnectionsById[project.environmentId]?.environmentLabel ?? project.environmentId}`,
-      searchTerms: [project.workspaceRoot, "new thread", "project"],
+    const environmentLabelById = new Map(
+      Object.entries(savedConnectionsById).map(([environmentId, connection]) => [
+        environmentId,
+        connection.environmentLabel,
+      ]),
+    );
+    const projectItems: CommandPaletteItem[] = buildCommandPaletteProjectRows({
+      scopes: projectScopes,
+      preferredEnvironmentId: activeThread?.environmentId ?? null,
+      environmentLabelById,
+    }).map((row) => ({
+      key: row.key,
+      kind: "project" as const,
+      title: row.title,
+      detail: row.detail,
+      searchTerms: row.searchTerms,
       run: () =>
         navigation.navigate("NewTaskSheet", {
           screen: "NewTaskDraft",
           params: {
-            environmentId: project.environmentId,
-            projectId: project.id,
-            title: project.title,
+            environmentId: row.target.environmentId,
+            projectId: row.target.id,
+            title: row.target.title,
           },
         }),
     }));
@@ -313,6 +336,7 @@ export function CommandPalette(props: {
     activeThread,
     activeThreadRef,
     navigation,
+    projectScopes,
     projects,
     runCommand,
     savedConnectionsById,

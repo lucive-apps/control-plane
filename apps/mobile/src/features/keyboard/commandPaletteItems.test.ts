@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
 
+import { EnvironmentId } from "@t3tools/contracts";
+
 import {
+  buildCommandPaletteProjectRows,
   filterCommandPaletteItems,
   nextPaletteIndex,
   type CommandPaletteItem,
@@ -62,6 +65,52 @@ describe("filterCommandPaletteItems", () => {
       filterCommandPaletteItems(items, "message content", matches).map((item) => item.key),
     ).toEqual(["siva:one"]);
     expect(filterCommandPaletteItems(items, "> message content", matches)).toEqual([]);
+  });
+});
+
+describe("buildCommandPaletteProjectRows", () => {
+  const mac = EnvironmentId.make("mac");
+  const mini = EnvironmentId.make("mini");
+  const local = {
+    environmentId: mac,
+    title: "t3code",
+    workspaceRoot: "/Users/nick/Code/t3code",
+  };
+  const remote = {
+    environmentId: mini,
+    title: "t3code",
+    workspaceRoot: "/Users/nick/t3code",
+  };
+
+  it("lists one row per logical repo and keeps the current-machine checkout", () => {
+    const [row] = buildCommandPaletteProjectRows({
+      scopes: [
+        {
+          key: "github.com/pingdotgg/t3code",
+          title: "t3code",
+          representative: local,
+          projects: [local, remote],
+        },
+      ],
+      preferredEnvironmentId: mini,
+      environmentLabelById: new Map([
+        [mac, "MacBook Pro"],
+        [mini, "Mac Mini"],
+      ]),
+    });
+
+    expect(row?.title).toBe("t3code");
+    expect(row?.detail).toBe("/Users/nick/t3code");
+    expect(row?.detail).not.toContain("Mac Mini");
+    expect(row?.target).toBe(remote);
+    expect(row?.searchTerms).toEqual(
+      expect.arrayContaining([
+        "MacBook Pro",
+        "Mac Mini",
+        "/Users/nick/Code/t3code",
+        "/Users/nick/t3code",
+      ]),
+    );
   });
 });
 
