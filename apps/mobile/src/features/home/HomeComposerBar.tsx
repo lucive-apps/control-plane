@@ -26,8 +26,12 @@ import { makeTurnCommandMetadata } from "../../lib/commandMetadata";
 import { convertPastedImagesToAttachments, pickComposerMedia } from "../../lib/composerImages";
 import { useNativePaste } from "../../lib/useNativePaste";
 import { enqueueThreadOutboxMessage } from "../../state/thread-outbox";
+import { mobilePreferencesAtom } from "../../state/preferences";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
+import { useAtomValue } from "@effect/atom-react";
+import { AsyncResult } from "effect/unstable/reactivity";
 import { NewTaskFlowProvider, useNewTaskFlow } from "../threads/new-task-flow-provider";
+import { modelFavoriteKey } from "../threads/thread-settings-sheet-state";
 import { ComposerDictationStopChip } from "../voice-input/ComposerDictationControl";
 import { resolveVoiceComposerPresentation } from "../voice-input/voiceInputPresentation";
 import { useVoiceInputController } from "../voice-input/useVoiceInputController";
@@ -42,6 +46,7 @@ type PickerItem = {
   readonly title: string;
   readonly subtitle?: string;
   readonly selected: boolean;
+  readonly favorite?: boolean;
 };
 
 function CircleIconButton(props: {
@@ -92,8 +97,8 @@ function ComposerPickerSheet(props: {
         (item.subtitle?.toLowerCase().includes(needle) ?? false),
     );
   }, [props.items, query]);
-  const active = filtered.filter((item) => item.selected);
-  const more = filtered.filter((item) => !item.selected);
+  const favorites = filtered.filter((item) => item.favorite === true);
+  const rest = filtered.filter((item) => item.favorite !== true);
 
   useEffect(() => {
     if (!props.visible) setQuery("");
@@ -132,18 +137,20 @@ function ComposerPickerSheet(props: {
           contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
           keyboardShouldPersistTaps="handled"
         >
-          {active.length > 0 ? (
+          {favorites.length > 0 ? (
             <View className="px-4 pb-2">
-              <Text className="pb-2 text-sm text-foreground-muted">Active</Text>
-              {active.map((item) => (
+              <Text className="pb-2 text-sm text-foreground-muted">Favorites</Text>
+              {favorites.map((item) => (
                 <PickerRow key={item.id} item={item} onSelect={props.onSelect} />
               ))}
             </View>
           ) : null}
-          {more.length > 0 ? (
+          {rest.length > 0 ? (
             <View className="px-4">
-              <Text className="pb-2 text-sm text-foreground-muted">More</Text>
-              {more.map((item) => (
+              {favorites.length > 0 ? (
+                <Text className="pb-2 text-sm text-foreground-muted">All models</Text>
+              ) : null}
+              {rest.map((item) => (
                 <PickerRow key={item.id} item={item} onSelect={props.onSelect} />
               ))}
             </View>
@@ -239,6 +246,15 @@ function HomeComposerBarInner(props: { readonly lockedProject: EnvironmentProjec
   const setProject = flow.setProject;
   const firstProject = flow.projectScopes[0]?.representative ?? null;
   const lockedProject = props.lockedProject;
+  const preferences = useAtomValue(mobilePreferencesAtom);
+  const favoriteModelKeys = useMemo(() => {
+    if (!AsyncResult.isSuccess(preferences)) return new Set<string>();
+    return new Set(
+      (preferences.value.modelFavorites ?? []).map((favorite) =>
+        modelFavoriteKey(favorite.provider, favorite.model),
+      ),
+    );
+  }, [preferences]);
 
   useEffect(() => {
     if (lockedProject !== null) {
@@ -541,6 +557,7 @@ function HomeComposerBarInner(props: { readonly lockedProject: EnvironmentProjec
           title: option.label,
           subtitle: option.subtitle,
           selected: option.key === flow.selectedModelKey,
+          favorite: favoriteModelKeys.has(option.key),
         }))}
         title="Model"
         visible={picker === "model"}
