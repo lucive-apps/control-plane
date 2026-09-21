@@ -550,18 +550,92 @@ export const OrchestrationMessageRole = Schema.Literals([
 ]);
 export type OrchestrationMessageRole = typeof OrchestrationMessageRole.Type;
 
+/** Another thread or subagent sent this user-role message. The model still
+ *  sees it as a user prompt; the UI renders it as a tool row. */
+export const OrchestrationAgentMessageSource = Schema.Struct({
+  kind: Schema.Literal("agent"),
+  threadId: Schema.optional(ThreadId),
+  threadTitle: Schema.optional(TrimmedNonEmptyString),
+});
+export type OrchestrationAgentMessageSource = typeof OrchestrationAgentMessageSource.Type;
+
 export const OrchestrationMessage = Schema.Struct({
   id: MessageId,
   role: OrchestrationMessageRole,
   text: Schema.String,
   attachments: Schema.optional(Schema.Array(ChatAttachment)),
   context: Schema.optional(OrchestrationMessageContext),
+  source: Schema.optional(OrchestrationAgentMessageSource),
   turnId: Schema.NullOr(TurnId),
   streaming: Schema.Boolean,
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
 export type OrchestrationMessage = typeof OrchestrationMessage.Type;
+
+const OPAQUE_THREAD_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/** True for UUID-shaped ids and long hex blobs. Thread titles must never
+ *  fall through to these in the UI. */
+export function isOpaqueThreadId(value: string): boolean {
+  const trimmed = value.trim();
+  return trimmed.length > 0 && (OPAQUE_THREAD_ID.test(trimmed) || /^[0-9a-f]{16,}$/i.test(trimmed));
+}
+
+export function agentMessageDisplayName(
+  source: OrchestrationAgentMessageSource | undefined,
+): string {
+  const title = source?.threadTitle?.trim();
+  if (title && !isOpaqueThreadId(title)) return title;
+  return "agent";
+}
+
+export function agentMessageToolLabel(
+  source: OrchestrationAgentMessageSource | undefined,
+  status?: string,
+): string {
+  const name = agentMessageDisplayName(source);
+  return status === "inProgress" ? `messaging ${name}` : `messaged ${name}`;
+}
+
+export function isAgentOriginatedUserMessage(message: {
+  readonly role: string;
+  readonly source?: { readonly kind?: string } | undefined;
+}): boolean {
+  return message.role === "user" && message.source?.kind === "agent";
+}
+
+const AGENT_THREAD_NAME_KEYS = [
+  "threadTitle",
+  "threadName",
+  "title",
+  "name",
+  "label",
+  "thread_title",
+  "thread_name",
+] as const;
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+/** Prefer a human thread title from tool args. Never returns a thread id. */
+export function agentThreadNameFromUnknown(value: unknown): string | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  const nested =
+    asRecord(record.arguments) ?? asRecord(record.input) ?? asRecord(record.rawInput) ?? record;
+  for (const key of AGENT_THREAD_NAME_KEYS) {
+    const candidate = nested[key];
+    if (typeof candidate !== "string") continue;
+    const trimmed = candidate.trim();
+    if (trimmed && !isOpaqueThreadId(trimmed)) return trimmed;
+  }
+  return undefined;
+}
 
 export const OrchestrationProposedPlanId = TrimmedNonEmptyString;
 export type OrchestrationProposedPlanId = typeof OrchestrationProposedPlanId.Type;
@@ -1292,6 +1366,7 @@ export const ThreadTurnStartCommand = Schema.Struct({
     text: Schema.String,
     attachments: Schema.Array(ChatAttachment),
     context: Schema.optional(OrchestrationMessageContext),
+    source: Schema.optional(OrchestrationAgentMessageSource),
   }),
   modelSelection: Schema.optional(ModelSelection),
   titleSeed: Schema.optional(TrimmedNonEmptyString),
@@ -1314,6 +1389,7 @@ const ClientThreadTurnStartCommand = Schema.Struct({
     text: Schema.String,
     attachments: Schema.Array(Schema.Union([UploadChatAttachment, ChatAttachment])),
     context: Schema.optional(OrchestrationMessageContext),
+    source: Schema.optional(OrchestrationAgentMessageSource),
   }),
   modelSelection: Schema.optional(ModelSelection),
   titleSeed: Schema.optional(TrimmedNonEmptyString),
@@ -1529,6 +1605,7 @@ const ThreadMessageUserAppendCommand = Schema.Struct({
     text: Schema.String,
     attachments: Schema.Array(ChatAttachment),
     context: Schema.optional(OrchestrationMessageContext),
+    source: Schema.optional(OrchestrationAgentMessageSource),
   }),
   createdAt: IsoDateTime,
 });
@@ -1872,6 +1949,7 @@ export const ThreadMessageSentPayload = Schema.Struct({
   text: Schema.String,
   attachments: Schema.optional(Schema.Array(ChatAttachment)),
   context: Schema.optional(OrchestrationMessageContext),
+  source: Schema.optional(OrchestrationAgentMessageSource),
   turnId: Schema.NullOr(TurnId),
   streaming: Schema.Boolean,
   createdAt: IsoDateTime,

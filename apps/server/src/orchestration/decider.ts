@@ -1428,6 +1428,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
               ...(command.message.context !== undefined
                 ? { context: command.message.context }
                 : {}),
+              ...(command.message.source !== undefined ? { source: command.message.source } : {}),
               turnId: null,
               streaming: false,
               createdAt: command.createdAt,
@@ -1535,6 +1536,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           text: command.message.text,
           attachments: command.message.attachments,
           ...(command.message.context !== undefined ? { context: command.message.context } : {}),
+          ...(command.message.source !== undefined ? { source: command.message.source } : {}),
           turnId: null,
           streaming: false,
           createdAt: command.createdAt,

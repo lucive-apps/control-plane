@@ -602,6 +602,36 @@ describe("applyThreadDetailEvent", () => {
       }
     });
 
+    it("preserves agent message source", () => {
+      const result = applyThreadDetailEvent(baseThread, {
+        ...baseEventFields,
+        sequence: 6,
+        occurredAt: "2026-04-01T06:00:00.000Z",
+        aggregateKind: "thread",
+        aggregateId: ThreadId.make("thread-1"),
+        type: "thread.message-sent",
+        payload: {
+          threadId: ThreadId.make("thread-1"),
+          messageId: MessageId.make("msg-agent"),
+          role: "user",
+          text: "Scheduled specialist results are ready.",
+          source: { kind: "agent", threadTitle: "Coordinator" },
+          turnId: null,
+          streaming: false,
+          createdAt: "2026-04-01T06:00:00.000Z",
+          updatedAt: "2026-04-01T06:00:00.000Z",
+        },
+      });
+
+      expect(result.kind).toBe("updated");
+      if (result.kind === "updated") {
+        expect(result.thread.messages[0]?.source).toEqual({
+          kind: "agent",
+          threadTitle: "Coordinator",
+        });
+      }
+    });
+
     it("keeps imported replies turnless when delivered again", () => {
       const event = {
         ...baseEventFields,

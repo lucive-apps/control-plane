@@ -3,6 +3,7 @@ import {
   CheckpointRef,
   EnvironmentId,
   MessageId,
+  ThreadId,
   TurnId,
   type ComposerContextRecord,
 } from "@t3tools/contracts";
@@ -1122,6 +1123,54 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain("Show full message");
     expect(markup).toContain('data-user-message-collapsible="false"');
     expect(markup).toContain("rounded-2xl bg-message p-3");
+  });
+
+  it("renders agent-originated user messages as expandable tool calls", () => {
+    const text = buildLongUserMessageText();
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        timelineEntries={[
+          {
+            ...buildUserTimelineEntry(text),
+            message: {
+              ...buildUserTimelineEntry(text).message,
+              source: { kind: "agent", threadTitle: "Coordinator" },
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain("messaged Coordinator");
+    expect(markup).toContain('data-agent-message="true"');
+    expect(markup).not.toContain("rounded-2xl bg-message p-3");
+    expect(markup).not.toContain("Show full message");
+    expect(markup).not.toContain(text);
+  });
+
+  it("does not display a thread id as the agent name", () => {
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        timelineEntries={[
+          {
+            ...buildUserTimelineEntry("hello"),
+            message: {
+              ...buildUserTimelineEntry("hello").message,
+              source: {
+                kind: "agent",
+                threadId: ThreadId.make("5f13b410-5497-44d6-af9c-6bfad3804593"),
+                threadTitle: "5f13b410-5497-44d6-af9c-6bfad3804593",
+              },
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain("messaged agent");
+    expect(markup).not.toContain("messaged 5f13b410-5497-44d6-af9c-6bfad3804593");
   });
 
   it("preserves arbitrary XML-like tags and comparisons in rendered user messages", async () => {

@@ -63,6 +63,25 @@ const PullRequestsTestLayer = McpHttpServer.PullRequestsToolkitRegistrationLive.
     ),
   ),
 );
+const ThreadsTestLayer = McpHttpServer.ThreadsToolkitRegistrationLive.pipe(
+  Layer.provideMerge(McpServer.McpServer.layer),
+  Layer.provide(
+    Layer.mergeAll(
+      Layer.mock(ProjectionSnapshotQuery)({
+        getThreadShellById: () => Effect.succeed(Option.none()),
+        getShellSnapshot: () =>
+          Effect.succeed({
+            snapshotSequence: 1,
+            projects: [],
+            threads: [],
+            updatedAt: "2026-08-20T00:00:00.000Z",
+          }),
+      }),
+      Layer.mock(OrchestrationEngineService)({}),
+      NodeServices.layer,
+    ),
+  ),
+);
 
 const snapshotResult = {
   url: "http://example.test/",
@@ -398,6 +417,13 @@ it.effect(
         { type: "text", text: "MCP credential does not grant the pull-requests capability." },
       ]);
     }).pipe(Effect.provide(PullRequestsTestLayer)),
+);
+
+it.effect("registers the threads toolkit", () =>
+  Effect.gen(function* () {
+    const server = yield* McpServer.McpServer;
+    expect(server.tools.map(({ tool }) => tool.name)).toContain("t3_thread_send");
+  }).pipe(Effect.provide(ThreadsTestLayer)),
 );
 
 it.effect("keeps the snapshot text under the agent's output ceiling", () =>
