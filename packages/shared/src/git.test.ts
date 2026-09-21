@@ -5,6 +5,7 @@ import {
   applyGitStatusStreamEvent,
   buildTemporaryWorktreeBranchName,
   isTemporaryWorktreeBranch,
+  stripWorktreeBranchPrefix,
   normalizeGitRemoteUrl,
   parseGitHubRepositoryNameWithOwnerFromRemoteUrl,
   parseOriginUrlFromGitConfig,
@@ -209,6 +210,17 @@ describe("isTemporaryWorktreeBranch", () => {
     expect(isTemporaryWorktreeBranch(`${WORKTREE_BRANCH_PREFIX}/feature/demo`)).toBe(false);
     expect(isTemporaryWorktreeBranch("main")).toBe(false);
     expect(isTemporaryWorktreeBranch(`${WORKTREE_BRANCH_PREFIX}/deadbeef-extra`)).toBe(false);
+  });
+
+  it("still treats legacy t3code temporary worktree refs as temporary", () => {
+    expect(isTemporaryWorktreeBranch("t3code/deadbeef")).toBe(true);
+    expect(isTemporaryWorktreeBranch("t3code/f4ae4e0e-f971-4d48-b4f2-9cf0aa54ab12")).toBe(true);
+  });
+
+  it("strips current and legacy worktree prefixes", () => {
+    expect(stripWorktreeBranchPrefix("cp/fix-login")).toBe("fix-login");
+    expect(stripWorktreeBranchPrefix("t3code/fix-login")).toBe("fix-login");
+    expect(stripWorktreeBranchPrefix("feature/login")).toBe("feature/login");
   });
 });
 
