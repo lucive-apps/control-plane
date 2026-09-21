@@ -4,7 +4,7 @@ export type UiFont = (typeof UI_FONTS)[number];
 const DM_SANS_FAMILIES = {
   regular: "DMSans-Regular",
   medium: "DMSans-Medium",
-  bold: "DMSans-Bold",
+  bold: "DMSans-Medium",
 } as const;
 
 export function normalizeUiFont(value: unknown): UiFont {

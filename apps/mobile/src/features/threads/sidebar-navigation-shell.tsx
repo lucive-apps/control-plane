@@ -32,7 +32,7 @@ const SIDEBAR_SCREEN_OPTIONS: SidebarScreenOptions = {
   headerShadowVisible: false,
   headerShown: true,
   headerStyle: NATIVE_LIQUID_GLASS_SUPPORTED ? { backgroundColor: "transparent" } : undefined,
-  ...getCompactBrandHeaderOptions({ fontSize: 18, fontWeight: "800" }),
+  ...getCompactBrandHeaderOptions({ fontSize: 17, fontWeight: "400" }),
   headerTransparent: NATIVE_LIQUID_GLASS_SUPPORTED,
   scrollEdgeEffects: NATIVE_LIQUID_GLASS_SUPPORTED ? SCROLL_EDGE_EFFECTS : undefined,
   unstable_navigationItemStyle: NATIVE_LIQUID_GLASS_SUPPORTED ? "editor" : undefined,

@@ -1242,13 +1242,7 @@ export function HomeScreen(props: HomeScreenProps) {
         variant={Platform.OS === "android" ? "plain" : undefined}
       />
     ) : selectedProjectScope !== null ? (
-      <EmptyState
-        title={`No tasks in ${selectedProjectScope.title}`}
-        detail="Create a task to start working in this project."
-        actionLabel="Create task"
-        onAction={() => props.onNewThreadInProject(selectedProjectScope.representative)}
-        variant={Platform.OS === "android" ? "plain" : undefined}
-      />
+      <EmptyState title="No tasks yet" detail="" variant="plain" />
     ) : selectedEnvironmentLabel ? (
       <EmptyState
         title={`No threads in ${selectedEnvironmentLabel}`}
@@ -1285,13 +1279,7 @@ export function HomeScreen(props: HomeScreenProps) {
         variant={Platform.OS === "android" ? "plain" : undefined}
       />
     ) : v2ScopedProjectGroup !== null ? (
-      <EmptyState
-        title={`No tasks in ${v2ScopedProjectGroup.title}`}
-        detail="Create a task to start working in this project."
-        actionLabel="Create task"
-        onAction={() => props.onNewThreadInProject(v2ScopedProjectGroup.representative)}
-        variant={Platform.OS === "android" ? "plain" : undefined}
-      />
+      <EmptyState title="No tasks yet" detail="" variant="plain" />
     ) : (
       listEmpty
     );
@@ -1354,6 +1342,9 @@ export function HomeScreen(props: HomeScreenProps) {
               {...scrollGateHandlers}
               scrollEventThrottle={16}
               contentContainerStyle={{
+                flexGrow: threadListV2Items.length === 0 ? 1 : undefined,
+                justifyContent: threadListV2Items.length === 0 ? "center" : undefined,
+                paddingTop: 16,
                 paddingBottom:
                   Platform.OS === "ios"
                     ? Math.max(insets.bottom, 24) + 96 + iosBottomToolbarClearance
@@ -1413,11 +1404,9 @@ export function HomeScreen(props: HomeScreenProps) {
             recycleItems
             scrollEventThrottle={16}
             contentContainerStyle={{
-              // Android reserves room for the floating new-task FAB
-              // (56 button + 16 gap + bottom inset). Pre-glass iOS shows a
-              // standard 44pt bottom toolbar that overlays the list and is not
-              // reflected in insets while contentInsetAdjustmentBehavior is
-              // "never".
+              flexGrow: listLayout.items.length === 0 ? 1 : undefined,
+              justifyContent: listLayout.items.length === 0 ? "center" : undefined,
+              paddingTop: 16,
               paddingBottom:
                 Platform.OS === "ios"
                   ? Math.max(insets.bottom, 24) + 24 + iosBottomToolbarClearance

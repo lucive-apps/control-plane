@@ -63,7 +63,7 @@ export function HomeInbox(props: {
         }}
         keyboardShouldPersistTaps="handled"
       >
-        <Text className="pb-4 text-[28px] font-t3-bold text-foreground">Inbox</Text>
+        <Text className="pb-4 text-[28px] font-t3-medium text-foreground">Inbox</Text>
         <View className="flex-row gap-3 pb-8">
           <InboxTile
             color="#0a84ff"

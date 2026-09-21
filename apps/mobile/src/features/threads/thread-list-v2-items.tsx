@@ -19,16 +19,14 @@ import type { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSw
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { ControlPillMenu } from "../../components/ControlPill";
-import { EnvironmentMachineSymbol } from "../../components/EnvironmentMachineSymbol";
-import { ProjectFavicon } from "../../components/ProjectFavicon";
-import { ProviderInstanceIcon } from "../../components/ProviderIcon";
+
 import type { ThreadRowProviderInstance } from "./thread-provider-instance";
 import { cn } from "../../lib/cn";
 import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import { relativeTime } from "../../lib/time";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
-import { useThreadPr } from "../../state/use-thread-pr";
+
 import { ThreadSwipeable } from "../home/thread-swipe-actions";
 import { buildThreadTitleRegenerationMenuItems } from "./thread-title-regeneration-menu";
 import {
@@ -37,7 +35,6 @@ import {
   resolveThreadListV2SnoozeGateExpiryMs,
   resolveThreadListV2Status,
   resolveThreadListV2SwipeActions,
-  type ThreadListV2Status,
 } from "./threadListV2";
 import { QueuedMessageIcon } from "./queued-message-icon";
 import { ThreadSearchMatchExcerpt } from "./thread-search-match";
@@ -58,15 +55,6 @@ const MONO_FONT = Platform.select({
 // Status hues follow the system-wide convention set by sidebar v1 and the
 // Live Activity/widgets (amber approval, indigo input, sky working) so a
 // thread reads the same color everywhere it surfaces.
-const STATUS_LABEL_BY_STATUS: Partial<
-  Record<ThreadListV2Status, { label: string; className: string }>
-> = {
-  approval: { label: "Approval", className: "text-warning-foreground" },
-  input: { label: "Input", className: "text-foreground-secondary" },
-  working: { label: "Working", className: "text-adaptive-sky-600-400" },
-  failed: { label: "Failed", className: "text-danger-foreground" },
-};
-
 function threadTimeLabel(thread: EnvironmentThreadShell): string {
   return relativeTime(thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt);
 }
@@ -258,8 +246,6 @@ export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props
   const { pendingTask, onSelectPendingTask, onDeletePendingTask } = props;
   const sidebarPane = props.pane === "sidebar";
   const isDraft = pendingTask.kind === "draft";
-  const projectTitle = props.projectTitle ?? props.project?.title ?? pendingTask.projectTitle ?? "";
-  const branch = pendingTask.branch;
 
   const handleMenuAction = useCallback(
     ({ nativeEvent }: { readonly nativeEvent: { readonly event: string } }) => {
@@ -271,17 +257,8 @@ export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props
   const rowContent = (
     <>
       <View className="flex-row items-center gap-1.5">
-        {props.project ? (
-          <ProjectFavicon
-            environmentId={pendingTask.environmentId}
-            faviconPath={props.project.faviconPath}
-            size={15}
-            projectTitle={projectTitle}
-            workspaceRoot={props.project.workspaceRoot}
-          />
-        ) : null}
-        <Text className="flex-1 text-sm font-t3-medium text-foreground-muted" numberOfLines={1}>
-          {projectTitle}
+        <Text className="flex-1 text-base font-t3-medium text-foreground" numberOfLines={1}>
+          {pendingTask.title}
         </Text>
         {isDraft ? (
           <View className="flex-row items-center gap-1">
@@ -297,34 +274,6 @@ export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props
           <Text className="text-xs text-foreground-tertiary">Sends on reconnect</Text>
         )}
       </View>
-      {/* One line, unlike the two an active row allows: a queued title is
-          derived from the whole prompt rather than written as a title, so the
-          second line is usually a stray word or emoji rather than meaning. */}
-      <Text className="mt-1 text-base font-t3-medium text-foreground" numberOfLines={1}>
-        {pendingTask.title}
-      </Text>
-      {branch || props.environmentLabel ? (
-        <View className="mt-1 flex-row items-center gap-1">
-          <Text className="shrink text-xs text-foreground-muted" numberOfLines={1}>
-            {branch ? (
-              <Text className="text-xs text-foreground-muted" style={{ fontFamily: MONO_FONT }}>
-                {branch}
-              </Text>
-            ) : null}
-            {branch && props.environmentLabel ? "  ·  " : null}
-            {props.environmentLabel ? (
-              <Text className="text-xs text-foreground-tertiary">{props.environmentLabel}</Text>
-            ) : null}
-          </Text>
-          {props.environmentLabel && props.environmentMachine ? (
-            <EnvironmentMachineSymbol
-              kind={props.environmentMachine}
-              size={11}
-              tintColorClassName="accent-foreground-tertiary"
-            />
-          ) : null}
-        </View>
-      ) : null}
     </>
   );
 
@@ -472,9 +421,6 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     onMoveThread,
   } = props;
   const snoozedRow = props.snoozed === true;
-  const pinnedRow = props.pinned === true;
-
-  const pr = useThreadPr(thread);
 
   const theme = useUniwindTheme();
   const screenColor = theme["--color-screen"];
@@ -483,20 +429,8 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     theme[Platform.OS === "android" ? "--color-thread-selected" : "--color-user-bubble"];
   const sidebarPane = props.pane === "sidebar";
   const selected = props.selected === true;
-  // The provider badge's border blends into the row's own surface, which
-  // differs by pane and (for the sidebar pane) selection: the sidebar row
-  // background becomes the selected fill or the drawer surface, while the
-  // flat "screen" pane rows always sit on the screen background.
-  const providerIconSurfaceColor = sidebarPane
-    ? selected
-      ? selectedBackgroundColor
-      : Platform.OS === "android"
-        ? screenColor
-        : drawerColor
-    : screenColor;
 
   const status = resolveThreadListV2Status(thread);
-  const statusLabel = STATUS_LABEL_BY_STATUS[status];
   // Settled rows label by the same stamp they sort by, so order and label
   // can't disagree. updatedAt is always present, so the resolver never
   // returns null here.
@@ -775,64 +709,22 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   // every piece of row text must use that surface's paired foreground.
   const cardContent = (
     <>
-      <View className="flex-row items-center gap-1.5">
-        {props.project ? (
-          <ProjectFavicon
-            environmentId={thread.environmentId}
-            faviconPath={props.project.faviconPath}
-            size={15}
-            projectTitle={props.projectTitle ?? props.project.title}
-            workspaceRoot={props.project.workspaceRoot}
-          />
-        ) : null}
+      <View className="flex-row items-center gap-2">
         <Text
           className={cn(
-            "flex-1 text-sm font-t3-medium",
-            selected
-              ? Platform.OS === "android"
-                ? "text-thread-selected-foreground-muted"
-                : "text-user-bubble-foreground-muted"
-              : "text-foreground-muted",
-          )}
-          numberOfLines={1}
-        >
-          {props.projectTitle ?? props.project?.title ?? ""}
-        </Text>
-        {props.hasQueuedMessages ? <QueuedMessageIcon selected={selected} /> : null}
-        {pinnedRow ? (
-          <SymbolView
-            name="pin"
-            size={11}
-            tintColorClassName="accent-foreground-muted"
-            type="monochrome"
-          />
-        ) : null}
-        <Text
-          className={cn(
-            "text-xs tabular-nums",
+            "flex-1 text-base font-t3-medium",
             selected
               ? Platform.OS === "android"
                 ? "text-thread-selected-foreground"
                 : "text-user-bubble-foreground"
-              : (statusLabel?.className ?? "text-foreground-tertiary"),
+              : "text-foreground",
           )}
+          numberOfLines={2}
         >
-          {statusLabel?.label ?? timeLabel}
+          {thread.title}
         </Text>
+        {props.hasQueuedMessages ? <QueuedMessageIcon selected={selected} /> : null}
       </View>
-      <Text
-        className={cn(
-          "mt-1 text-base font-t3-medium",
-          selected
-            ? Platform.OS === "android"
-              ? "text-thread-selected-foreground"
-              : "text-user-bubble-foreground"
-            : "text-foreground",
-        )}
-        numberOfLines={2}
-      >
-        {thread.title}
-      </Text>
       {props.searchMatch ? (
         <View className="mt-1">
           <ThreadSearchMatchExcerpt
@@ -842,136 +734,21 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           />
         </View>
       ) : null}
-      <View className="mt-1 flex-row items-center gap-2">
-        {status === "failed" && thread.session?.lastError ? (
-          <Text
-            className={cn(
-              "flex-1 text-xs",
-              selected
-                ? Platform.OS === "android"
-                  ? "text-thread-selected-foreground-muted"
-                  : "text-user-bubble-foreground-muted"
-                : "text-danger-foreground",
-            )}
-            numberOfLines={1}
-          >
-            {thread.session.lastError}
-          </Text>
-        ) : thread.branch || props.environmentLabel ? (
-          /* "branch · machine" share one truncating line. The machine sits
-             last so a tight fit cuts the repetitive label, not the branch —
-             and machine-only fills the row for non-git projects. The glyph
-             hugs the label (it cannot live inside the Text without breaking
-             truncation), and the wrapper takes the slack so the trailers
-             stay pinned right. */
-          <View className="min-w-0 flex-1 flex-row items-center gap-1">
-            <Text
-              className={cn(
-                "shrink text-xs",
-                selected
-                  ? Platform.OS === "android"
-                    ? "text-thread-selected-foreground-muted"
-                    : "text-user-bubble-foreground-muted"
-                  : "text-foreground-muted",
-              )}
-              numberOfLines={1}
-            >
-              {thread.branch ? (
-                <Text
-                  className={cn(
-                    "text-xs",
-                    selected
-                      ? Platform.OS === "android"
-                        ? "text-thread-selected-foreground-muted"
-                        : "text-user-bubble-foreground-muted"
-                      : "text-foreground-muted",
-                  )}
-                  style={{ fontFamily: MONO_FONT }}
-                >
-                  {thread.branch}
-                </Text>
-              ) : null}
-              {thread.branch && props.environmentLabel ? "  ·  " : null}
-              {props.environmentLabel ? (
-                <Text
-                  className={cn(
-                    "text-xs",
-                    selected
-                      ? Platform.OS === "android"
-                        ? "text-thread-selected-foreground-muted"
-                        : "text-user-bubble-foreground-muted"
-                      : "text-foreground-tertiary",
-                  )}
-                >
-                  {props.environmentLabel}
-                </Text>
-              ) : null}
-            </Text>
-            {props.environmentLabel && props.environmentMachine ? (
-              <EnvironmentMachineSymbol
-                kind={props.environmentMachine}
-                size={11}
-                tintColorClassName={
-                  selected
-                    ? Platform.OS === "android"
-                      ? "accent-thread-selected-foreground-muted"
-                      : "accent-user-bubble-foreground-muted"
-                    : "accent-foreground-tertiary"
-                }
-              />
-            ) : null}
-          </View>
-        ) : (
-          <View className="flex-1" />
-        )}
-        {pr ? (
-          <View className="flex-row items-center gap-1" accessibilityLabel={pr.accessibilityLabel}>
-            {pr.kind === "stack" || pr.others > 0 ? (
-              <SymbolView
-                name={pr.kind === "stack" ? "square.3.layers.3d" : "arrow.triangle.pull"}
-                size={12}
-                tintColorClassName={
-                  selected
-                    ? Platform.OS === "android"
-                      ? "accent-thread-selected-foreground"
-                      : "accent-user-bubble-foreground"
-                    : pr.state === null || pr.isDraft
-                      ? "accent-foreground-muted"
-                      : pr.state === "open"
-                        ? "accent-adaptive-emerald-600-400"
-                        : pr.state === "closed"
-                          ? "accent-adaptive-rose-600-400"
-                          : "accent-adaptive-violet-600-400"
-                }
-              />
-            ) : null}
-            <Text
-              accessibilityLabel={pr.accessibilityLabel}
-              className={cn(
-                "text-xs",
-                selected
-                  ? Platform.OS === "android"
-                    ? "text-thread-selected-foreground"
-                    : "text-user-bubble-foreground"
-                  : pr.textClassName,
-              )}
-              style={{ fontFamily: MONO_FONT }}
-            >
-              {pr.kind === "stack" || pr.others > 0 ? pr.label : `#${pr.label}`}
-            </Text>
-          </View>
-        ) : null}
-        {props.providerInstance ? (
-          <ProviderInstanceIcon
-            provider={props.providerInstance.driverKind}
-            size={14}
-            displayName={props.providerInstance.displayName}
-            accentColor={props.providerInstance.accentColor}
-            showBadge={props.providerInstance.showBadge}
-            surfaceColor={providerIconSurfaceColor}
-          />
-        ) : null}
-      </View>
+      {status === "failed" && thread.session?.lastError ? (
+        <Text
+          className={cn(
+            "mt-1 text-xs",
+            selected
+              ? Platform.OS === "android"
+                ? "text-thread-selected-foreground-muted"
+                : "text-user-bubble-foreground-muted"
+              : "text-danger-foreground",
+          )}
+          numberOfLines={1}
+        >
+          {thread.session.lastError}
+        </Text>
+      ) : null}
     </>
   );
 
@@ -1062,24 +839,12 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             : undefined
         }
       >
-        {/* Settled history recedes: dimmed favicon + muted title. */}
         <View
           className={cn(
             "min-h-[44px] flex-row items-center gap-2.5 py-2",
             sidebarPane ? "px-3" : "px-5",
           )}
         >
-          {props.project ? (
-            <View className="opacity-40">
-              <ProjectFavicon
-                environmentId={thread.environmentId}
-                faviconPath={props.project.faviconPath}
-                size={15}
-                projectTitle={props.projectTitle ?? props.project.title}
-                workspaceRoot={props.project.workspaceRoot}
-              />
-            </View>
-          ) : null}
           <View className="min-w-0 flex-1">
             <Text
               className={cn(

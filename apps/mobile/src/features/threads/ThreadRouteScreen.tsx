@@ -359,12 +359,6 @@ function ThreadRouteContent(
 
   /* ─── Native header theming ──────────────────────────────────────── */
   const usesNativeHeaderGlass = NATIVE_LIQUID_GLASS_SUPPORTED;
-  const headerSubtitle = [
-    selectedThreadProject?.title ?? null,
-    selectedEnvironmentConnection?.environmentLabel ?? null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
   /* ─── Git status for native header trigger ───────────────────────── */
   const gitStatus = useEnvironmentQuery(
     selectedThread !== null && selectedThreadCwd !== null
@@ -1079,7 +1073,7 @@ function ThreadRouteContent(
           headerTitleStyle: usesNativeHeaderGlass
             ? {
                 fontSize: 17,
-                fontWeight: "800",
+                fontWeight: "400",
               }
             : undefined,
           title: selectedThread.title,
@@ -1102,7 +1096,7 @@ function ThreadRouteContent(
             Platform.OS === "ios"
               ? () => (layout.usesSplitView ? threadCenterHeaderItems : compactRightHeaderItems)
               : undefined,
-          unstable_headerSubtitle: usesNativeHeaderGlass ? headerSubtitle : undefined,
+          unstable_headerSubtitle: undefined,
           contentStyle:
             Platform.OS === "android" && true ? { backgroundColor: headerColor } : undefined,
         }}
@@ -1111,7 +1105,7 @@ function ThreadRouteContent(
       {Platform.OS === "android" ? (
         <AndroidScreenHeader
           title={selectedThread.title}
-          subtitle={headerSubtitle}
+          subtitle={null}
           leading={<AndroidWorkspaceSidebarButton />}
           trailing={
             fileInspector.supported && selectedThreadCwd !== null ? (
@@ -1138,6 +1132,7 @@ function ThreadRouteContent(
                 }
           }
           actions={androidHeaderActions}
+          overflowOnly
           hideBottomBorder
         />
       ) : null}

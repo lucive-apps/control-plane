@@ -246,7 +246,9 @@ function VoiceActionButton(props: {
       <View
         className={cn(
           "items-center justify-center",
-          variant === "primary" ? "size-[30px] rounded-full bg-subtle" : "size-[44px]",
+          variant === "primary"
+            ? "size-[30px] rounded-full bg-subtle"
+            : "size-11 rounded-full bg-subtle",
         )}
       >
         {variant === "primary" ? (

@@ -1199,7 +1199,7 @@ function ThreadNavigationSidebarPane(
               headerWidth: props.width,
               trailingItemCount: nativeHeaderItems.length,
               onOpenEnvironments: props.onOpenEnvironmentSettings,
-              fallbackTitleStyle: { fontSize: 18, fontWeight: "800" },
+              fallbackTitleStyle: { fontSize: 17, fontWeight: "400" },
             }),
             headerSearchBarOptions: {
               ref: searchBarRef,

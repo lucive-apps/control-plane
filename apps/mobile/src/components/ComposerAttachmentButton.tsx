@@ -20,7 +20,7 @@ export function ComposerAttachmentButton(props: {
       accessibilityLabel="Add attachment"
       accessibilityRole="button"
       accessibilityState={{ disabled: props.disabled }}
-      className="size-[44px] shrink-0 items-center justify-center rounded-full active:opacity-70 disabled:opacity-50"
+      className="size-11 shrink-0 items-center justify-center rounded-full bg-subtle active:opacity-70 disabled:opacity-50"
       disabled={props.disabled}
       onPress={props.supportsFiles ? undefined : () => void props.onPickMedia()}
     >

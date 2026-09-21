@@ -14,10 +14,12 @@ export function EmptyState(props: {
   if (props.variant === "plain") {
     return (
       <View className="items-center px-8 py-8">
-        <Text className="text-center text-xl font-t3-bold text-foreground">{props.title}</Text>
-        <Text className="mt-2 text-center font-sans text-base leading-normal text-foreground-muted">
-          {props.detail}
-        </Text>
+        <Text className="text-center text-xl font-t3-medium text-foreground">{props.title}</Text>
+        {props.detail.length > 0 ? (
+          <Text className="mt-2 text-center font-sans text-base leading-normal text-foreground-muted">
+            {props.detail}
+          </Text>
+        ) : null}
         {props.action ? (
           <View className="mt-5">{props.action}</View>
         ) : props.actionLabel && props.onAction ? (

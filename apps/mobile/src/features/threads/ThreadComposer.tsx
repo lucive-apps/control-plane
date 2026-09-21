@@ -936,7 +936,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                     onDismissError={voiceInput.cancel}
                   />
                 ) : (
-                  <View className="min-w-0 flex-1 flex-row items-center justify-between">
+                  <View className="min-w-0 flex-1 flex-row items-center gap-1">
                     <ComposerAttachmentButton
                       supportsFiles={Boolean(
                         props.serverConfig?.environment.capabilities.fileAttachments,
@@ -944,18 +944,13 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                       onPickMedia={props.onPickDraftMedia}
                       onPickFiles={props.onPickDraftFiles}
                     />
-                    <View className="min-w-0 shrink">
-                      <ComposerInlineControl
-                        accessibilityLabel="Model and reasoning settings"
-                        emphasized
-                        iconNode={
-                          <ProviderIcon provider={currentModelOption?.providerDriver} size={16} />
-                        }
-                        label={currentModelOption?.label ?? currentModelSelection.model}
-                        maxWidth="100%"
-                        onPress={openSettings}
-                      />
-                    </View>
+                    <ComposerInlineControl
+                      accessibilityLabel="Model and reasoning settings"
+                      emphasized
+                      label={currentModelOption?.label ?? currentModelSelection.model}
+                      onPress={openSettings}
+                    />
+                    <View className="flex-1" />
                   </View>
                 )}
                 <View className="shrink-0 flex-row items-center">

@@ -115,7 +115,7 @@ const GLASS_HEADER_OPTIONS: AppScreenOptions = {
   headerShadowVisible: false,
   headerShown: true,
   headerStyle: NATIVE_LIQUID_GLASS_SUPPORTED ? { backgroundColor: "transparent" } : undefined,
-  headerTitleStyle: { fontSize: 18, fontWeight: "800" },
+  headerTitleStyle: { fontSize: 17, fontWeight: "400" },
   headerTransparent: NATIVE_LIQUID_GLASS_SUPPORTED,
   scrollEdgeEffects: NATIVE_LIQUID_GLASS_SUPPORTED ? HEADER_SCROLL_EDGE_EFFECTS : undefined,
   unstable_navigationItemStyle: NATIVE_LIQUID_GLASS_SUPPORTED ? "editor" : undefined,
@@ -129,7 +129,7 @@ const SOLID_HEADER_OPTIONS: AppScreenOptions = {
   headerLargeTitle: false,
   headerShadowVisible: false,
   headerShown: true,
-  headerTitleStyle: { fontSize: 18, fontWeight: "800" },
+  headerTitleStyle: { fontSize: 17, fontWeight: "400" },
   headerTransparent: false,
   unstable_navigationItemStyle: Platform.OS === "ios" ? "editor" : undefined,
 };
