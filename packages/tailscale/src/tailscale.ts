@@ -347,7 +347,13 @@ export const ensureTailscaleServe = (input: {
 }): Effect.Effect<void, TailscaleCommandError, ChildProcessSpawner.ChildProcessSpawner> => {
   const servePort = input.servePort ?? DEFAULT_TAILSCALE_SERVE_PORT;
   const localHost = input.localHost ?? "127.0.0.1";
-  const args = ["serve", "--bg", `--https=${servePort}`, `http://${localHost}:${input.localPort}`];
+  const args = [
+    "serve",
+    "--bg",
+    "--yes",
+    `--https=${servePort}`,
+    `http://${localHost}:${input.localPort}`,
+  ];
   return runTailscaleCommand(args, TAILSCALE_SERVE_TIMEOUT);
 };
 

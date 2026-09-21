@@ -3152,34 +3152,39 @@ export function ConnectionsSettings() {
     );
   };
 
-  const renderTailscaleRow = () => (
-    <SettingsRow
-      title={searchableSetting("tailscale-https").title}
-      description={
-        tailscaleHttpsEndpoint
-          ? tailscaleHttpsEndpoint.status === "available"
-            ? tailscaleHttpsEndpoint.httpBaseUrl
-            : "Use Tailscale Serve to expose this backend through a MagicDNS HTTPS URL."
-          : "Start Tailscale to set up HTTPS access through MagicDNS."
-      }
-      control={
-        tailscaleHttpsEndpoint ? (
-          <Switch
-            checked={tailscaleHttpsEndpoint.status === "available"}
-            disabled={isUpdatingTailscaleServe}
-            onCheckedChange={(checked) => {
-              if (checked) {
-                handleStartTailscaleServeSetup(tailscaleHttpsEndpoint);
-                return;
-              }
-              handleStartTailscaleServeDisable(tailscaleHttpsEndpoint);
-            }}
-            aria-label="Enable Tailscale HTTPS"
-          />
-        ) : null
-      }
-    />
-  );
+  const renderTailscaleRow = () => {
+    const tailscaleServeEnabled = desktopServerExposureState?.tailscaleServeEnabled === true;
+    const tailscaleHttpsAvailable = tailscaleHttpsEndpoint?.status === "available";
+    const tailscaleHttpsUrl = tailscaleHttpsEndpoint?.httpBaseUrl;
+    return (
+      <SettingsRow
+        title={searchableSetting("tailscale-https").title}
+        description={
+          tailscaleHttpsUrl && (tailscaleHttpsAvailable || tailscaleServeEnabled)
+            ? tailscaleHttpsUrl
+            : tailscaleHttpsEndpoint
+              ? "Use Tailscale Serve to expose this backend through a MagicDNS HTTPS URL."
+              : "Start Tailscale to set up HTTPS access through MagicDNS."
+        }
+        control={
+          tailscaleHttpsEndpoint ? (
+            <Switch
+              checked={tailscaleServeEnabled || tailscaleHttpsAvailable}
+              disabled={isUpdatingTailscaleServe}
+              onCheckedChange={(checked) => {
+                if (checked) {
+                  handleStartTailscaleServeSetup(tailscaleHttpsEndpoint);
+                  return;
+                }
+                handleStartTailscaleServeDisable(tailscaleHttpsEndpoint);
+              }}
+              aria-label="Enable Tailscale HTTPS"
+            />
+          ) : null
+        }
+      />
+    );
+  };
   const renderAuthorizedClients = (presentation: AccessSectionPresentation) => (
     <>
       {desktopAccessManagementError ? (

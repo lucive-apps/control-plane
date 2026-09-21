@@ -324,7 +324,7 @@ describe("tailscale", () => {
   it.effect("configures tailscale serve through the process spawner service", () => {
     const layer = mockSpawnerLayer((command, args) => {
       assert.equal(command, "tailscale");
-      assert.deepEqual(args, ["serve", "--bg", "--https=8443", "http://127.0.0.1:13773"]);
+      assert.deepEqual(args, ["serve", "--bg", "--yes", "--https=8443", "http://127.0.0.1:13773"]);
       return {};
     });
 
@@ -346,7 +346,7 @@ describe("tailscale", () => {
       assert.instanceOf(error, TailscaleCommandExitError);
       assert.equal(error.executable, "tailscale");
       assert.equal(error.subcommand, "serve");
-      assert.equal(error.argumentCount, 4);
+      assert.equal(error.argumentCount, 5);
       assert.equal(error.exitCode, 1);
       assert.equal(error.stderrLength, 53);
       assert.notProperty(error, "command");
