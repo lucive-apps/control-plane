@@ -1,8 +1,9 @@
 import { StackActions, useNavigation } from "@react-navigation/native";
 import { TextInputWrapper } from "expo-paste-input";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  Keyboard,
   Modal,
   Pressable,
   ScrollView,
@@ -12,7 +13,7 @@ import {
 } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useKeyboardState, useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
-import Animated, { useAnimatedStyle, useSharedValue } from "react-native-reanimated";
+import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppText as Text } from "../../components/AppText";
@@ -209,6 +210,13 @@ function HomeComposerBarInner(props: { readonly lockedProject: EnvironmentProjec
   const inputHeightStyle = useAnimatedStyle(() => ({
     minHeight: inputHeight.value,
   }));
+  const collapse = useCallback(() => {
+    if (picker !== null) return;
+    setExpanded(false);
+    inputHeight.value = COLLAPSED_INPUT_HEIGHT;
+    inputRef.current?.blur();
+    Keyboard.dismiss();
+  }, [inputHeight, picker]);
   const resizeComposer = useMemo(
     () =>
       Gesture.Pan()
@@ -217,20 +225,16 @@ function HomeComposerBarInner(props: { readonly lockedProject: EnvironmentProjec
           dragStartHeight.value = inputHeight.value;
         })
         .onEnd((event) => {
-          const midpoint = (MIN_INPUT_HEIGHT + maxInputHeight) / 2;
-          const startedTall = dragStartHeight.value > midpoint;
-          const flickUp = event.translationY < -28 || event.velocityY < -500;
           const flickDown = event.translationY > 28 || event.velocityY > 500;
-          const next = startedTall
-            ? flickDown
-              ? MIN_INPUT_HEIGHT
-              : maxInputHeight
-            : flickUp
-              ? maxInputHeight
-              : MIN_INPUT_HEIGHT;
-          inputHeight.value = next;
+          const flickUp = event.translationY < -28 || event.velocityY < -500;
+          if (flickDown) {
+            inputHeight.value = COLLAPSED_INPUT_HEIGHT;
+            runOnJS(collapse)();
+            return;
+          }
+          inputHeight.value = flickUp ? maxInputHeight : MIN_INPUT_HEIGHT;
         }),
-    [dragStartHeight, inputHeight, maxInputHeight],
+    [collapse, dragStartHeight, inputHeight, maxInputHeight],
   );
   const setProject = flow.setProject;
   const firstProject = flow.projectScopes[0]?.representative ?? null;
@@ -280,13 +284,6 @@ function HomeComposerBarInner(props: { readonly lockedProject: EnvironmentProjec
     inputHeight.value = COLLAPSED_INPUT_HEIGHT;
     setExpanded(true);
     requestAnimationFrame(() => inputRef.current?.focus());
-  };
-
-  const collapse = () => {
-    if (picker !== null) return;
-    setExpanded(false);
-    inputHeight.value = COLLAPSED_INPUT_HEIGHT;
-    inputRef.current?.blur();
   };
 
   const send = async () => {

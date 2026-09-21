@@ -1426,14 +1426,6 @@ function CenteredListEmpty(props: { readonly title: string; readonly detail?: st
   );
 }
 
-function CenteredListEmpty(props: { readonly title: string; readonly detail?: string }) {
-  return (
-    <View className="flex-1 items-center justify-center px-8">
-      <EmptyState title={props.title} detail={props.detail ?? ""} variant="plain" />
-    </View>
-  );
-}
-
 function HomeSearchField(props: {
   readonly query: string;
   readonly onChange: (query: string) => void;
