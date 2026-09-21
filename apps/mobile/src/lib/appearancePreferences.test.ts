@@ -19,7 +19,7 @@ describe("appearancePreferences", () => {
       terminalFontSize: null,
       codeFontSize: null,
       codeWordBreak: false,
-      uiFont: "dm-sans",
+      uiFont: "system",
     });
   });
 
@@ -66,8 +66,9 @@ describe("appearancePreferences", () => {
     expect(resolveAppearancePreferences({ codeFontSize: 30 }).codeFontSize).toBe(18);
   });
 
-  it("accepts the system UI font", () => {
-    expect(resolveAppearancePreferences({ uiFont: "system" }).uiFont).toBe("system");
+  it("defaults to the system UI font and keeps an explicit DM Sans choice", () => {
+    expect(resolveAppearancePreferences({}).uiFont).toBe("system");
+    expect(resolveAppearancePreferences({ uiFont: "dm-sans" }).uiFont).toBe("dm-sans");
     expect(resolveAppearance(resolveAppearancePreferences({ uiFont: "system" })).uiFont).toBe(
       "system",
     );

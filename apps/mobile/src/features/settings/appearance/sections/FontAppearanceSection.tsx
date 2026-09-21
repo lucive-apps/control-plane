@@ -7,8 +7,8 @@ import { SettingsSection } from "../../components/SettingsSection";
 import { useAppearancePreferences } from "../AppearancePreferencesProvider";
 
 const FONT_OPTIONS: ReadonlyArray<{ readonly value: UiFont; readonly label: string }> = [
-  { value: "dm-sans", label: "Default" },
   { value: "system", label: "System" },
+  { value: "dm-sans", label: "DM Sans" },
 ];
 
 export function FontAppearanceSection() {
@@ -25,9 +25,7 @@ export function FontAppearanceSection() {
           }}
         />
         <Text className="text-sm text-foreground-muted">
-          {appearance.uiFont === "system"
-            ? "Uses the system font."
-            : "Uses the app's default typeface."}
+          {appearance.uiFont === "system" ? "Uses the system font." : "Uses DM Sans."}
         </Text>
       </View>
     </SettingsSection>

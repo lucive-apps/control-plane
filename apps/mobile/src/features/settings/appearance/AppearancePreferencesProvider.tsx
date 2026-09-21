@@ -354,5 +354,5 @@ export function useAppearancePreferences(): AppearancePreferencesContextValue {
 }
 
 export function useUiFont(): UiFont {
-  return use(AppearancePreferencesContext)?.appearance.uiFont ?? "dm-sans";
+  return use(AppearancePreferencesContext)?.appearance.uiFont ?? "system";
 }

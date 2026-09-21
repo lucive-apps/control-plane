@@ -1,4 +1,4 @@
-export const UI_FONTS = ["dm-sans", "system"] as const;
+export const UI_FONTS = ["system", "dm-sans"] as const;
 export type UiFont = (typeof UI_FONTS)[number];
 
 const DM_SANS_FAMILIES = {
@@ -8,7 +8,7 @@ const DM_SANS_FAMILIES = {
 } as const;
 
 export function normalizeUiFont(value: unknown): UiFont {
-  return value === "system" ? "system" : "dm-sans";
+  return value === "dm-sans" ? "dm-sans" : "system";
 }
 
 export function resolveUiFontFamilies(
