@@ -1,3 +1,4 @@
+import { ThreadStatusDot, useThreadStatusDot } from "./thread-status-dot";
 import { RowPressable } from "../../components/RowPressable";
 import { CustomSnoozeSheet } from "./CustomSnoozeSheet";
 import { appAtomRegistry } from "../../state/atom-registry";
@@ -42,7 +43,7 @@ import { ThreadSearchMatchExcerpt } from "./thread-search-match";
 /**
  * Thread List v2 renders one flat native list: rich edge-to-edge rows for
  * active work and a receded settled tail, all with native swipe and
- * long-press actions. State reads through colored status labels and text
+ * long-press actions. State reads through colored status dots and text
  * hierarchy rather than card fills.
  */
 
@@ -429,6 +430,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const selected = props.selected === true;
 
   const status = resolveThreadListV2Status(thread);
+  const statusDot = useThreadStatusDot(thread);
   // Settled rows label by the same stamp they sort by, so order and label
   // can't disagree. updatedAt is always present, so the resolver never
   // returns null here.
@@ -708,6 +710,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const cardContent = (
     <>
       <View className="flex-row items-center gap-2">
+        <ThreadStatusDot color={statusDot.color} />
         <Text
           className={cn(
             "flex-1 text-base font-t3-medium",
@@ -763,9 +766,13 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         }
         className={sidebarPane || Platform.OS === "android" ? undefined : "bg-screen"}
         accessibilityHint={swipeAccessibilityHint}
-        accessibilityLabel={
-          props.hasQueuedMessages ? `${thread.title}, messages queued to send` : thread.title
-        }
+        accessibilityLabel={[
+          thread.title,
+          statusDot.label,
+          props.hasQueuedMessages ? "messages queued to send" : null,
+        ]
+          .filter(Boolean)
+          .join(", ")}
         accessibilityRole="button"
         accessibilityState={{ selected }}
         onPress={() => {
@@ -790,7 +797,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           cardContent
         ) : (
           /* Flat native list rows: no tonal containers. Colored status
-             labels and text hierarchy carry state. The opaque screen
+             dots and text hierarchy carry state. The opaque screen
              background stays so swipe actions reveal behind the row. */
           <View
             className={
@@ -814,9 +821,13 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             : "bg-primary"
         }
         accessibilityHint={swipeAccessibilityHint}
-        accessibilityLabel={
-          props.hasQueuedMessages ? `${thread.title}, messages queued to send` : thread.title
-        }
+        accessibilityLabel={[
+          thread.title,
+          statusDot.label,
+          props.hasQueuedMessages ? "messages queued to send" : null,
+        ]
+          .filter(Boolean)
+          .join(", ")}
         accessibilityRole="button"
         accessibilityState={{ selected }}
         className={sidebarPane || Platform.OS === "android" ? undefined : "bg-screen"}
@@ -843,6 +854,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             sidebarPane ? "px-3" : "px-5",
           )}
         >
+          <ThreadStatusDot color={statusDot.color} />
           <View className="min-w-0 flex-1">
             <Text
               className={cn(

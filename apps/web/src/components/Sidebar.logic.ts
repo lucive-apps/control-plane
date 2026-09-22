@@ -1,3 +1,12 @@
+import {
+  hasUnseenCompletion,
+  type SidebarThreadStatus,
+} from "@t3tools/client-runtime/state/thread-status";
+export {
+  hasUnseenCompletion,
+  resolveSidebarThreadStatus,
+  type SidebarThreadStatus,
+} from "@t3tools/client-runtime/state/thread-status";
 import { threadPullRequestSearchTerms } from "@t3tools/shared/threadPullRequests";
 import * as React from "react";
 import { defaultAnimateLayoutChanges, type AnimateLayoutChanges } from "@dnd-kit/sortable";
@@ -631,17 +640,6 @@ export function useThreadJumpHintVisibility(): {
   };
 }
 
-export function hasUnseenCompletion(thread: ThreadStatusInput): boolean {
-  if (!thread.latestTurn?.completedAt) return false;
-  const completedAt = Date.parse(thread.latestTurn.completedAt);
-  if (Number.isNaN(completedAt)) return false;
-  if (!thread.lastVisitedAt) return false;
-
-  const lastVisitedAt = Date.parse(thread.lastVisitedAt);
-  if (Number.isNaN(lastVisitedAt)) return true;
-  return completedAt > lastVisitedAt;
-}
-
 export function shouldClearThreadSelectionOnMouseDown(target: HTMLElement | null): boolean {
   if (target === null) return true;
   return !target.closest(THREAD_SELECTION_SAFE_SELECTOR);
@@ -797,14 +795,6 @@ export function resolveThreadRowClassName(input: {
 // whether it finished, asked a question, or proposed a plan.
 // Unread completion is tracked separately: it describes whether a ready
 // thread needs attention, not what the thread is currently doing.
-export type SidebarThreadStatus =
-  | "approval"
-  | "input"
-  | "working"
-  | "monitoring"
-  | "failed"
-  | "ready";
-
 export function shouldRecedeSidebarThread(input: {
   status: SidebarThreadStatus;
   isUnread: boolean;
@@ -818,37 +808,6 @@ export function shouldRecedeSidebarThread(input: {
     return !input.isUnread && !input.isWoke;
   }
   return false;
-}
-
-type SidebarThreadStatusInput = Pick<
-  SidebarThreadSummary,
-  "hasPendingApprovals" | "hasPendingUserInput" | "session" | "backgroundLiveness"
->;
-
-export function resolveSidebarThreadStatus(thread: SidebarThreadStatusInput): SidebarThreadStatus {
-  if (thread.hasPendingApprovals) {
-    return "approval";
-  }
-  if (thread.hasPendingUserInput) {
-    return "input";
-  }
-  if (thread.session?.status === "running" || thread.session?.status === "starting") {
-    return "working";
-  }
-  // A failed session outranks lingering background liveness: the user must
-  // see the failure, not a stale Working (review finding).
-  if (thread.session?.status === "error") {
-    return "failed";
-  }
-  // Background work outlives the turn: fleets read as working; monitoring
-  // only when watch loops are the sole live work.
-  if (thread.backgroundLiveness === "working") {
-    return "working";
-  }
-  if (thread.backgroundLiveness === "monitoring") {
-    return "monitoring";
-  }
-  return "ready";
 }
 
 /** First VALID timestamp wins: `a ?? b` falls through on null, but a present-

@@ -34,7 +34,7 @@ export { snoozeWakeLabel };
  * (approval), "in motion" (working), and "broken" (failed). Ready is the
  * unlabeled resting state.
  */
-export type ThreadListV2Status = "approval" | "input" | "working" | "failed" | "ready";
+export type { SidebarThreadStatus as ThreadListV2Status } from "@t3tools/client-runtime/state/thread-status";
 export type ThreadListV2SwipeAction = "archive" | "settle" | "unsettle" | "snooze" | "unsnooze";
 
 export function resolveThreadListV2SnoozeMenuSelection(input: {
@@ -132,23 +132,7 @@ export function resolveThreadListV2Enabled(input: {
   return input.legacyPreference !== true;
 }
 
-export function resolveThreadListV2Status(
-  thread: Pick<EnvironmentThreadShell, "hasPendingApprovals" | "hasPendingUserInput" | "session">,
-): ThreadListV2Status {
-  if (thread.hasPendingApprovals) {
-    return "approval";
-  }
-  if (thread.hasPendingUserInput) {
-    return "input";
-  }
-  if (thread.session?.status === "running" || thread.session?.status === "starting") {
-    return "working";
-  }
-  if (thread.session?.status === "error") {
-    return "failed";
-  }
-  return "ready";
-}
+export { resolveSidebarThreadStatus as resolveThreadListV2Status } from "@t3tools/client-runtime/state/thread-status";
 
 /** NaN-safe Date.parse for sort comparators: a malformed timestamp must not
     poison the whole ordering, so it sinks to the epoch instead. */
