@@ -709,24 +709,20 @@ function SidebarSectionHeader(props: {
   );
 }
 
-// One unsent draft session the user has invested content in. Two lines,
-// nothing else: project name, then the typed prompt. All the draft's
-// settings (model, env mode, branch, worktree) still travel with it —
+// An unsent draft appears alongside its project's threads. All the draft's
+// settings (model, env mode, branch, worktree) still travel with it:
 // clicking is a plain navigation to /draft/$draftId, which touches nothing.
 // While the draft is open the row renders a frozen snapshot (see
 // SidebarDraftBlock); memoized so per-keystroke block re-renders skip it
 // entirely.
 const SidebarDraftRow = memo(function SidebarDraftRow(props: {
   draftId: DraftId;
-  session: DraftSessionState;
   composer: ComposerThreadDraftState;
-  project: ProjectFaviconProject | null;
-  projectDisplayName: string | null;
   isActive: boolean;
   onNavigate: (draftId: DraftId) => void;
   onDiscard: (draftId: DraftId) => void;
 }) {
-  const { composer, draftId, onDiscard, onNavigate, session } = props;
+  const { composer, draftId, onDiscard, onNavigate } = props;
   const promptPreview =
     replaceComposerContextReferences(composer.prompt, (occurrence) => occurrence.label)
       .trim()
@@ -766,10 +762,12 @@ const SidebarDraftRow = memo(function SidebarDraftRow(props: {
     [draftId, onDiscard],
   );
   return (
-    <li className="list-none py-0.5">
+    <li className="list-none">
       <div
         role="button"
         tabIndex={0}
+        aria-label={`Draft: ${preview}`}
+        aria-current={props.isActive ? "page" : undefined}
         data-testid="sidebar-draft-row"
         className={cn(
           "group/sidebar-row relative w-full cursor-pointer overflow-hidden rounded-md text-left text-sidebar-foreground outline-none select-none",
@@ -778,34 +776,26 @@ const SidebarDraftRow = memo(function SidebarDraftRow(props: {
         onClick={handleActivate}
         onKeyDown={handleKeyDown}
       >
-        <div className="relative z-10 h-[4.875rem] px-[var(--sidebar-row-content-inset)] py-[var(--sidebar-content-inset)]">
-          <div className="flex h-5 min-w-0 items-center gap-1.5">
+        <div className="flex h-8 min-w-0 items-center gap-2 px-2">
+          <span className="flex size-4 shrink-0 items-center justify-center">
             <SquarePenIcon aria-hidden className={draftPenClassName} />
-            {props.project ? (
-              <ProjectFavicon project={props.project} className="size-4 shrink-0" />
-            ) : null}
-            <span className="min-w-0 flex-1 truncate text-xs font-medium text-secondary-label">
-              {props.projectDisplayName}
-            </span>
-            <span className="ml-auto flex h-5 min-w-5 shrink-0 items-center justify-end">
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <button
-                      type="button"
-                      aria-label="Discard draft"
-                      onClick={handleDiscard}
-                      className="pointer-events-none inline-flex cursor-pointer items-center rounded-md bg-transparent px-1 text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/sidebar-row:pointer-events-auto group-hover/sidebar-row:opacity-100"
-                    >
-                      <XIcon className="size-3" />
-                    </button>
-                  }
-                />
-                <TooltipPopup side="top">Discard draft</TooltipPopup>
-              </Tooltip>
-            </span>
-          </div>
-          <div className="mt-0.5 truncate text-sm font-medium text-foreground/90">{preview}</div>
+          </span>
+          <span className="min-w-0 flex-1 truncate text-[length:1em] leading-tight">{preview}</span>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label="Discard draft"
+                  onClick={handleDiscard}
+                  className="pointer-events-none inline-flex cursor-pointer items-center rounded-md bg-transparent px-1 text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/sidebar-row:pointer-events-auto group-hover/sidebar-row:opacity-100"
+                >
+                  <XIcon className="size-3" />
+                </button>
+              }
+            />
+            <TooltipPopup side="top">Discard draft</TooltipPopup>
+          </Tooltip>
         </div>
       </div>
     </li>
@@ -818,14 +808,10 @@ interface SidebarDraftRowData {
   composer: ComposerThreadDraftState;
 }
 
-// Draft sessions with user content, surfaced above the pinned block so an
-// interrupted "new thread" stays one click away. Self-contained (own store
-// subscription + closing divider) so per-keystroke composer updates
-// re-render only this block, never the whole sidebar. Vanishes at count 0.
+// Draft sessions with user content live inside their logical project folder.
+// Keep the content subscription here so typing never re-renders the whole sidebar.
 const SidebarDraftBlock = memo(function SidebarDraftBlock(props: {
-  projectByKey: ReadonlyMap<string, EnvironmentProject>;
-  projectDisplayNameByKey: ReadonlyMap<string, string>;
-  scopedProjectKeys: ReadonlySet<string> | null;
+  project: SidebarProjectSnapshot;
   routeDraftId: string | null;
   onNavigateToDraft: (draftId: DraftId) => void;
 }) {
@@ -866,8 +852,10 @@ const SidebarDraftBlock = memo(function SidebarDraftBlock(props: {
         continue;
       }
       if (
-        props.scopedProjectKeys !== null &&
-        !props.scopedProjectKeys.has(`${session.environmentId}:${session.projectId}`)
+        !props.project.memberProjectRefs.some(
+          (ref) =>
+            ref.environmentId === session.environmentId && ref.projectId === session.projectId,
+        )
       ) {
         continue;
       }
@@ -888,13 +876,7 @@ const SidebarDraftBlock = memo(function SidebarDraftBlock(props: {
     }
     rows.sort((left, right) => right.session.createdAt.localeCompare(left.session.createdAt));
     return rows;
-  }, [
-    draftThreadsByThreadKey,
-    draftsByThreadKey,
-    frozenActive,
-    props.routeDraftId,
-    props.scopedProjectKeys,
-  ]);
+  }, [draftThreadsByThreadKey, draftsByThreadKey, frozenActive, props.routeDraftId, props.project]);
   const handleDiscard = useCallback(
     (draftId: DraftId) => {
       // The /draft/$draftId route redirects home on its own when the draft
@@ -910,27 +892,16 @@ const SidebarDraftBlock = memo(function SidebarDraftBlock(props: {
   }
   return (
     <>
-      {drafts.map(({ composer, draftId, session }) => {
-        const projectKey = `${session.environmentId}:${session.projectId}`;
-        return (
-          <SidebarDraftRow
-            key={draftId}
-            draftId={draftId}
-            session={session}
-            composer={composer}
-            project={props.projectByKey.get(projectKey) ?? null}
-            projectDisplayName={props.projectDisplayNameByKey.get(projectKey) ?? null}
-            isActive={draftId === props.routeDraftId}
-            onNavigate={props.onNavigateToDraft}
-            onDiscard={handleDiscard}
-          />
-        );
-      })}
-      <li
-        aria-hidden
-        data-testid="sidebar-draft-divider"
-        className="mx-2.5 my-1.5 h-px list-none bg-sidebar-border/60"
-      />
+      {drafts.map(({ composer, draftId }) => (
+        <SidebarDraftRow
+          key={draftId}
+          draftId={draftId}
+          composer={composer}
+          isActive={draftId === props.routeDraftId}
+          onNavigate={props.onNavigateToDraft}
+          onDiscard={handleDiscard}
+        />
+      ))}
     </>
   );
 });
@@ -5017,16 +4988,6 @@ export default function Sidebar() {
                       const items: ReactNode[] = [];
                       if (!settledViewOpen) {
                         items.push(
-                          <SidebarDraftBlock
-                            key="draft-sessions"
-                            projectByKey={projectByKey}
-                            projectDisplayNameByKey={projectDisplayNameByKey}
-                            scopedProjectKeys={scopedProjectKeys}
-                            routeDraftId={routeDraftIdForRows}
-                            onNavigateToDraft={navigateToDraft}
-                          />,
-                        );
-                        items.push(
                           <SidebarListSectionHeader
                             key="projects-section"
                             title="Projects"
@@ -5062,12 +5023,21 @@ export default function Sidebar() {
                             project={folder.project}
                             projectKey={folder.projectKey}
                             displayName={folder.displayName}
-                            containsActiveThread={folder.entries.some(
-                              (entry) =>
-                                scopedThreadKey(
-                                  scopeThreadRef(entry.thread.environmentId, entry.thread.id),
-                                ) === routeThreadKey,
-                            )}
+                            containsActiveThread={
+                              folder.entries.some(
+                                (entry) =>
+                                  scopedThreadKey(
+                                    scopeThreadRef(entry.thread.environmentId, entry.thread.id),
+                                  ) === routeThreadKey,
+                              ) ||
+                              (!settledViewOpen &&
+                                routeDraftThread != null &&
+                                folder.project?.memberProjectRefs.some(
+                                  (ref) =>
+                                    ref.environmentId === routeDraftThread.environmentId &&
+                                    ref.projectId === routeDraftThread.projectId,
+                                ) === true)
+                            }
                             sortable={!settledViewOpen && folder.project !== null}
                             consumeToggleSuppression={consumeFolderToggleSuppression}
                             onNewThreadInProject={
@@ -5075,6 +5045,13 @@ export default function Sidebar() {
                             }
                             onProjectContextMenu={handleProjectFolderContextMenu}
                           >
+                            {!settledViewOpen && folder.project !== null ? (
+                              <SidebarDraftBlock
+                                project={folder.project}
+                                routeDraftId={routeDraftIdForRows}
+                                onNavigateToDraft={navigateToDraft}
+                              />
+                            ) : null}
                             {folder.entries.map((entry) =>
                               renderThreadRow(entry.thread, entry.section),
                             )}
