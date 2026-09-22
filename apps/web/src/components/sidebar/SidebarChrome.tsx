@@ -112,8 +112,8 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu({
   settledViewOpen = false,
   onToggleSettledView,
 }: {
-  settledViewOpen?: boolean;
-  onToggleSettledView?: () => void;
+  settledViewOpen?: boolean | undefined;
+  onToggleSettledView?: (() => void) | undefined;
 }) {
   const navigate = useNavigate();
   const canGoBack = useCanGoBack();
