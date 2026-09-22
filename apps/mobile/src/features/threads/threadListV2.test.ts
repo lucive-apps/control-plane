@@ -163,6 +163,20 @@ describe("resolveThreadListV2Status", () => {
     expect(resolveThreadListV2Status(thread)).toBe("approval");
   });
 
+  it.each(["working", "monitoring"] as const)(
+    "preserves %s background activity after a turn ends",
+    (backgroundLiveness) => {
+      const thread = makeThread({
+        id: ThreadId.make("background"),
+        title: "Background work",
+        backgroundLiveness,
+      });
+      expect(resolveThreadListV2Status(thread)).toBe(backgroundLiveness);
+      expect(resolveThreadListV2Status({ ...thread, hasPendingApprovals: true })).toBe("approval");
+      expect(resolveThreadListV2Status({ ...thread, hasPendingUserInput: true })).toBe("input");
+    },
+  );
+
   it("resolves ready for quiescent threads", () => {
     expect(resolveThreadListV2Status(makeThread({ id: ThreadId.make("t"), title: "t" }))).toBe(
       "ready",
