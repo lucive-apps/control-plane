@@ -795,8 +795,8 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           <View
             className={
               Platform.OS === "android"
-                ? "min-h-[68px] justify-center px-3 py-4"
-                : "min-h-[68px] justify-center px-5 py-4"
+                ? "min-h-[60px] justify-center px-3 py-3"
+                : "min-h-[60px] justify-center px-5 py-3"
             }
           >
             {cardContent}
