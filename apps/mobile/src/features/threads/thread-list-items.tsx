@@ -1,3 +1,4 @@
+import { ThreadStatusDot, useThreadStatusDot } from "./thread-status-dot";
 import type {
   EnvironmentProject,
   EnvironmentThreadShell,
@@ -492,12 +493,14 @@ export const ThreadListRow = memo(function ThreadListRow(props: {
     onNewThreadOnBranch,
   } = props;
   const status = resolveThreadStatus(thread);
+  const statusDot = useThreadStatusDot(thread);
   const pr = useThreadPr(thread);
   const timestamp = relativeTime(
     thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt,
   );
   const threadAccessibilityLabel = [
     thread.title,
+    statusDot.label,
     pr?.accessibilityLabel,
     props.hasQueuedMessages ? "messages queued to send" : null,
   ]
@@ -701,6 +704,7 @@ export const ThreadListRow = memo(function ThreadListRow(props: {
             )}
           >
             <View className="flex-row items-center justify-between gap-2">
+              <ThreadStatusDot color={statusDot.color} />
               <Text
                 className={cn(
                   "flex-1 text-lg font-t3-medium",
@@ -759,6 +763,7 @@ export const ThreadListRow = memo(function ThreadListRow(props: {
       >
         <View className="gap-[3px]">
           <View className="flex-row items-center justify-between gap-2">
+            <ThreadStatusDot color={statusDot.color} />
             <Text
               className={cn(
                 "flex-1 text-base font-t3-medium",
