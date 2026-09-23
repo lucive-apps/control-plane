@@ -39,11 +39,19 @@ export function grokUsageResponseToLimits(
   response: typeof GrokUsageResponse.Type,
   checkedAt: string,
 ) {
-  const usedPercent = response.config?.creditUsagePercent;
-  if (usedPercent === undefined || !Number.isFinite(usedPercent)) {
+  const period = response.config?.currentPeriod;
+  const reportedPercent = response.config?.creditUsagePercent;
+  // Proto JSON omits a zero creditUsagePercent. A current period is still a
+  // subscription window at 0% used (100% left). Missing both means no limits.
+  const usedPercent =
+    reportedPercent !== undefined && Number.isFinite(reportedPercent)
+      ? reportedPercent
+      : period !== undefined
+        ? 0
+        : undefined;
+  if (usedPercent === undefined) {
     return makeUnavailableUsageLimits({ checkedAt, reason: "unsupported" });
   }
-  const period = response.config?.currentPeriod;
   const periodType = period?.type?.replace(/^USAGE_PERIOD_TYPE_/, "");
   const kind = periodType === "WEEKLY" ? "weekly" : periodType === "MONTHLY" ? "monthly" : "other";
   const reset = period?.end ? DateTime.make(period.end) : Option.none();

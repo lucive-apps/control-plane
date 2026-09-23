@@ -581,6 +581,30 @@ describe("Grok usage limits", () => {
       ).windows,
     ).toEqual([{ id: "subscription", kind: "monthly", label: "Monthly", usedPercent: 100 }]);
   });
+
+  it("treats an omitted percent with a current period as 0% used", () => {
+    const limits = grokUsageResponseToLimits(
+      {
+        config: {
+          currentPeriod: {
+            type: "USAGE_PERIOD_TYPE_WEEKLY",
+            end: "2026-09-30T19:01:58.595686+00:00",
+          },
+        },
+      },
+      checkedAt,
+    );
+    expect(limits.unavailable).toBeUndefined();
+    expect(limits.windows).toEqual([
+      {
+        id: "subscription",
+        kind: "weekly",
+        label: "Weekly",
+        usedPercent: 0,
+        resetsAt: "2026-09-30T19:01:58.595Z",
+      },
+    ]);
+  });
 });
 
 it.layer(NodeServices.layer)("readGrokUsageLimits", (it) => {
@@ -612,6 +636,49 @@ it.layer(NodeServices.layer)("readGrokUsageLimits", (it) => {
         ),
       );
       expect(limits.windows[0]?.usedPercent).toBe(37);
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("keeps a weekly window when credits billing omits a zero percent", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const directory = yield* fs.makeTempDirectoryScoped();
+      yield* fs.writeFileString(
+        NodePath.join(directory, "auth.json"),
+        '{"https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828":{"key":"session-token","auth_mode":"oidc"}}',
+      );
+      const limits = yield* readGrokUsageLimits({ GROK_HOME: directory }).pipe(
+        Effect.provideService(
+          HttpClient.HttpClient,
+          HttpClient.make((request) =>
+            Effect.succeed(
+              HttpClientResponse.fromWeb(
+                request,
+                Response.json({
+                  config: {
+                    currentPeriod: {
+                      type: "USAGE_PERIOD_TYPE_WEEKLY",
+                      start: "2026-09-23T19:01:58.595686+00:00",
+                      end: "2026-09-30T19:01:58.595686+00:00",
+                    },
+                    onDemandCap: { val: 0 },
+                    onDemandUsed: { val: 0 },
+                    isUnifiedBillingUser: true,
+                    prepaidBalance: { val: 0 },
+                  },
+                }),
+              ),
+            ),
+          ),
+        ),
+      );
+      expect(limits.unavailable).toBeUndefined();
+      expect(limits.windows[0]).toMatchObject({
+        kind: "weekly",
+        label: "Weekly",
+        usedPercent: 0,
+        resetsAt: "2026-09-30T19:01:58.595Z",
+      });
     }).pipe(Effect.scoped),
   );
 
