@@ -152,7 +152,7 @@ import {
 import {
   deriveThreadFeedPresentation,
   deriveUnsettledTurnId,
-  isContextCompactionActivityGroup,
+  isFeedDividerActivityGroup,
   type ThreadFeedEntry,
   type ThreadFeedLatestTurn,
 } from "../../lib/threadActivity";
@@ -1495,8 +1495,9 @@ function renderFeedEntry(
     );
   }
 
-  if (entry.type === "activity-group" && isContextCompactionActivityGroup(entry)) {
-    const label = entry.activities[0]!.summary;
+  if (entry.type === "activity-group" && isFeedDividerActivityGroup(entry)) {
+    const activity = entry.activities[0]!;
+    const label = activity.summary;
     return (
       <View
         accessible
@@ -1506,7 +1507,11 @@ function renderFeedEntry(
         <View className="h-px flex-1 bg-adaptive-neutral-200-a80-white-a8" />
         <View className="shrink-0 flex-row items-center gap-1.5">
           <SymbolView
-            name="arrow.down.right.and.arrow.up.left"
+            name={
+              activity.workEntry.sourceActivityKind === "provider.switched"
+                ? "arrow.left.arrow.right"
+                : "arrow.down.right.and.arrow.up.left"
+            }
             size={12}
             tintColor={iconSubtleColor}
             type="monochrome"
@@ -2762,7 +2767,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         case "thinking":
           return WORK_GROUP_TOGGLE_HEIGHT;
         case "activity-group":
-          if (isContextCompactionActivityGroup(entry)) {
+          if (isFeedDividerActivityGroup(entry)) {
             return undefined;
           }
           // Expanded rows append a variable detail block — fall back to

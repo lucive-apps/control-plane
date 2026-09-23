@@ -21,6 +21,7 @@ import IconArrowUpRight from "@tabler/icons-react-native/IconArrowUpRight";
 import IconArrowUpRightCircle from "@tabler/icons-react-native/IconArrowUpRightCircle";
 import IconArrowsMaximize from "@tabler/icons-react-native/IconArrowsMaximize";
 import IconArrowsMinimize from "@tabler/icons-react-native/IconArrowsMinimize";
+import IconArrowsLeftRight from "@tabler/icons-react-native/IconArrowsLeftRight";
 import IconBellRinging from "@tabler/icons-react-native/IconBellRinging";
 import IconBolt from "@tabler/icons-react-native/IconBolt";
 import IconBox from "@tabler/icons-react-native/IconBox";
@@ -110,6 +111,7 @@ import { withUniwind } from "uniwind";
 const ANDROID_ICON_BY_SF_SYMBOL = {
   "arrow.branch": IconGitBranch,
   "arrow.left": IconArrowLeft,
+  "arrow.left.arrow.right": IconArrowsLeftRight,
   "arrow.clockwise": IconRefresh,
   "arrow.down": IconArrowDown,
   "arrow.down.circle": IconArrowDownCircle,
