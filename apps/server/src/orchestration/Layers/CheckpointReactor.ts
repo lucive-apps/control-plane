@@ -30,6 +30,12 @@ import {
 } from "../../checkpointing/Utils.ts";
 import * as CheckpointStore from "../../checkpointing/CheckpointStore.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
+import { ProviderSessionDirectory } from "../../provider/Services/ProviderSessionDirectory.ts";
+import {
+  pendingProviderHandoffPayload,
+  PROVIDER_SWITCHED_ACTIVITY_KIND,
+  readLatestProviderSwitch,
+} from "../ProviderHandoff.ts";
 import { CheckpointReactor, type CheckpointReactorShape } from "../Services/CheckpointReactor.ts";
 import { forkParked } from "../../serverActivation.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
@@ -86,6 +92,7 @@ const make = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const providerService = yield* ProviderService;
+  const sessionDirectory = yield* ProviderSessionDirectory;
   const checkpointStore = yield* CheckpointStore.CheckpointStore;
   const receiptBus = yield* RuntimeReceiptBus;
   const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
@@ -768,12 +775,42 @@ const make = Effect.gen(function* () {
     return true;
   });
 
+  const rearmProviderHandoff = (threadId: ThreadId, fromLabel: string) =>
+    sessionDirectory.getBinding(threadId).pipe(
+      Effect.flatMap((binding) =>
+        Option.match(binding, {
+          onNone: () => Effect.void,
+          onSome: (value) =>
+            sessionDirectory.upsert({
+              threadId,
+              provider: value.provider,
+              ...(value.providerInstanceId !== undefined
+                ? { providerInstanceId: value.providerInstanceId }
+                : {}),
+              runtimePayload: pendingProviderHandoffPayload({ fromLabel }),
+            }),
+        }),
+      ),
+      Effect.catchCause((cause) =>
+        Cause.hasInterruptsOnly(cause)
+          ? Effect.failCause(cause)
+          : Effect.logWarning("checkpoint reactor failed to re-arm provider handoff", {
+              threadId,
+              cause: Cause.pretty(cause),
+            }),
+      ),
+    );
+
   const handleRevertRequested = Effect.fn("handleRevertRequested")(function* (
     event: Extract<OrchestrationEvent, { type: "thread.checkpoint-revert-requested" }>,
   ) {
     const now = DateTime.formatIso(yield* DateTime.now);
 
-    const thread = yield* resolveThreadDetail(event.payload.threadId);
+    const thread = yield* projectionSnapshotQuery
+      .getThreadDetailById(event.payload.threadId, {
+        activityKinds: [PROVIDER_SWITCHED_ACTIVITY_KIND],
+      })
+      .pipe(Effect.map(Option.getOrUndefined));
     if (!thread) {
       yield* appendRevertFailureActivity({
         threadId: event.payload.threadId,
@@ -805,6 +842,18 @@ const make = Effect.gen(function* () {
         threadId: event.payload.threadId,
         turnCount: event.payload.turnCount,
         detail: `Checkpoint turn count ${event.payload.turnCount} exceeds current turn count ${currentTurnCount}.`,
+        createdAt: now,
+      }).pipe(Effect.catch(() => Effect.void));
+      return;
+    }
+
+    // The provider that took over a thread only holds the turns after the switch.
+    const providerSwitch = readLatestProviderSwitch(thread.activities);
+    if (providerSwitch !== undefined && event.payload.turnCount < providerSwitch.turnCount) {
+      yield* appendRevertFailureActivity({
+        threadId: event.payload.threadId,
+        turnCount: event.payload.turnCount,
+        detail: `Can't rewind past the switch to ${providerSwitch.toLabel}. ${providerSwitch.toLabel} only has this thread from that point on.`,
         createdAt: now,
       }).pipe(Effect.catch(() => Effect.void));
       return;
@@ -877,6 +926,11 @@ const make = Effect.gen(function* () {
         threadId: event.payload.threadId,
         numTurns: rolledBackTurns,
       });
+      // Rewinding to the switch drops the turn that carried the earlier
+      // conversation, so the next message has to carry it again.
+      if (providerSwitch !== undefined && event.payload.turnCount === providerSwitch.turnCount) {
+        yield* rearmProviderHandoff(event.payload.threadId, providerSwitch.fromLabel);
+      }
     }
 
     const staleCheckpointRefs: Array<CheckpointRef> = [];

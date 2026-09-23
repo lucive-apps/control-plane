@@ -3,10 +3,12 @@ import {
   type ChatAttachment,
   CommandId,
   EventId,
+  type MessageId,
   type ModelSelection,
   type OrchestrationEvent,
   ProviderDriverKind,
   type ProjectId,
+  type ProviderInstanceId,
   type OrchestrationSession,
   ThreadId,
   type ProviderSession,
@@ -48,8 +50,20 @@ import {
 import type { ProviderServiceError } from "../../provider/Errors.ts";
 import { TextGeneration } from "../../textGeneration/TextGeneration.ts";
 import { ProviderAuthService } from "../../provider/Services/ProviderAuthService.ts";
+import type { ProviderInstanceRoutingInfo } from "../../provider/Services/ProviderAdapterRegistry.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProviderRegistry } from "../../provider/Services/ProviderRegistry.ts";
+import { ProviderSessionDirectory } from "../../provider/Services/ProviderSessionDirectory.ts";
+import {
+  formatProviderHandoff,
+  MIN_PROVIDER_HANDOFF_CHARS,
+  pendingProviderHandoffPayload,
+  PROVIDER_SWITCHED_ACTIVITY_KIND,
+  providerHandoffBudget,
+  providerInstanceLabel,
+  type ProviderSwitchedPayload,
+  readPendingProviderHandoff,
+} from "../ProviderHandoff.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import {
@@ -218,6 +232,7 @@ const make = Effect.gen(function* () {
   const providerAuthService = yield* ProviderAuthService;
   const providerService = yield* ProviderService;
   const providerRegistry = yield* ProviderRegistry;
+  const sessionDirectory = yield* ProviderSessionDirectory;
   const gitWorkflow = yield* GitWorkflowService;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -529,6 +544,76 @@ const make = Effect.gen(function* () {
       .pipe(Effect.map(Option.getOrUndefined));
   });
 
+  /**
+   * The provider a thread leaves when the requested instance cannot resume its
+   * native session. Undefined when nothing holds the conversation yet or the
+   * requested instance shares the bound instance's resume state.
+   */
+  const resolveProviderHandoffSource = Effect.fnUntraced(function* (input: {
+    readonly boundInstanceId: ProviderInstanceId | undefined;
+    readonly boundProvider: ProviderDriverKind | undefined;
+    readonly desiredInfo: ProviderInstanceRoutingInfo;
+  }) {
+    const { boundInstanceId, desiredInfo } = input;
+    if (boundInstanceId === undefined || boundInstanceId === desiredInfo.instanceId) {
+      return undefined;
+    }
+    const boundInfo = yield* providerService.getInstanceInfo(boundInstanceId).pipe(Effect.option);
+    if (
+      Option.isSome(boundInfo) &&
+      boundInfo.value.driverKind === desiredInfo.driverKind &&
+      boundInfo.value.continuationIdentity.continuationKey ===
+        desiredInfo.continuationIdentity.continuationKey
+    ) {
+      return undefined;
+    }
+    return {
+      instanceId: boundInstanceId,
+      label: providerInstanceLabel(
+        Option.isSome(boundInfo)
+          ? boundInfo.value
+          : { instanceId: boundInstanceId, driverKind: input.boundProvider },
+      ),
+    };
+  });
+
+  /**
+   * A provider switch waits for the running turn. Rejecting it before any session
+   * work leaves the running turn's session state untouched.
+   */
+  const describeSwitchBlockedByRunningTurn = Effect.fnUntraced(function* (input: {
+    readonly session: OrchestrationSession | null;
+    readonly modelSelection: ModelSelection;
+  }) {
+    if (input.session?.status !== "running") return undefined;
+    const desiredInfo = yield* providerService
+      .getInstanceInfo(input.modelSelection.instanceId)
+      .pipe(Effect.option);
+    if (Option.isNone(desiredInfo)) return undefined;
+    const providerName = input.session.providerName;
+    const source = yield* resolveProviderHandoffSource({
+      boundInstanceId: input.session.providerInstanceId,
+      boundProvider: isProviderDriverKind(providerName) ? providerName : undefined,
+      desiredInfo: desiredInfo.value,
+    });
+    return source === undefined
+      ? undefined
+      : `Wait for ${source.label} to finish its turn, or stop it, before switching to ${providerInstanceLabel(desiredInfo.value)}.`;
+  });
+
+  const clearPendingProviderHandoff = Effect.fnUntraced(function* (threadId: ThreadId) {
+    const binding = Option.getOrUndefined(yield* sessionDirectory.getBinding(threadId));
+    if (!binding || readPendingProviderHandoff(binding.runtimePayload) === undefined) return;
+    yield* sessionDirectory.upsert({
+      threadId,
+      provider: binding.provider,
+      ...(binding.providerInstanceId !== undefined
+        ? { providerInstanceId: binding.providerInstanceId }
+        : {}),
+      runtimePayload: pendingProviderHandoffPayload(null),
+    });
+  });
+
   const rejectStartedThreadModelChangeIfRequired = Effect.fnUntraced(function* (input: {
     readonly threadId: ThreadId;
     readonly currentModelSelection: ModelSelection;
@@ -567,6 +652,8 @@ const make = Effect.gen(function* () {
     options?: {
       readonly modelSelection?: ModelSelection;
       readonly pendingTurnStart?: boolean;
+      /** Only a user turn can carry the earlier conversation to a new provider. */
+      readonly allowProviderHandoff?: boolean;
     },
   ) {
     const thread = yield* resolveThreadShell(threadId);
@@ -606,20 +693,6 @@ const make = Effect.gen(function* () {
         : thread.modelSelection.instanceId;
     const desiredModelSelection = requestedModelSelection ?? thread.modelSelection;
     const desiredInstanceId = desiredModelSelection.instanceId;
-    const currentInfo = yield* providerService.getInstanceInfo(currentInstanceId).pipe(
-      Effect.mapError(
-        () =>
-          new ProviderAdapterRequestError({
-            provider: providerErrorLabelFromInstanceHint({
-              instanceId: String(currentInstanceId),
-              modelSelectionInstanceId: String(thread.modelSelection.instanceId),
-              sessionProvider: thread.session?.providerName ?? undefined,
-            }),
-            method: "thread.turn.start",
-            detail: `Thread '${threadId}' references unknown provider instance '${currentInstanceId}'. The instance is not configured in this build.`,
-          }),
-      ),
-    );
     const desiredInfo = yield* providerService.getInstanceInfo(desiredInstanceId).pipe(
       Effect.mapError(
         () =>
@@ -641,6 +714,34 @@ const make = Effect.gen(function* () {
       });
     }
     const preferredProvider: ProviderDriverKind = desiredDriverKind;
+    // The binding, not the thread's model selection, records who holds the native
+    // conversation: clients update the selection before the turn that switches.
+    const binding = Option.getOrUndefined(yield* sessionDirectory.getBinding(threadId));
+    const handoffSource = yield* resolveProviderHandoffSource({
+      boundInstanceId:
+        activeSession?.providerInstanceId ??
+        binding?.providerInstanceId ??
+        thread.session?.providerInstanceId,
+      boundProvider: activeSession?.provider ?? binding?.provider,
+      desiredInfo,
+    });
+    const desiredLabel = providerInstanceLabel(desiredInfo);
+    if (handoffSource !== undefined) {
+      if (options?.allowProviderHandoff !== true) {
+        return yield* new ProviderAdapterRequestError({
+          provider: preferredProvider,
+          method: "thread.turn.start",
+          detail: `Send a message to switch this thread from ${handoffSource.label} to ${desiredLabel} first.`,
+        });
+      }
+      if (thread.session?.status === "running") {
+        return yield* new ProviderAdapterRequestError({
+          provider: preferredProvider,
+          method: "thread.turn.start",
+          detail: `Wait for ${handoffSource.label} to finish its turn, or stop it, before switching to ${desiredLabel}.`,
+        });
+      }
+    }
     if (options?.pendingTurnStart === true && thread.session?.status !== "running") {
       yield* setThreadSession({
         threadId,
@@ -657,7 +758,8 @@ const make = Effect.gen(function* () {
         createdAt,
       });
     }
-    if (thread.session !== null) {
+    // A handoff starts a fresh session, so in-session model rules don't apply to it.
+    if (thread.session !== null && handoffSource === undefined) {
       yield* rejectStartedThreadModelChangeIfRequired({
         threadId,
         currentModelSelection:
@@ -670,29 +772,6 @@ const make = Effect.gen(function* () {
             : thread.modelSelection,
         requestedModelSelection,
       });
-    }
-    if (
-      thread.session !== null &&
-      requestedModelSelection !== undefined &&
-      requestedModelSelection.instanceId !== currentInstanceId
-    ) {
-      if (currentInfo.driverKind !== desiredInfo.driverKind) {
-        return yield* new ProviderAdapterRequestError({
-          provider: preferredProvider,
-          method: "thread.turn.start",
-          detail: `Thread '${threadId}' is bound to driver '${currentInfo.driverKind}' and cannot switch to '${desiredInfo.driverKind}'.`,
-        });
-      }
-      if (
-        currentInfo.continuationIdentity.continuationKey !==
-        desiredInfo.continuationIdentity.continuationKey
-      ) {
-        return yield* new ProviderAdapterRequestError({
-          provider: preferredProvider,
-          method: "thread.turn.start",
-          detail: `Thread '${threadId}' cannot switch from instance '${currentInstanceId}' to '${desiredInstanceId}' because their provider resume state is incompatible.`,
-        });
-      }
     }
     const project = yield* resolveProject(thread.projectId);
     const effectiveCwd = resolveThreadWorkspaceCwd({
@@ -750,6 +829,69 @@ const make = Effect.gen(function* () {
           createdAt,
         });
       });
+
+    if (handoffSource !== undefined) {
+      const detail = yield* resolveThreadDetail(threadId);
+      const turnCount = (detail?.checkpoints ?? []).reduce(
+        (max, checkpoint) => Math.max(max, checkpoint.checkpointTurnCount),
+        0,
+      );
+      yield* Effect.logInfo("provider command reactor handing thread to another provider", {
+        threadId,
+        fromInstanceId: handoffSource.instanceId,
+        toInstanceId: desiredInstanceId,
+        turnCount,
+      });
+      if (activeSession !== undefined) {
+        yield* providerService.stopSession({ threadId });
+      }
+      const pendingHandoff = pendingProviderHandoffPayload({ fromLabel: handoffSource.label });
+      if (binding !== undefined) {
+        // Nothing may resume the old native session into the new provider. Marking
+        // the old binding keeps the handoff owed even if the new session never starts.
+        yield* sessionDirectory.upsert({
+          threadId,
+          provider: binding.provider,
+          ...(binding.providerInstanceId !== undefined
+            ? { providerInstanceId: binding.providerInstanceId }
+            : {}),
+          resumeCursor: null,
+          runtimePayload: pendingHandoff,
+        });
+      }
+      const handoffSession = yield* startProviderSession();
+      if (handoffSession.providerInstanceId !== undefined) {
+        yield* sessionDirectory.upsert({
+          threadId,
+          provider: handoffSession.provider,
+          providerInstanceId: handoffSession.providerInstanceId,
+          runtimePayload: pendingHandoff,
+        });
+      }
+      yield* bindSessionToThread(handoffSession);
+      yield* orchestrationEngine.dispatch({
+        type: "thread.activity.append",
+        commandId: yield* serverCommandId("provider-switched"),
+        threadId,
+        activity: {
+          id: yield* serverEventId(),
+          tone: "info",
+          kind: PROVIDER_SWITCHED_ACTIVITY_KIND,
+          summary: `Switched from ${handoffSource.label} to ${desiredLabel}`,
+          payload: {
+            fromProviderInstanceId: handoffSource.instanceId,
+            toProviderInstanceId: desiredInstanceId,
+            fromLabel: handoffSource.label,
+            toLabel: desiredLabel,
+            turnCount,
+          } satisfies ProviderSwitchedPayload,
+          turnId: null,
+          createdAt,
+        },
+        createdAt,
+      });
+      return handoffSession.threadId;
+    }
 
     const existingSessionThreadId =
       thread.session && thread.session.status !== "stopped" && activeSession ? thread.id : null;
@@ -824,8 +966,46 @@ const make = Effect.gen(function* () {
     return startedSession.threadId;
   });
 
+  /**
+   * Prefix the conversation so far when the thread's provider still owes it.
+   * Slash commands pass through verbatim, and the next plain message carries it.
+   */
+  const withPendingProviderHandoff = Effect.fnUntraced(function* (input: {
+    readonly threadId: ThreadId;
+    readonly messageId: MessageId;
+    readonly providerInput: string | undefined;
+  }) {
+    const binding = Option.getOrUndefined(yield* sessionDirectory.getBinding(input.threadId));
+    const pending = readPendingProviderHandoff(binding?.runtimePayload);
+    const budget = providerHandoffBudget(input.providerInput);
+    if (
+      pending === undefined ||
+      input.providerInput?.startsWith("/") ||
+      budget < MIN_PROVIDER_HANDOFF_CHARS
+    ) {
+      return { providerInput: input.providerInput, handoffDelivered: false };
+    }
+    const messages = (yield* resolveThreadDetail(input.threadId))?.messages ?? [];
+    const index = messages.findIndex((message) => message.id === input.messageId);
+    const handoff = formatProviderHandoff({
+      messages: index >= 0 ? messages.slice(0, index) : messages,
+      fromLabel: pending.fromLabel,
+      maxChars: budget,
+    });
+    return {
+      providerInput:
+        handoff === undefined
+          ? input.providerInput
+          : input.providerInput
+            ? `${handoff}\n\n${input.providerInput}`
+            : handoff,
+      handoffDelivered: true,
+    };
+  });
+
   const buildSendTurnRequestForThread = Effect.fnUntraced(function* (input: {
     readonly threadId: ThreadId;
+    readonly messageId: MessageId;
     readonly messageText: string;
     readonly attachments?: ReadonlyArray<ChatAttachment>;
     readonly modelSelection?: ModelSelection;
@@ -841,11 +1021,16 @@ const make = Effect.gen(function* () {
     yield* ensureSessionForThread(input.threadId, input.createdAt, {
       ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
       pendingTurnStart: true,
+      allowProviderHandoff: true,
     });
     if (input.modelSelection !== undefined) {
       threadModelSelections.set(input.threadId, input.modelSelection);
     }
-    const normalizedInput = toNonEmptyProviderInput(input.messageText);
+    const { providerInput: normalizedInput, handoffDelivered } = yield* withPendingProviderHandoff({
+      threadId: input.threadId,
+      messageId: input.messageId,
+      providerInput: toNonEmptyProviderInput(input.messageText),
+    });
     const normalizedAttachments = input.attachments ?? [];
     const activeSession = yield* providerService
       .listSessions()
@@ -876,11 +1061,14 @@ const make = Effect.gen(function* () {
         : input.modelSelection;
 
     return {
-      threadId: input.threadId,
-      ...(normalizedInput ? { input: normalizedInput } : {}),
-      ...(normalizedAttachments.length > 0 ? { attachments: normalizedAttachments } : {}),
-      ...(modelForTurn !== undefined ? { modelSelection: modelForTurn } : {}),
-      ...(input.interactionMode !== undefined ? { interactionMode: input.interactionMode } : {}),
+      request: {
+        threadId: input.threadId,
+        ...(normalizedInput ? { input: normalizedInput } : {}),
+        ...(normalizedAttachments.length > 0 ? { attachments: normalizedAttachments } : {}),
+        ...(modelForTurn !== undefined ? { modelSelection: modelForTurn } : {}),
+        ...(input.interactionMode !== undefined ? { interactionMode: input.interactionMode } : {}),
+      },
+      handoffDelivered,
     };
   });
 
@@ -1477,8 +1665,16 @@ const make = Effect.gen(function* () {
       turnsAfterCompaction.set(event.payload.threadId, queued);
       return;
     }
+    const blockedSwitch = yield* describeSwitchBlockedByRunningTurn({
+      session: thread.session,
+      modelSelection: event.payload.modelSelection ?? thread.modelSelection,
+    });
+    if (blockedSwitch !== undefined) {
+      return yield* appendTurnStartFailure("Provider switch failed", blockedSwitch);
+    }
     const sendTurnRequest = yield* buildSendTurnRequestForThread({
       threadId: event.payload.threadId,
+      messageId: event.payload.messageId,
       messageText: projectComposerContextForProvider({
         text: message.text,
         records: message.context?.records ?? [],
@@ -1498,9 +1694,17 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    const send = providerService
-      .sendTurn(sendTurnRequest.value)
-      .pipe(Effect.asVoid, Effect.catchCause(recoverTurnStartFailure));
+    const send = providerService.sendTurn(sendTurnRequest.value.request).pipe(
+      Effect.tap(() =>
+        sendTurnRequest.value.handoffDelivered
+          ? clearPendingProviderHandoff(event.payload.threadId).pipe(
+              Effect.ignore({ log: true, message: "failed to clear delivered provider handoff" }),
+            )
+          : Effect.void,
+      ),
+      Effect.asVoid,
+      Effect.catchCause(recoverTurnStartFailure),
+    );
     // The forked send settles `sent` from here on, so drop the entry the post-processing hook uses.
     if (resumed && event.commandId !== null) resumedTurnStarts.delete(event.commandId);
     yield* send.pipe(
