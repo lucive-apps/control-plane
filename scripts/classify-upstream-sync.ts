@@ -33,61 +33,83 @@ function git(args: readonly string[], cwd: string): string {
   return result.stdout;
 }
 
-function listUpstreamCommits(
+export function listUpstreamCommits(
   baseRef: string,
   upstreamRef: string,
   cwd: string,
 ): UpstreamSyncCommit[] {
   const log = git(
-    [
-      "log",
-      "--reverse",
-      "--first-parent",
-      "--no-merges",
-      "--format=%H\t%s",
-      `${baseRef}..${upstreamRef}`,
-    ],
+    ["log", "--reverse", "--first-parent", "--format=%H\t%s", `${baseRef}..${upstreamRef}`],
     cwd,
   ).trim();
   if (log.length === 0) {
     return [];
   }
-  return log.split("\n").map((line) => {
-    const [sha, ...subjectParts] = line.split("\t");
-    const files = git(["diff-tree", "--no-commit-id", "--name-only", "-r", sha ?? ""], cwd)
+  const equivalentCommits = new Set(
+    git(["cherry", baseRef, upstreamRef], cwd)
       .split("\n")
-      .map((filePath) => filePath.trim())
-      .filter((filePath) => filePath.length > 0);
-    return {
-      sha: sha ?? "",
-      subject: subjectParts.join("\t"),
-      files,
-      class: classifyUpstreamCommitFiles(files),
-    };
-  });
+      .filter((line) => line.startsWith("- "))
+      .map((line) => line.slice(2).trim()),
+  );
+  return log
+    .split("\n")
+    .filter((line) => !equivalentCommits.has(line.split("\t")[0] ?? ""))
+    .map((line) => {
+      const [sha, ...subjectParts] = line.split("\t");
+      // First-parent diffs include changes introduced by merges. Disabling rename
+      // detection retains both paths when a protected UI file moves elsewhere.
+      const files = git(
+        [
+          "diff-tree",
+          "--root",
+          "--first-parent",
+          "-m",
+          "--no-commit-id",
+          "--name-only",
+          "--no-renames",
+          "-z",
+          "-r",
+          sha ?? "",
+        ],
+        cwd,
+      )
+        .split("\0")
+        .filter((filePath) => filePath.length > 0);
+      return {
+        sha: sha ?? "",
+        subject: subjectParts.join("\t"),
+        files,
+        class: classifyUpstreamCommitFiles(files),
+      };
+    });
 }
 
 function shortSha(ref: string, cwd: string): string {
   return git(["rev-parse", "--short", ref], cwd).trim();
 }
 
-const argv = process.argv.slice(2);
-const baseRef = readFlag(argv, "base", "origin/main");
-const upstreamRef = readFlag(argv, "upstream", "upstream/main");
-const json = argv.includes("--json");
-const commits = listUpstreamCommits(baseRef, upstreamRef, REPO_ROOT);
-const classes = commits.map((commit) => commit.class);
-const report = {
-  baseRef,
-  upstreamRef,
-  compareUrl: `https://github.com/pingdotgg/t3code/compare/${shortSha(baseRef, REPO_ROOT)}...${shortSha(upstreamRef, REPO_ROOT)}`,
-  recommendation: recommendUpstreamSync(classes),
-  counts: countUpstreamSyncClasses(classes),
-  commits,
-};
+if (
+  process.argv[1] &&
+  NodeURL.pathToFileURL(NodePath.resolve(process.argv[1])).href === import.meta.url
+) {
+  const argv = process.argv.slice(2);
+  const baseRef = readFlag(argv, "base", "origin/main");
+  const upstreamRef = readFlag(argv, "upstream", "upstream/main");
+  const json = argv.includes("--json");
+  const commits = listUpstreamCommits(baseRef, upstreamRef, REPO_ROOT);
+  const classes = commits.map((commit) => commit.class);
+  const report = {
+    baseRef,
+    upstreamRef,
+    compareUrl: `https://github.com/pingdotgg/t3code/compare/${shortSha(baseRef, REPO_ROOT)}...${shortSha(upstreamRef, REPO_ROOT)}`,
+    recommendation: recommendUpstreamSync(classes),
+    counts: countUpstreamSyncClasses(classes),
+    commits,
+  };
 
-if (json) {
-  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
-} else {
-  process.stdout.write(renderUpstreamSyncReport(report));
+  if (json) {
+    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  } else {
+    process.stdout.write(renderUpstreamSyncReport(report));
+  }
 }

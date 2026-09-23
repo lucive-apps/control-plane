@@ -5,11 +5,6 @@ on:
     # 8:00 AM America/Denver during MDT (GitHub cron is UTC-only).
     - cron: "0 15 * * 1-5"
   workflow_dispatch:
-    inputs:
-      auto_merge_infra:
-        description: Merge when every upstream commit is infra (no UI).
-        type: boolean
-        default: true
 
 permissions:
   contents: write
@@ -39,7 +34,6 @@ jobs:
       - name: Merge pingdotgg/t3code into a review PR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          AUTO_MERGE_INFRA: ${{ github.event_name == 'schedule' && 'true' || inputs.auto_merge_infra }}
         run: |
           set -eu
           git config user.name "github-actions[bot]"
@@ -83,19 +77,17 @@ jobs:
               gh pr edit "$open_pr" --body "$body"
             fi
             case "$recommendation" in
-              merge) gh pr edit "$open_pr" --add-label upstream-infra ;;
+              review-infra) gh pr edit "$open_pr" --add-label upstream-infra ;;
               review-mixed) gh pr edit "$open_pr" --add-label upstream-mixed ;;
               *) gh pr edit "$open_pr" --add-label upstream-ui ;;
             esac
-            if [ "$recommendation" = "merge" ] && [ "$AUTO_MERGE_INFRA" = "true" ]; then
-              gh pr merge "$open_pr" --merge --auto
-            fi
+            # Classification is triage only; every range requires human review.
             exit 0
           fi
 
           git merge --abort
           open_issue="$(gh issue list --state open --search 'in:title Upstream t3code sync has conflicts' --json number --jq '.[0].number // empty')"
-          issue_body="$(printf 'Weekday sync failed: `upstream/main` does not merge cleanly onto `origin/main`.\n\n%s\n\nResolve locally:\n\n```sh\ngit fetch upstream\ngit merge upstream/main\n```\n\nThen push `main` (or a PR). Do not force-push `main`.\n' "$report")"
+          issue_body="$(printf 'Weekday sync failed: `upstream/main` does not merge cleanly onto `origin/main`.\n\n%s\n\nReview the classified range and its dependencies under AGENTS.md. Use an isolated worktree to prepare only approved commits; do not merge the full range when UI or other changes are held. Do not force-push `main`.\n' "$report")"
           if [ -z "$open_issue" ]; then
             gh issue create --title "Upstream t3code sync has conflicts" --body "$issue_body"
           else

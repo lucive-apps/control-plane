@@ -106,24 +106,25 @@ This repo is a public fork of [pingdotgg/t3code](https://github.com/pingdotgg/t3
 
 #### Upstream updates
 
-`origin` is this fork (`lucive-apps/control-plane`). `upstream` is `pingdotgg/t3code`. Git applies upstream commits that do not touch our lines automatically. We only resolve conflicts where both sides edited the same hunks.
+`origin` is this fork (`lucive-apps/control-plane`). `upstream` is `pingdotgg/t3code`. Preserve Control Plane's UI, interaction behavior, branding, and release configuration. A clean Git merge or an infrastructure-only path classification is not proof that a change is safe.
 
-Pull upstream into `main` with a merge (not rebase — this is a public fork others clone):
+Fetch and classify before choosing commits:
 
 ```sh
-git fetch upstream
-git merge upstream/main
+git fetch upstream main
+git fetch origin main
+vp run sync:upstream:classify
 ```
 
-GitHub → **Sync fork** does the same merge when there are no conflicts. If Git reports conflicts, fix those files, commit the merge, and push. Do not force-push `main`.
+The weekday workflow (`.github/workflows/sync-upstream.yml`) prepares a review PR only. It must never automatically merge upstream based on file paths. Path rules live in `scripts/lib/upstream-sync-policy.ts`:
 
-A weekday GitHub Action (`.github/workflows/sync-upstream.yml`) fetches `upstream` and opens (or updates) a `sync/upstream` PR. It classifies each commit with `vp run sync:upstream:classify`:
+- **Infra** (server, relay, CI, packaging, native): candidates for review. Check dependencies and compatibility with the fork before selecting them. Preserve our signed release process, app identity, and remote connections.
+- **Mixed** (contracts, client-runtime, shared protocol, dependencies, tooling): review explicitly. These changes can alter UI behavior or force UI rewrites without touching a component. Take only changes that work with our existing clients.
+- **UI** (web, mobile, marketing, brand assets, desktop window chrome): hold by default. Bring in a UI change only when Nick explicitly wants that feature, adapting it to our UI rather than replacing our implementation. UI-enforcing lint rules and styling migrations are held with the UI changes they require.
 
-- **Infra** (server, relay, CI, packaging, native): merge. The action auto-merges when the whole range is infra.
-- **Mixed** (contracts, client-runtime, shared protocol): review. Take it when it unblocks infra, skip if it only exists to feed a UI change we are holding.
-- **UI** (web, mobile, marketing, brand assets, desktop window chrome): hold. Merge only when T3 shipped something we specifically want.
+For each proposed batch, identify exact SHAs, benefits, prerequisites, already-applied equivalent patches, and overlap with both committed fork changes and local work. Review actual diffs, not just commit titles. Test the selected batch in an isolated worktree with focused checks. Confirm the resulting diff preserves protected UI and behavior; do not pull in held UI commits to satisfy dependencies.
 
-Do not take a full upstream merge that includes UI just to pick up infra. Conflicts open an issue. Enable Actions on this repo and run **Sync upstream** once so the schedule is allowed. Manual merge above still works anytime. Path rules live in `scripts/lib/upstream-sync-policy.ts`.
+Use scoped cherry-picks or a minimal port for an approved subset. Do not use GitHub **Sync fork** or merge all of `upstream/main` when any part of the range is held. A full merge is appropriate only after the entire incoming range has been reviewed and authorized. Never rebase or force-push public `main`. Report candidates separately from changes actually integrated and verified.
 
 ## Test data
 
