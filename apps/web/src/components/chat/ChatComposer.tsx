@@ -245,7 +245,7 @@ import {
 import { useEnvironmentQuery } from "~/state/query";
 import { useDebouncedValue } from "~/state/queries";
 import { ProviderModelPicker } from "./ProviderModelPicker";
-import { resolveModelPickerSelectedModel } from "./ModelPickerContent";
+import { resolveModelPickerSelectedModel, getAdjacentFavoriteModel } from "./modelPickerSelection";
 import { type ComposerCommandItem, ComposerCommandMenu } from "./ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
@@ -1240,6 +1240,7 @@ export interface ChatComposerHandle {
   ) => boolean;
   openModelPicker: () => void;
   toggleModelPicker: () => void;
+  cycleFavoriteModel: (direction: 1 | -1) => void;
   openControl: (command: KeybindingCommand) => void;
   isModelPickerOpen: () => boolean;
   compactContext: () => void;
@@ -2039,6 +2040,40 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       ? selectedModelForPicker
       : (normalizeModelSlug(selectedModelForPicker, selectedProvider) ?? selectedModelForPicker);
   }, [modelOptionsByInstance, selectedInstanceId, selectedModelForPicker, selectedProvider]);
+
+  const cycleFavoriteModel = useCallback(
+    (direction: 1 | -1) => {
+      const next = getAdjacentFavoriteModel({
+        direction,
+        favorites: settings.favorites ?? [],
+        instanceEntries: providerInstanceEntries,
+        modelOptionsByInstance,
+        activeInstanceId: selectedInstanceId,
+        model: selectedModelForPickerWithCustomFallback,
+        lockedProvider,
+        lockedContinuationGroupKey,
+        getModelDisabledReason,
+      });
+      if (!next) return;
+      // Commit each dial tick before another key event can read the selection.
+      flushSync(() => {
+        setMultipleModelSelections(null);
+        onProviderModelSelect(next.instanceId, next.model, { focusComposer: false });
+      });
+    },
+    [
+      settings.favorites,
+      providerInstanceEntries,
+      modelOptionsByInstance,
+      selectedInstanceId,
+      selectedModelForPickerWithCustomFallback,
+      lockedProvider,
+      lockedContinuationGroupKey,
+      getModelDisabledReason,
+      setMultipleModelSelections,
+      onProviderModelSelect,
+    ],
+  );
 
   // ------------------------------------------------------------------
   // Context window
@@ -5864,6 +5899,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           { ensureLeadingBoundary: true, citationCommentAnchor: sourceAnchor },
         ),
       openModelPicker,
+      cycleFavoriteModel,
       toggleModelPicker: () => {
         if (isComposerModelPickerOpen) {
           setIsComposerModelPickerOpen(false);
@@ -6015,6 +6051,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       applyPromptReplacement,
       isComposerModelPickerOpen,
       openModelPicker,
+      cycleFavoriteModel,
       readComposerSnapshot,
       selectedModel,
       selectedModelOptionsForDispatch,

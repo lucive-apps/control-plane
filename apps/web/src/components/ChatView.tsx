@@ -6841,6 +6841,16 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
+      if (
+        command === "composer.nextFavoriteModel" ||
+        command === "composer.previousFavoriteModel"
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        composerRef.current?.cycleFavoriteModel(command === "composer.nextFavoriteModel" ? 1 : -1);
+        return;
+      }
+
       if (command === "modelPicker.toggle") {
         event.preventDefault();
         event.stopPropagation();

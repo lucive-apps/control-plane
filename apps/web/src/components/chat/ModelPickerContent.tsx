@@ -4,7 +4,6 @@ import {
   type ProviderDriverKind,
   type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
-import { resolveSelectableModel } from "@t3tools/shared/model";
 import { useAtomValue } from "@effect/atom-react";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { memo, useMemo, useState, useCallback, useEffect, useLayoutEffect, useRef } from "react";
@@ -27,6 +26,15 @@ import {
   ComboboxListVirtualized,
 } from "../ui/combobox";
 import { ModelEsque } from "./providerIconUtils";
+import {
+  resolveModelPickerSelectedModel,
+  resolveModelPickerSelection,
+  shouldIncludeModelPickerOption,
+} from "./modelPickerSelection";
+export {
+  resolveModelPickerSelectedModel,
+  shouldIncludeModelPickerOption,
+} from "./modelPickerSelection";
 import { isCommandPaletteOpen } from "../../commandPaletteBus";
 import { primaryServerKeybindingsAtom } from "../../state/server";
 import {
@@ -61,42 +69,6 @@ type ModelPickerItem = {
   isLegacy?: boolean | undefined;
   isUnavailable?: boolean | undefined;
 };
-
-export function resolveModelPickerSelectedModel(input: {
-  driverKind: ProviderDriverKind | undefined;
-  model: string;
-  options: ReadonlyArray<ModelEsque>;
-}) {
-  if (input.driverKind === "antigravity" && input.model === ANTIGRAVITY_DEFAULT_MODEL) {
-    const availableModels = input.options.filter(
-      (option) => option.slug !== ANTIGRAVITY_DEFAULT_MODEL && !option.isUnavailable,
-    );
-    return (
-      availableModels.find((option) => option.aliases?.includes(ANTIGRAVITY_DEFAULT_MODEL)) ??
-      availableModels.find((option) => option.isDefault)
-    );
-  }
-  return input.options.find((option) => option.slug === input.model);
-}
-
-export function shouldIncludeModelPickerOption(input: {
-  readonly entry: ProviderInstanceEntry;
-  readonly option: ModelEsque;
-  readonly activeInstanceId: ProviderInstanceId;
-  readonly activeModel: string;
-}): boolean {
-  if (input.entry.driverKind === "antigravity" && input.option.slug === ANTIGRAVITY_DEFAULT_MODEL) {
-    return false;
-  }
-  if (isProviderInstancePickerReady(input.entry)) return true;
-  return (
-    input.entry.enabled &&
-    (input.entry.driverKind === "opencode" || input.entry.driverKind === "antigravity") &&
-    input.entry.instanceId === input.activeInstanceId &&
-    input.option.slug === input.activeModel &&
-    input.option.isUnavailable === true
-  );
-}
 
 export function shouldOfferModelPickerSetup(
   entry: ProviderInstanceEntry,
@@ -596,21 +568,12 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
 
   const handleModelSelect = useCallback(
     (modelSlug: string, instanceId: ProviderInstanceId, additive = false) => {
-      if (getModelDisabledReason?.(instanceId, modelSlug)) {
-        return;
-      }
-      const options = modelOptionsByInstance.get(instanceId);
-      if (!options) {
-        return;
-      }
-      const entry = entryByInstanceId.get(instanceId);
-      if (!entry) {
-        return;
-      }
-      // `resolveSelectableModel` uses the driver kind for normalization
-      // (slug casing etc.). Custom instances share their driver's
-      // normalization rules, so pass the driver kind here.
-      const resolvedModel = resolveSelectableModel(entry.driverKind, modelSlug, options);
+      const resolvedModel = resolveModelPickerSelection({
+        entry: entryByInstanceId.get(instanceId),
+        options: modelOptionsByInstance.get(instanceId),
+        model: modelSlug,
+        getModelDisabledReason,
+      });
       if (resolvedModel) {
         if (additive && onToggleModel) {
           onToggleModel(instanceId, resolvedModel);

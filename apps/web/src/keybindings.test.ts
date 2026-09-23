@@ -1262,6 +1262,36 @@ describe("composer and pull request shortcuts", () => {
   ] as const;
 
   for (const platform of ["MacIntel", "Win32", "Linux"]) {
+    it.each([
+      ["ArrowRight", "composer.nextFavoriteModel"],
+      ["ArrowLeft", "composer.previousFavoriteModel"],
+    ] as const)(
+      `cycles favorite models with %s on ${platform} outside the terminal`,
+      (key, command) => {
+        const input = event({
+          key,
+          altKey: true,
+          metaKey: platform === "MacIntel",
+          ctrlKey: platform !== "MacIntel",
+        });
+        assert.strictEqual(
+          resolveShortcutCommand(input, DEFAULT_RESOLVED_KEYBINDINGS, {
+            platform,
+            context: { terminalFocus: false },
+          }),
+          command,
+        );
+        assert.isNull(
+          resolveShortcutCommand(input, DEFAULT_RESOLVED_KEYBINDINGS, {
+            platform,
+            context: { terminalFocus: true },
+          }),
+        );
+      },
+    );
+  }
+
+  for (const platform of ["MacIntel", "Win32", "Linux"]) {
     it.each(shortcuts)(
       `resolves %s on ${platform} and leaves terminal input alone`,
       (key, command) => {

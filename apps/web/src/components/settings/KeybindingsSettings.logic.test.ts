@@ -21,6 +21,8 @@ describe("KeybindingsSettings.logic", () => {
     const rows = buildKeybindingRows(DEFAULT_RESOLVED_KEYBINDINGS, "");
     for (const command of [
       "composer.host",
+      "composer.nextFavoriteModel",
+      "composer.previousFavoriteModel",
       "composer.effort",
       "composer.mode",
       "composer.workspace",
@@ -36,6 +38,17 @@ describe("KeybindingsSettings.logic", () => {
         conflicts: [],
       });
     }
+  });
+  it("exposes searchable favorite model commands with unused editable defaults", () => {
+    const rows = buildKeybindingRows(DEFAULT_RESOLVED_KEYBINDINGS, "favorite model");
+    expect(
+      rows.map((row) => ({ command: row.command, key: row.key, conflicts: row.conflicts })),
+    ).toEqual([
+      { command: "composer.nextFavoriteModel", key: "mod+alt+arrowright", conflicts: [] },
+      { command: "composer.previousFavoriteModel", key: "mod+alt+arrowleft", conflicts: [] },
+    ]);
+    expect(commandLabel("composer.nextFavoriteModel")).toBe("Next favorite model");
+    expect(commandLabel("composer.previousFavoriteModel")).toBe("Previous favorite model");
   });
   it.each(["pu", "pull request", "copy link", "thread id"])(
     "finds the copy link shortcut with %s",

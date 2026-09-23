@@ -283,6 +283,8 @@ export function buildKeybindingCommandOptions(
 }
 
 export function commandLabel(command: KeybindingCommand): string {
+  if (command === "composer.nextFavoriteModel") return "Next favorite model";
+  if (command === "composer.previousFavoriteModel") return "Previous favorite model";
   if (command === "thread.copyReference") return "Pull Request: Copy Link or Thread ID";
   const raw = String(command);
   if (raw.startsWith("script.") && raw.endsWith(".run")) {

@@ -55,6 +55,7 @@ import {
   PaletteIcon,
   SettingsIcon,
   SquarePenIcon,
+  StarIcon,
   SunIcon,
   TextSearchIcon,
 } from "lucide-react";
@@ -654,6 +655,7 @@ function OpenCommandPaletteDialog(props: {
   readonly openOverlayMode: (mode: SearchOverlayMode) => void;
   readonly clearOpenIntent: () => void;
 }) {
+  const composerHandleRef = useComposerHandleContext();
   const navigate = useNavigate();
   const pathname = useLocation({ select: (location) => location.pathname });
   const { clearOpenIntent, openIntent, openOverlayMode, setOpen } = props;
@@ -1670,6 +1672,23 @@ function OpenCommandPaletteDialog(props: {
   ]);
 
   const actionItems: Array<CommandPaletteActionItem | CommandPaletteSubmenuItem> = [];
+
+  for (const [direction, command, title] of [
+    [1, "composer.nextFavoriteModel", "Next favorite model"],
+    [-1, "composer.previousFavoriteModel", "Previous favorite model"],
+  ] as const) {
+    actionItems.push({
+      kind: "action",
+      value: `action:${command}`,
+      title,
+      searchTerms: ["model", "favorite", "cycle", "provider", title],
+      icon: <StarIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: command,
+      run: async () => {
+        composerHandleRef?.current?.cycleFavoriteModel(direction);
+      },
+    });
+  }
 
   if (projects.length > 0) {
     const activeProjectTitle =
