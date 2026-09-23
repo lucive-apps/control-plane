@@ -128,6 +128,8 @@ export interface CreateWorktreeProgress {
     total: number;
   }) => Effect.Effect<void, never>;
   readonly onSubmodulesStarted?: () => Effect.Effect<void, never>;
+  /** Fires when `.gitmodules` exists but t3.json sets `worktreeSubmodules` to `"none"`. */
+  readonly onSubmodulesDisabled?: () => Effect.Effect<void, never>;
   readonly onSubmoduleLine?: (line: string) => Effect.Effect<void, never>;
   readonly onSubmodulesFinished?: (input: {
     ok: boolean;
@@ -766,7 +768,7 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
 
   const checkpoints: VcsDriver.VcsCheckpointOps = {
     captureCheckpoint: Effect.fn("GitVcsDriver.checkpoints.captureCheckpoint")(function* (input) {
-      const operation = "GitVcsDriver.checkpoints.captureCheckpoint";
+      const operation = VcsProcess.CHECKPOINT_CAPTURE_OPERATION;
       const indexConfig = [
         "-c",
         "core.fsmonitor=false",

@@ -53,6 +53,10 @@ project's `t3.json` actions can be imported there.
 For workspace mode, a project's `t3.json` preference applies when the project has no override.
 Browser access changes apply when an agent session next starts.
 
+New worktrees initialize git submodules recursively. If that step is slow because the repository
+declares many nested submodules, set `"worktreeSubmodules"` in `t3.json` to `"top-level"` to stop
+at the ones the repository declares itself, or `"none"` to leave them for a setup script.
+
 ## Storage cleanup
 
 Open **Settings → Storage** to enable automatic cleanup on one machine or all connected
