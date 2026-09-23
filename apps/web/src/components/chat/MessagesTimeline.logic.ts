@@ -316,13 +316,26 @@ const LIVE_ACTIVITY_ROW_ID = "live-activity-row";
 
 type ActivityEntry = Extract<TimelineEntry, { kind: "message" | "work" }>;
 
+type TimelineDividerIcon = "compaction" | "provider-switch";
+
+/** Activities drawn as a labeled rule across the timeline instead of as work rows. */
+function timelineDividerIcon(kind: string | undefined): TimelineDividerIcon | null {
+  if (kind === "context-compaction") return "compaction";
+  if (kind === "provider.switched") return "provider-switch";
+  return null;
+}
+
+function isTimelineDividerEntry(entry: TimelineEntry): boolean {
+  return entry.kind === "work" && timelineDividerIcon(entry.entry.sourceActivityKind) !== null;
+}
+
 function isActivityEntry(entry: TimelineEntry): entry is ActivityEntry {
   return entry.kind === "message"
     ? entry.message.role === "reasoning"
     : entry.kind === "work" &&
         entry.entry.agentSpawn === undefined &&
         entry.entry.questionAnswer === undefined &&
-        entry.entry.sourceActivityKind !== "context-compaction" &&
+        !isTimelineDividerEntry(entry) &&
         entry.entry.tone !== "error";
 }
 
@@ -379,10 +392,11 @@ export type MessagesTimelineRow =
       expanded: boolean;
     }
   | {
-      kind: "context-compaction";
+      kind: "divider";
       id: string;
       createdAt: string;
       label: string;
+      icon: TimelineDividerIcon;
     }
   | {
       kind: "message";
@@ -717,8 +731,7 @@ function deriveTurnFolds(input: {
       if (entry.id === group.terminalEntry?.id) {
         continue;
       }
-      const isCompaction =
-        entry.kind === "work" && entry.entry.sourceActivityKind === "context-compaction";
+      const isDivider = isTimelineDividerEntry(entry);
       const isSingleTrailingActivity =
         trailingEntryCount === 1 &&
         entry.kind === "work" &&
@@ -726,12 +739,7 @@ function deriveTurnFolds(input: {
       // A thinking block after the answer folds with its turn rather than
       // trailing under it, which is what mobile already does.
       const isReasoning = entry.kind === "message" && entry.message.role === "reasoning";
-      if (
-        !isCompaction &&
-        !isReasoning &&
-        index > terminalEntryIndex &&
-        !isSingleTrailingActivity
-      ) {
+      if (!isDivider && !isReasoning && index > terminalEntryIndex && !isSingleTrailingActivity) {
         continue;
       }
       // User input and subagent batches stay visible after their turn settles.
@@ -753,7 +761,7 @@ function deriveTurnFolds(input: {
     const hidesFoldableWork = group.entries.some(
       (entry) =>
         hiddenEntryIds.has(entry.id) &&
-        !(entry.kind === "work" && entry.entry.sourceActivityKind === "context-compaction") &&
+        !isTimelineDividerEntry(entry) &&
         !(entry.kind === "message" && entry.message.role === "reasoning"),
     );
     if (!hidesFoldableWork) {
@@ -1019,7 +1027,7 @@ export function deriveMessagesTimelineRows(input: {
       !entryBelongsToActiveTurn(entry, index) ||
       entry.kind !== "work" ||
       entry.entry.questionAnswer !== undefined ||
-      entry.entry.sourceActivityKind === "context-compaction" ||
+      isTimelineDividerEntry(entry) ||
       entry.entry.tone === "error"
     ) {
       break;
@@ -1183,15 +1191,17 @@ export function deriveMessagesTimelineRows(input: {
       continue;
     }
 
-    if (
-      timelineEntry.kind === "work" &&
-      timelineEntry.entry.sourceActivityKind === "context-compaction"
-    ) {
+    const dividerIcon =
+      timelineEntry.kind === "work"
+        ? timelineDividerIcon(timelineEntry.entry.sourceActivityKind)
+        : null;
+    if (timelineEntry.kind === "work" && dividerIcon !== null) {
       nextRows.push({
-        kind: "context-compaction",
+        kind: "divider",
         id: timelineEntry.id,
         createdAt: timelineEntry.createdAt,
         label: timelineEntry.entry.label,
+        icon: dividerIcon,
       });
       continue;
     }
@@ -1226,7 +1236,7 @@ export function deriveMessagesTimelineRows(input: {
           nextEntry.kind !== "work" ||
           nextEntry.entry.agentSpawn !== undefined ||
           nextEntry.entry.questionAnswer !== undefined ||
-          nextEntry.entry.sourceActivityKind === "context-compaction" ||
+          isTimelineDividerEntry(nextEntry) ||
           nextEntry.entry.tone === "error" ||
           activeWorkEntryIds.has(nextEntry.id) ||
           collapsedEntryIds.has(nextEntry.id) ||
@@ -1609,9 +1619,9 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
       return a.createdAt === bf.createdAt && a.label === bf.label && a.expanded === bf.expanded;
     }
 
-    case "context-compaction": {
-      const bc = b as typeof a;
-      return a.createdAt === bc.createdAt && a.label === bc.label;
+    case "divider": {
+      const bd = b as typeof a;
+      return a.createdAt === bd.createdAt && a.label === bd.label && a.icon === bd.icon;
     }
 
     case "proposed-plan":

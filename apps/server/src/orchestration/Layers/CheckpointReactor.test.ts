@@ -26,6 +26,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Clock from "effect/Clock";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as ManagedRuntime from "effect/ManagedRuntime";
@@ -52,6 +53,9 @@ import * as RuntimeReceiptBus from "../Services/RuntimeReceiptBus.ts";
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
+import * as ProviderSessionRuntime from "../../persistence/ProviderSessionRuntime.ts";
+import { ProviderSessionDirectoryLive } from "../../provider/Layers/ProviderSessionDirectory.ts";
+import { ProviderSessionDirectory } from "../../provider/Services/ProviderSessionDirectory.ts";
 import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
@@ -268,6 +272,7 @@ describe("CheckpointReactor", () => {
     | CheckpointReactor
     | CheckpointStore.CheckpointStore
     | ProjectionSnapshotQuery
+    | ProviderSessionDirectory
     | RuntimeReceiptBus.RuntimeReceiptBus,
     unknown
   > | null = null;
@@ -374,6 +379,12 @@ describe("CheckpointReactor", () => {
       Layer.provideMerge(projectionSnapshotLayer),
       Layer.provideMerge(RuntimeReceiptBusTest),
       Layer.provideMerge(Layer.succeed(ProviderService, provider.service)),
+      Layer.provideMerge(
+        ProviderSessionDirectoryLive.pipe(
+          Layer.provide(ProviderSessionRuntime.layer),
+          Layer.provide(SqlitePersistenceMemory),
+        ),
+      ),
       Layer.provideMerge(Layer.mock(PullRequestService)({ refreshAfterTurn })),
       Layer.provideMerge(vcsStatusBroadcasterLayer),
       Layer.provideMerge(
@@ -406,6 +417,7 @@ describe("CheckpointReactor", () => {
     const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
     const snapshotQuery = await runtime.runPromise(Effect.service(ProjectionSnapshotQuery));
     const reactor = await runtime.runPromise(Effect.service(CheckpointReactor));
+    const sessionDirectory = await runtime.runPromise(Effect.service(ProviderSessionDirectory));
     const checkpointStore = await runtime.runPromise(
       Effect.service(CheckpointStore.CheckpointStore),
     );
@@ -516,6 +528,7 @@ describe("CheckpointReactor", () => {
       drain,
       nextReceipt: Queue.take(receipts),
       pullRequestRefreshes,
+      sessionDirectory,
     };
   }
 
@@ -2139,6 +2152,136 @@ describe("CheckpointReactor", () => {
       numTurns: 1,
     });
   });
+
+  const seedProviderSwitchAtTurnTwo = (harness: Awaited<ReturnType<typeof createHarness>>) =>
+    Effect.gen(function* () {
+      const threadId = ThreadId.make("thread-1");
+      const createdAt = "2026-01-01T00:00:00.000Z";
+      yield* harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("cmd-session-set-switched"),
+        threadId,
+        session: {
+          threadId,
+          status: "ready",
+          providerName: "claudeAgent",
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: createdAt,
+        },
+        createdAt,
+      });
+      for (const turnCount of [1, 2, 3]) {
+        yield* harness.engine.dispatch({
+          type: "thread.turn.diff.complete",
+          commandId: CommandId.make(`cmd-diff-switched-${turnCount}`),
+          threadId,
+          turnId: asTurnId(`turn-switched-${turnCount}`),
+          completedAt: createdAt,
+          checkpointRef: checkpointRefForThreadTurn(threadId, turnCount),
+          status: "ready",
+          files: [],
+          checkpointTurnCount: turnCount,
+          createdAt,
+        });
+      }
+      yield* harness.engine.dispatch({
+        type: "thread.activity.append",
+        commandId: CommandId.make("cmd-provider-switched"),
+        threadId,
+        activity: {
+          id: EventId.make("activity-provider-switched"),
+          tone: "info",
+          kind: "provider.switched",
+          summary: "Switched from Codex to Claude",
+          payload: {
+            fromProviderInstanceId: "codex",
+            toProviderInstanceId: "claudeAgent",
+            fromLabel: "Codex",
+            toLabel: "Claude",
+            turnCount: 2,
+          },
+          turnId: null,
+          createdAt,
+        },
+        createdAt,
+      });
+    });
+
+  effectIt.effect("refuses to rewind past a provider switch", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() =>
+        createHarness({ providerName: ProviderDriverKind.make("claudeAgent") }),
+      );
+      const threadId = ThreadId.make("thread-1");
+      yield* seedProviderSwitchAtTurnTwo(harness);
+
+      yield* harness.engine.dispatch({
+        type: "thread.checkpoint.revert",
+        commandId: CommandId.make("cmd-revert-past-switch"),
+        threadId,
+        turnCount: 1,
+        createdAt: "2026-01-01T00:00:00.000Z",
+      });
+      yield* Effect.promise(() =>
+        waitForThread(harness.readModel, (thread) =>
+          thread.activities.some((activity) => activity.kind === "checkpoint.revert.failed"),
+        ),
+      );
+
+      expect(harness.provider.rollbackConversation).not.toHaveBeenCalled();
+      const thread = (yield* Effect.promise(() => harness.readModel())).threads.find(
+        (entry) => entry.id === threadId,
+      );
+      expect(
+        thread?.activities.find((activity) => activity.kind === "checkpoint.revert.failed"),
+      ).toMatchObject({
+        payload: { detail: expect.stringContaining("Can't rewind past the switch to Claude.") },
+      });
+      expect(thread?.checkpoints.map((checkpoint) => checkpoint.checkpointTurnCount)).toEqual([
+        1, 2, 3,
+      ]);
+    }),
+  );
+
+  effectIt.effect(
+    "owes the new provider the conversation again after rewinding to the switch",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* Effect.promise(() =>
+          createHarness({ providerName: ProviderDriverKind.make("claudeAgent") }),
+        );
+        const threadId = ThreadId.make("thread-1");
+        yield* seedProviderSwitchAtTurnTwo(harness);
+        yield* harness.sessionDirectory.upsert({
+          threadId,
+          provider: ProviderDriverKind.make("claudeAgent"),
+          providerInstanceId: ProviderInstanceId.make("claudeAgent"),
+          runtimePayload: { pendingProviderHandoff: null },
+        });
+
+        yield* harness.engine.dispatch({
+          type: "thread.checkpoint.revert",
+          commandId: CommandId.make("cmd-revert-to-switch"),
+          threadId,
+          turnCount: 2,
+          createdAt: "2026-01-01T00:00:00.000Z",
+        });
+        yield* Effect.promise(() =>
+          waitForEvent(harness.engine, (event) => event.type === "thread.reverted"),
+        );
+
+        expect(harness.provider.rollbackConversation).toHaveBeenCalledWith({
+          threadId,
+          numTurns: 1,
+        });
+        const binding = yield* harness.sessionDirectory.getBinding(threadId);
+        expect(Option.getOrUndefined(binding)?.runtimePayload).toMatchObject({
+          pendingProviderHandoff: { fromLabel: "Codex" },
+        });
+      }),
+  );
 
   it("processes consecutive revert requests with deterministic rollback sequencing", async () => {
     const harness = await createHarness();

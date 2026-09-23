@@ -93,6 +93,25 @@ checkpoints but cannot roll back its conversation. The [checkpoint boundary](./o
 therefore rejects revert before touching files. Native permission and question option IDs must
 also survive normalization; a display label is not necessarily a valid reply.
 
+## Switching providers mid-thread
+
+A thread's conversation lives in one provider's native session, reached through the resume cursor
+in the thread's [session binding](../../apps/server/src/provider/Layers/ProviderSessionDirectory.ts).
+When a turn asks for an instance that cannot resume that session (another driver, or another
+continuation key), the [command reactor](../../apps/server/src/orchestration/Layers/ProviderCommandReactor.ts)
+stops the old session, clears its cursor, and starts the new instance fresh. The new provider
+is then owed the earlier conversation. A `pendingProviderHandoff` marker in the binding's runtime
+payload records that. The next plain user turn carries a budgeted
+[transcript](../../apps/server/src/orchestration/ProviderHandoff.ts), and the marker clears only
+after that send succeeds, so a failed start or send retries the handoff.
+
+Detect a switch against the binding, not `thread.modelSelection`. Clients update the selection
+before the turn that switches, so the selection already names the new provider. A
+`provider.switched` activity records the checkpoint turn count at the switch. The new provider
+holds only later turns, so the [checkpoint reactor](../../apps/server/src/orchestration/Layers/CheckpointReactor.ts)
+rejects rewinds before that count. A rewind that lands exactly on it re-arms the marker, because it
+removes the turn that carried the transcript.
+
 ## Attachments and stored history
 
 Attachments live outside the project workspace. [ProviderService](../../apps/server/src/provider/Layers/ProviderService.ts)

@@ -275,12 +275,18 @@ const activityRunsCache = new WeakMap<
   }
 >();
 
-export function isContextCompactionActivityGroup(
+/** Activities drawn as a labeled rule across the feed instead of as work rows. */
+const FEED_DIVIDER_ACTIVITY_KINDS: ReadonlySet<string> = new Set([
+  "context-compaction",
+  "provider.switched",
+]);
+
+export function isFeedDividerActivityGroup(
   entry: Extract<ThreadFeedEntry, { readonly type: "activity-group" }>,
 ): boolean {
   return (
     entry.activities.length === 1 &&
-    entry.activities[0]?.workEntry.sourceActivityKind === "context-compaction"
+    FEED_DIVIDER_ACTIVITY_KINDS.has(entry.activities[0]?.workEntry.sourceActivityKind ?? "")
   );
 }
 
@@ -1586,7 +1592,7 @@ function groupAdjacentActivities(entries: ReadonlyArray<RawThreadFeedEntry>): Th
     }
 
     const isStandalone =
-      entry.activity.workEntry.sourceActivityKind === "context-compaction" ||
+      FEED_DIVIDER_ACTIVITY_KINDS.has(entry.activity.workEntry.sourceActivityKind ?? "") ||
       entry.activity.workEntry.questionAnswer !== undefined;
     if (isStandalone || firstActivityEntry?.turnId !== entry.turnId) {
       flushGroup();
@@ -1728,7 +1734,7 @@ function deriveThreadFeedTurnFolds(
     const hidesFoldableWork = entries.some(
       (entry) =>
         hiddenEntryIds.has(entry.id) &&
-        !(entry.type === "activity-group" && isContextCompactionActivityGroup(entry)) &&
+        !(entry.type === "activity-group" && isFeedDividerActivityGroup(entry)) &&
         !(entry.type === "message" && entry.message.role === "reasoning"),
     );
     if (!hidesFoldableWork) {
@@ -1904,7 +1910,7 @@ function activityRunTurnId(entry: ThreadFeedEntry): TurnId | null {
   }
   if (
     entry.type === "activity-group" &&
-    !isContextCompactionActivityGroup(entry) &&
+    !isFeedDividerActivityGroup(entry) &&
     !isUserInputActivityGroup(entry) &&
     entry.activities.every(
       (activity) => !activity.workEntry.agentSpawn && activity.workEntry.tone !== "error",
@@ -2072,7 +2078,7 @@ function appendPresentedFeedEntry(
     result.push(entry);
     return;
   }
-  if (isContextCompactionActivityGroup(entry) || isUserInputActivityGroup(entry)) {
+  if (isFeedDividerActivityGroup(entry) || isUserInputActivityGroup(entry)) {
     result.push(entry);
     return;
   }

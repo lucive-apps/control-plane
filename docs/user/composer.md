@@ -67,6 +67,17 @@ returns to the remembered selection.
 
 Leaving reasoning level or service tier unset uses the provider's own configuration.
 
+## Switch providers in a thread
+
+To move a started thread to another provider, pick one of its models in the model picker and send
+your next message. The new agent receives the conversation so far along with that message and
+picks up from there. Long threads are shortened to the first request and the most recent messages.
+A divider in the thread marks where the provider changed.
+
+The new agent does not inherit the previous agent's tool state or hidden reasoning. Wait for a
+running turn to finish, or stop it, before switching. Rewind cannot go back past a switch. Servers
+older than this feature keep a thread on the provider it started with.
+
 ## Quote an assistant response
 
 On web and desktop, select text within one assistant response and choose
