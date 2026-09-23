@@ -20,7 +20,13 @@ describe("classifyUpstreamPath", () => {
     expect(classifyUpstreamPath("infra/relay/src/http/Api.ts")).toBe("infra");
     expect(classifyUpstreamPath(".github/workflows/release.yml")).toBe("infra");
     expect(classifyUpstreamPath("scripts/build-desktop-artifact.ts")).toBe("infra");
-    expect(classifyUpstreamPath("pnpm-lock.yaml")).toBe("infra");
+  });
+
+  it("treats shared dependencies and lint tooling as mixed", () => {
+    expect(classifyUpstreamPath("pnpm-lock.yaml")).toBe("mixed");
+    expect(classifyUpstreamPath("pnpm-workspace.yaml")).toBe("mixed");
+    expect(classifyUpstreamPath("oxlint-plugin-t3code/rules/example.ts")).toBe("mixed");
+    expect(classifyUpstreamPath("unknown/path.ts")).toBe("mixed");
   });
 
   it("treats contracts and client-runtime as mixed", () => {
@@ -42,12 +48,13 @@ describe("classifyUpstreamCommitFiles", () => {
 
   it("marks server-only commits infra", () => {
     expect(
-      classifyUpstreamCommitFiles([
-        "apps/server/src/bin.ts",
-        ".github/workflows/ci.yml",
-        "pnpm-lock.yaml",
-      ]),
+      classifyUpstreamCommitFiles(["apps/server/src/bin.ts", ".github/workflows/ci.yml"]),
     ).toBe("infra");
+  });
+
+  it("does not label missing changed paths as infrastructure", () => {
+    expect(classifyUpstreamCommitFiles([])).toBe("mixed");
+    expect(classifyUpstreamCommitFiles([""])).toBe("mixed");
   });
 
   it("marks contract-only commits mixed", () => {
@@ -56,15 +63,16 @@ describe("classifyUpstreamCommitFiles", () => {
 });
 
 describe("recommendUpstreamSync", () => {
-  it("merges infra-only ranges and holds anything that touches UI", () => {
-    expect(recommendUpstreamSync(["infra", "infra"])).toBe("merge");
+  it("requires review even for infra-only or empty ranges", () => {
+    expect(recommendUpstreamSync([])).toBe("review-infra");
+    expect(recommendUpstreamSync(["infra", "infra"])).toBe("review-infra");
     expect(recommendUpstreamSync(["infra", "mixed"])).toBe("review-mixed");
     expect(recommendUpstreamSync(["infra", "ui"])).toBe("review-ui");
   });
 });
 
 describe("renderUpstreamSyncReport", () => {
-  it("lists the safe infra subset when UI is present", () => {
+  it("lists infrastructure as unverified candidates when UI is present", () => {
     const report = renderUpstreamSyncReport({
       baseRef: "origin/main",
       upstreamRef: "upstream/main",
@@ -85,7 +93,9 @@ describe("renderUpstreamSyncReport", () => {
       ],
     });
     expect(report).toContain("**Recommendation: hold UI.**");
-    expect(report).toContain("### Infra (merge)");
+    expect(report).toContain("### Infra (review candidates)");
+    expect(report).toContain("not a verified safe subset");
+    expect(report).toContain("Path classification never authorizes a merge");
     expect(report).toContain("fix(server): retry git checkpoint capture");
     expect(report).toContain("### UI (hold)");
     expect(report).toContain("feat(web): undo snooze with mod+z");

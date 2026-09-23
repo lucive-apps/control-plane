@@ -1,6 +1,6 @@
 export type UpstreamSyncClass = "infra" | "mixed" | "ui";
 
-export type UpstreamSyncRecommendation = "merge" | "review-mixed" | "review-ui";
+export type UpstreamSyncRecommendation = "review-infra" | "review-mixed" | "review-ui";
 
 export interface UpstreamSyncCommit {
   readonly sha: string;
@@ -35,7 +35,6 @@ const INFRA_PREFIXES = [
   "scripts/",
   "packaging/",
   ".github/",
-  "oxlint-plugin-t3code/",
   "packages/ssh/",
   "packages/tailscale/",
   "packages/effect-acp/",
@@ -49,12 +48,7 @@ const INFRA_PREFIXES = [
   "docs/internals/",
 ] as const;
 
-const INFRA_PATHS = new Set([
-  "knip.jsonc",
-  "pnpm-lock.yaml",
-  "pnpm-workspace.yaml",
-  "third-party-licenses.config.json",
-]);
+const INFRA_PATHS = new Set(["knip.jsonc", "third-party-licenses.config.json"]);
 
 function normalizeRepoPath(filePath: string): string {
   return filePath.replaceAll("\\", "/").replace(/^\.\//, "");
@@ -81,7 +75,7 @@ export function classifyUpstreamPath(filePath: string): UpstreamSyncClass {
 }
 
 export function classifyUpstreamCommitFiles(files: readonly string[]): UpstreamSyncClass {
-  let sawMixed = false;
+  let sawMixed = files.length === 0;
   for (const filePath of files) {
     const fileClass = classifyUpstreamPath(filePath);
     if (fileClass === "ui") {
@@ -103,7 +97,7 @@ export function recommendUpstreamSync(
   if (classes.includes("mixed")) {
     return "review-mixed";
   }
-  return "merge";
+  return "review-infra";
 }
 
 export function countUpstreamSyncClasses(
@@ -130,11 +124,11 @@ export function renderUpstreamSyncReport(input: {
   const counts = countUpstreamSyncClasses(classes);
   const recommendation = recommendUpstreamSync(classes);
   const recommendationLine =
-    recommendation === "merge"
-      ? "**Recommendation: merge.** Infra only. No UI files."
+    recommendation === "review-infra"
+      ? "**Recommendation: review infra.** Infrastructure candidates require dependency, fork-overlap, and behavior review before selection."
       : recommendation === "review-mixed"
-        ? "**Recommendation: review mixed.** Protocol or shared runtime changed. No web/mobile UI files."
-        : "**Recommendation: hold UI.** Do not merge the full range. Infra commits below are the safe subset.";
+        ? "**Recommendation: review mixed.** Shared code, dependencies, tooling, or unclassified paths require review for indirect UI effects."
+        : "**Recommendation: hold UI.** Do not merge the full range. Infra commits below are candidates for review, not a verified safe subset.";
 
   const byClass = {
     infra: input.commits.filter((commit) => commit.class === "infra"),
@@ -145,7 +139,7 @@ export function renderUpstreamSyncReport(input: {
   const sections = [
     "## Upstream sync",
     "",
-    `${input.commits.length} commit(s) from \`${input.upstreamRef}\` onto \`${input.baseRef}\`.`,
+    `${input.commits.length} pending first-parent commit(s), excluding equivalent patches, from \`${input.upstreamRef}\` onto \`${input.baseRef}\`.`,
     "",
     recommendationLine,
     "",
@@ -154,11 +148,16 @@ export function renderUpstreamSyncReport(input: {
     `- Mixed: ${counts.mixed}`,
     `- UI: ${counts.ui}`,
     "",
-    "Rules: merge infra. Review mixed. Hold UI unless T3 shipped something we specifically want.",
+    "Rules: review infra candidates and mixed commits for dependencies and fork overlap. Hold UI unless explicitly requested. Path classification never authorizes a merge.",
   ];
 
   if (byClass.infra.length > 0) {
-    sections.push("", "### Infra (merge)", "", ...byClass.infra.map(formatUpstreamCommitLine));
+    sections.push(
+      "",
+      "### Infra (review candidates)",
+      "",
+      ...byClass.infra.map(formatUpstreamCommitLine),
+    );
   }
   if (byClass.mixed.length > 0) {
     sections.push("", "### Mixed (review)", "", ...byClass.mixed.map(formatUpstreamCommitLine));
