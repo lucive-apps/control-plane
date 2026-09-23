@@ -17,7 +17,7 @@ This flavor of T3 includes:
 Ship a new signed Mac build with `vp run release:fork:desktop` after loading Apple notary credentials. That bumps the patch version, notarizes, and publishes a GitHub Release. Commit the version bump with the ship.
 
 ## Why do this?
-I build with agents from different subscriptions all day, every day. I like having a surface I can control. I'm also very opinionated about interface clutter, and I wanted to bring a lot of the simplicity I enjoy from Codex/Cursor into my development experience. T3 has done a great job with the platform, I just want to take the front end in a different direction.
+Nick: I build with agents from different subscriptions all day, every day. I like having a surface I can control. I'm also very opinionated about interface clutter, and I wanted to bring a lot of the simplicity I enjoy from Codex/Cursor into my development experience. T3 has done a great job with the platform, I just want to take the front end in a different direction.
 
 ## Run from source
 
