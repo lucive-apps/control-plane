@@ -178,7 +178,7 @@ function resolveT3McpToolPresentation(
             : status === "stopped"
               ? `Stopped messaging ${peer}`
               : agentMessageToolLabel(source);
-    return { displayName, icon: "t3-code" as const };
+    return { displayName, icon: "message-circle" as const, action: undefined };
   }
   const urlTarget = typeof input?.url === "string" ? parseChangeRequestUrl(input.url) : null;
   const number = urlTarget?.number ?? input?.number;
