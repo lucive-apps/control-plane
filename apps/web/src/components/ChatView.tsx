@@ -2592,12 +2592,16 @@ export default function ChatView(props: ChatViewProps) {
     activeThread?.modelSelection.instanceId ??
     activeProjectDefaultModelSelection?.instanceId ??
     null;
-  const lockedProvider = deriveLockedProvider({
-    thread: activeThread,
-    selectedProvider: selectedProviderByThreadId,
-    threadProvider,
-    providers: providerStatuses,
-  });
+  // Servers that hand a thread's conversation to a new provider allow switching mid-thread.
+  const lockedProvider =
+    serverConfig?.environment.capabilities.threadProviderSwitching === true
+      ? null
+      : deriveLockedProvider({
+          thread: activeThread,
+          selectedProvider: selectedProviderByThreadId,
+          threadProvider,
+          providers: providerStatuses,
+        });
   const pullRequestsCapabilityKnown = serverConfig !== null;
   const supportsPullRequests = serverConfig?.environment.capabilities.pullRequests === true;
   const attachmentEnvironmentConfig = environmentById.get(environmentId)?.serverConfig ?? null;

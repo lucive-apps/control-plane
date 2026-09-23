@@ -1349,10 +1349,44 @@ describe("deriveMessagesTimelineRows", () => {
 
     expect(rows).toEqual([
       {
-        kind: "context-compaction",
+        kind: "divider",
         id: "compaction-entry",
         createdAt: "2026-01-01T00:00:00Z",
         label: "Compacted context 899K → 19K tokens",
+        icon: "compaction",
+      },
+    ]);
+  });
+
+  it("shows a provider switch as a divider rather than folded work", () => {
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: [
+        {
+          id: "switch-entry",
+          kind: "work",
+          createdAt: "2026-01-01T00:00:00Z",
+          entry: {
+            id: "switch",
+            createdAt: "2026-01-01T00:00:00Z",
+            label: "Switched from Claude to Codex",
+            tone: "info",
+            sourceActivityKind: "provider.switched",
+          },
+        },
+      ],
+      isWorking: false,
+      activeTurnStartedAt: null,
+      turnDiffSummaries: [],
+      supportsConversationRollback: false,
+    });
+
+    expect(rows).toEqual([
+      {
+        kind: "divider",
+        id: "switch-entry",
+        createdAt: "2026-01-01T00:00:00Z",
+        label: "Switched from Claude to Codex",
+        icon: "provider-switch",
       },
     ]);
   });
