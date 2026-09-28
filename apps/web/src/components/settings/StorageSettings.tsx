@@ -123,7 +123,7 @@ export function StorageSettingsPanel() {
   ) {
     return (
       <SettingsScopeNotice target="all">
-        Update the selected machines to configure project worktree cleanup.
+        Update the selected machines to configure workspace worktree cleanup.
       </SettingsScopeNotice>
     );
   }
@@ -157,9 +157,9 @@ export function StorageSettingsPanel() {
             title="Automatic worktree cleanup"
             description={
               mode === "off"
-                ? "Keep this project's worktrees until you delete them manually."
+                ? "Keep this workspace's worktrees until you delete them manually."
                 : mode === "custom"
-                  ? "Use these rules for this project."
+                  ? "Use these rules for this workspace."
                   : "Use each machine's worktree cleanup settings."
             }
             serverScoped

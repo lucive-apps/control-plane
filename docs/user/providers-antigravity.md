@@ -7,7 +7,7 @@ which models and account access are available through this agent.
 ## Set up Antigravity
 
 On web or desktop, open **Settings > Providers**, choose the environment that runs
-your project, and enable Antigravity. Install its runtime there, then choose
+your workspace, and enable Antigravity. Install its runtime there, then choose
 **Sign in with Google** and complete the browser sign-in. Wait for T3 Code to confirm
 account access and load models before starting a thread. Provider setup is not
 available in the mobile app.
@@ -83,14 +83,14 @@ is unavailable. Continue with a follow-up message or start a new thread.
 
 ### Skills and attachments
 
-Put project skills in `.agents/skills`. T3 Code also reads `.gemini/skills` and the
-legacy `.agent/skills` directory. Among these project locations, the first copy
+Put workspace skills in `.agents/skills`. T3 Code also reads `.gemini/skills` and the
+legacy `.agent/skills` directory. Among these workspace locations, the first copy
 wins in this order: `.gemini/skills`, `.agents/skills`, `.agent/skills`. See
 [commands and skills](./composer.md#commands-and-skills) for invoking them.
 
-Skills for every project go in `~/.gemini/config/skills` or
+Skills for every workspace go in `~/.gemini/config/skills` or
 `~/.gemini/antigravity-cli/skills`. Antigravity does not read `~/.agents/skills`,
-so a skill there only appears when the project itself is your home directory.
+so a skill there only appears when the workspace itself is your home directory.
 
 Antigravity accepts images, PDFs, text files, and supported audio formats directly.
 Its limits are 1 MiB per text file, 10 MiB per image, 20 MiB per audio clip, and

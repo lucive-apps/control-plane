@@ -220,6 +220,8 @@ describe("KeybindingsSettings.logic", () => {
     expect(commandLabel("usage.toggle")).toBe("Usage: Toggle");
     expect(commandLabel("pullRequests.toggle")).toBe("Pull Requests: Toggle");
     expect(commandLabel("script.setup-db.run")).toBe("Run Script: Setup Db");
+    expect(commandLabel("composer.workspace")).toBe("Composer: Checkout");
+    expect(commandLabel("projectSearch.toggle")).toBe("Workspace Search: Toggle");
   });
 
   it("builds known when variable options from defaults without frontend labels", () => {

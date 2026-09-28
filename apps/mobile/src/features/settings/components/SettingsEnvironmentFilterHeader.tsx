@@ -38,7 +38,7 @@ export function SettingsEnvironmentFilterHeader(props: { readonly closeSettings?
       options={{
         unstable_headerRightItems: () => [
           withNativeGlassHeaderItem({
-            accessibilityLabel: "Filter settings environments and projects",
+            accessibilityLabel: "Filter settings environments and workspaces",
             icon: { name: filterIcon, type: "sfSymbol" },
             label: "",
             type: "menu",
@@ -75,11 +75,11 @@ export function SettingsEnvironmentFilterHeader(props: { readonly closeSettings?
                   label:
                     selectableProjectGroups.find((group) => group.key === selectedProjectKey)
                       ?.label ??
-                    (selectedProjectKey === null ? "All projects" : "Unavailable project"),
+                    (selectedProjectKey === null ? "All workspaces" : "Unavailable workspace"),
                   items: [
                     {
                       type: "action",
-                      label: "All projects",
+                      label: "All workspaces",
                       state: selectedProjectKey === null ? "on" : undefined,
                       onPress: () => selectProject(null),
                     },
@@ -131,7 +131,7 @@ export function AndroidSettingsEnvironmentFilter() {
     <ControlPillMenu
       accessible
       accessibilityRole="button"
-      accessibilityLabel="Filter settings environments and projects"
+      accessibilityLabel="Filter settings environments and workspaces"
       title="Settings scope"
       actions={[
         {
@@ -150,12 +150,12 @@ export function AndroidSettingsEnvironmentFilter() {
         })),
         {
           id: "project:all",
-          title: "All projects",
+          title: "All workspaces",
           state: selectedProjectKey === null ? ("on" as const) : ("off" as const),
         },
         ...selectableProjectGroups.map((group) => ({
           id: `project:${group.key}`,
-          title: `Project · ${group.label}`,
+          title: `Workspace · ${group.label}`,
           state: selectedProjectKey === group.key ? ("on" as const) : ("off" as const),
         })),
       ]}
@@ -177,7 +177,7 @@ export function AndroidSettingsEnvironmentFilter() {
     >
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Filter settings environments and projects"
+        accessibilityLabel="Filter settings environments and workspaces"
         className="size-11 items-center justify-center rounded-full"
       >
         <SymbolView name={filterIcon} size={22} tintColorClassName="accent-icon" />

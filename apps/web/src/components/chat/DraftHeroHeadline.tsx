@@ -115,12 +115,12 @@ export function DraftHeroHeadline({
         <TooltipTrigger
           render={
             <MenuTrigger
-              aria-label={hasResolvedProject ? "Change project" : "Choose a project"}
+              aria-label={hasResolvedProject ? "Change workspace" : "Choose a workspace"}
               className="pointer-events-auto inline-flex max-w-64 items-center gap-1 truncate rounded-md px-1.5 py-0.5 text-sm text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             />
           }
         >
-          {activeProjectDisplayName ?? "Choose a project"}
+          {activeProjectDisplayName ?? "Choose a workspace"}
           <ChevronDownIcon className="size-3.5 shrink-0 opacity-70" />
         </TooltipTrigger>
         {activeProjectDisplayName ? (
@@ -191,7 +191,7 @@ export function DraftHeroHeadline({
         <MenuSeparator />
         <MenuItem onClick={openAddProject}>
           <FolderPlusIcon />
-          New project
+          Add workspace
         </MenuItem>
       </MenuPopup>
     </Menu>
@@ -201,7 +201,7 @@ export function DraftHeroHeadline({
       onClick={openAddProject}
       className="pointer-events-auto inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-sm text-muted-foreground/60 transition-colors hover:bg-muted/60 hover:text-muted-foreground/80 focus-visible:rounded-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
     >
-      {activeProjectTitle ?? "Add a project"}
+      {activeProjectTitle ?? "Add a workspace"}
     </button>
   );
 

@@ -214,7 +214,7 @@ function FirstRunRecovery({
         <p className="mt-2 text-sm text-muted-foreground">
           {settingsReadFailed
             ? "Your saved settings could not be loaded."
-            : "Control Plane could not confirm this workspace."}
+            : "Control Plane could not confirm this environment."}
         </p>
         <Button
           className="mt-5"

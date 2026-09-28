@@ -70,7 +70,7 @@ export function HomeInbox(props: {
             onPress={props.onOpenAttention}
           />
         </View>
-        <Text className="pb-2 text-sm text-foreground-muted">Projects</Text>
+        <Text className="pb-2 text-sm text-foreground-muted">Tasks</Text>
         {props.projects.map((project) => (
           <Pressable
             key={project.key}
@@ -108,7 +108,7 @@ export function HomeInbox(props: {
               type="monochrome"
             />
           </View>
-          <Text className="text-base text-foreground-muted">Add Project</Text>
+          <Text className="text-base text-foreground-muted">Add Workspace</Text>
         </Pressable>
       </ScrollView>
       {props.showComposer ? <HomeComposerBar /> : null}

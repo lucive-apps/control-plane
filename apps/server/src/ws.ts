@@ -1386,7 +1386,7 @@ const makeWsRpcLayer = (
                   ...snapshot,
                   stages: snapshot.stages.map((stage) =>
                     stage.id === "fetch" || stage.id === "checkout" || stage.id === "submodules"
-                      ? { ...stage, status: "skipped", detail: "using project checkout" }
+                      ? { ...stage, status: "skipped", detail: "using workspace checkout" }
                       : stage,
                   ),
                 })),

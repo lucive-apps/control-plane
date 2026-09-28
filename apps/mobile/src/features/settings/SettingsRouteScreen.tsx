@@ -132,7 +132,7 @@ function SettingsIndexSections() {
           representative: scopedProjectMembers[0]!,
           members: scopedProjectMembers,
         })
-      : (selectedProject?.label ?? "Unavailable project");
+      : (selectedProject?.label ?? "Unavailable workspace");
   return (
     <>
       <SettingsSection title="Interface">
@@ -142,7 +142,7 @@ function SettingsIndexSections() {
         ) : null}
       </SettingsSection>
 
-      <SettingsSection title="Projects & threads">
+      <SettingsSection title="Workspaces & threads">
         {selectedProjectKey !== null ? (
           <SettingsRow
             icon="folder"

@@ -149,12 +149,12 @@ export function shouldOpenDefaultBrowserProfileFromMenuClick(
 
 const SURFACE_DISABLED_REASONS = {
   browser: "Browser previews are only available in the Control Plane desktop app.",
-  terminal: "Terminal surfaces are only available from a project thread.",
-  files: "Files are only available when a project is open.",
+  terminal: "Terminal surfaces are only available from a workspace thread.",
+  files: "Files are only available when a workspace is open.",
   diff: "Diff is only available for server threads in Git repositories.",
   pullRequest: "This thread's branch has no pull request yet.",
   pullRequests: "No linked pull requests are available for this thread.",
-  agents: "Agents are only available from a thread.",
+  agents: "Subagents are only available from a thread.",
   device: "Devices are only available from a thread.",
 } as const;
 
@@ -173,8 +173,8 @@ const LAUNCHER_SHORTCUT_BLOCKING_LAYERS = [
 /** One-line unavailability hints for the empty-state rows. */
 const SURFACE_UNAVAILABLE_HINTS = {
   browser: "Only available in the desktop app.",
-  terminal: "Available when a project is open.",
-  files: "Available when a project is open.",
+  terminal: "Available when a workspace is open.",
+  files: "Available when a workspace is open.",
   diff: "Available for Git repositories.",
   pullRequest: "No pull request on this branch yet.",
   pullRequests: "No linked pull requests available.",
@@ -389,7 +389,7 @@ function RightPanelEmptyState(props: {
       badgeCount: 0,
     },
     {
-      label: "Agents",
+      label: "Subagents",
       icon: Bot,
       shortcut: "A",
       available: props.agentsAvailable,
@@ -628,7 +628,7 @@ function surfaceTitle(
     case "pull-requests":
       return "Pull requests";
     case "agents":
-      return "Agents";
+      return "Subagents";
     case "device":
       return surface.title ?? surface.target?.name ?? "Device";
     case "preview": {
@@ -910,7 +910,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       onClick: props.onAddPullRequests,
     },
     {
-      label: "Agents",
+      label: "Subagents",
       icon: Bot,
       shortcut: "A",
       available: props.agentsAvailable,

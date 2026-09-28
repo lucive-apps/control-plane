@@ -73,10 +73,10 @@ az extension add --name azure-devops
 az login
 ```
 
-## Clone or publish a project
+## Clone or publish a workspace
 
-Use **Add Project** in the command palette (`Cmd/Ctrl+K`) to clone a repository. Choose a hosting
-provider or paste a Git URL, then choose where to save it. The project opens right away while the
+Use **Add workspace** in the command palette (`Cmd/Ctrl+K`) to clone a repository. Choose a hosting
+provider or paste a Git URL, then choose where to save it. The workspace opens right away while the
 clone runs in the background: you can write your first prompt, and sending waits until the files
 are in place. A toast tracks progress and lets you cancel; if the clone fails, retry it from the
 toast or from the banner above the composer.
@@ -91,7 +91,7 @@ Use a thread's Git actions to commit, push, and create a pull request. T3 Code c
 messages, review titles, and descriptions from your changes.
 
 Choose the writing style and model in **Settings → Source Control**. **Repository conventions**
-uses the project's instructions and recent commit subjects.
+uses the workspace's instructions and recent commit subjects.
 
 ## Review and merge
 
@@ -110,13 +110,13 @@ only enable it for environments you control and trust. Changing a saved endpoint
 environment clears its permission.
 
 GitHub review details, linked PR status, and permitted review actions can then use another
-connected environment signed in to the same GitHub account. Each needs a project on that host.
+connected environment signed in to the same GitHub account. Each needs a workspace on that host.
 A connected local environment is preferred for actions and can answer slow or failed reads.
 Browsers and mobile clients need a paired environment to use its GitHub CLI credentials.
 Credentials stay on their machines. Previously verified credentials remain usable for routing
 for ten minutes during a GitHub outage; new credentials must be verified first. An action with
 an uncertain result is never automatically retried elsewhere. Listings, diffs, and checkout or
-PR creation from Git actions continue to use the project's environment.
+PR creation from Git actions continue to use the workspace's environment.
 
 For Azure DevOps, use the host website to change comments. Bitbucket does not support reopening a
 declined pull request.
@@ -166,7 +166,7 @@ closed reviews refresh periodically so reopening one on the host is detected. Me
 when requested. With **Auto-settle merged threads** enabled, a thread can settle after every linked
 review is terminal. An open or unsynced link keeps it active.
 
-Cross-repository links use a project on the same host. Azure DevOps reviews require a project checked
+Cross-repository links use a workspace on the same host. Azure DevOps reviews require a workspace checked
 out from the matching organization and repository.
 
 ## GitHub stacks

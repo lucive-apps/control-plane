@@ -3,34 +3,37 @@
 Use a new thread for a separate task. Choose **New worktree** when its code changes
 need a separate branch and working directory.
 
+The sidebar's **Tasks** section lists your threads grouped by workspace, the folder
+they work in. Use **Add workspace** in that section to add another folder.
+
 ## Start a thread
 
-On web and desktop, a new thread keeps the current project and carries your model
-and mode selections, unless the destination project has its own model default.
-Its branch and workspace mode come from your configured defaults. To continue in
+On web and desktop, a new thread keeps the current workspace and carries your model
+and mode selections, unless the destination workspace has its own model default.
+Its branch and checkout come from your configured defaults. To continue in
 an existing worktree, use **New thread in this worktree** from the branch toolbar.
 
-When you change a new thread's project, T3 Code stays in the current environment
-if that project exists there. Otherwise it selects an environment that has it.
+When you change a new thread's workspace, T3 Code stays in the current environment
+if that workspace exists there. Otherwise it selects an environment that has it.
 
 ### Start in the background
 
 In a desktop browser or the desktop app, press `Cmd+Enter` on macOS or `Ctrl+Enter`
 on Windows and Linux to start a new thread and immediately open another draft. The
-next draft keeps the workspace mode and base branch you selected. With **New
+next draft keeps the checkout and base branch you selected. With **New
 worktree**, each background submission creates its own worktree.
 
 To send the same prompt to several models on web or desktop, **Shift-click** models
 in a new thread's model picker to add or remove them. A regular click returns to a
 single model. Choose a base branch and send. Each selection starts a separate thread
-and worktree while you stay in the new thread composer. This requires a Git project.
+and worktree while you stay in the new thread composer. This requires a Git workspace.
 
-## Remove a project
+## Remove a workspace
 
-On web and desktop, right-click a project folder in the sidebar and choose **Remove**.
-This deletes the project entry and its threads. Files on disk stay. Grouped checkouts
-show one Remove item per machine. You can also remove a project from
-[Project settings](./project-settings.md).
+On web and desktop, right-click a workspace folder in the sidebar and choose **Remove**.
+This deletes the workspace entry and its threads. Files on disk stay. Grouped checkouts
+show one Remove item per machine. You can also remove a workspace from
+[Workspace settings](./project-settings.md).
 
 ## Pin and reorder threads
 
@@ -46,11 +49,11 @@ scroll position instead of following the thread to its new place in the list.
 
 Pinning does not prevent automatic settlement. Settling a thread removes its pin.
 
-On web and desktop, expand a project folder and drag a thread up or down to change
-its order within that project. Pinned threads reorder among pins, and active threads
+On web and desktop, expand a workspace folder and drag a thread up or down to change
+its order within that workspace. Pinned threads reorder among pins, and active threads
 reorder among active work. Use the thread menu to pin, unpin, settle, or snooze;
 reordering keeps the thread's state. Snoozed and settled threads keep their time-based
-order. Press Escape or release outside the project's thread rows to cancel a drag.
+order. Press Escape or release outside the workspace's thread rows to cancel a drag.
 
 On mobile, open a thread's menu and choose **Arrange threads**. Drag a handle within or between
 **Pinned** and **Active** to reorder, pin, or unpin. Drop onto the **Settled** divider to
@@ -120,7 +123,7 @@ for custom configuration.
 
 ## Inspect agent work
 
-On web and desktop, use **Agents** to follow work delegated to subagents.
+On web and desktop, open the **Subagents** panel to follow delegated work.
 
 Expand a tool call in the conversation to see its full command and output.
 Summaries shorten shell wrappers and can still describe the latest call after it

@@ -11,7 +11,7 @@ export function SettingsProjectOverridesSection(props: {
   readonly onClear: () => void;
 }) {
   return (
-    <SettingsSection title="Project">
+    <SettingsSection title="Workspace">
       <View className="min-h-16 flex-row items-center gap-3 px-4 py-3">
         <Text className="min-w-0 flex-1 text-base text-foreground" numberOfLines={2}>
           {props.projectLabel}
@@ -29,7 +29,7 @@ export function SettingsProjectOverridesSection(props: {
       </View>
       {!props.supportsOverrides ? (
         <Text className="px-4 pb-3 text-sm text-foreground-muted">
-          Update the selected environments to edit project overrides.
+          Update the selected environments to edit workspace overrides.
         </Text>
       ) : null}
     </SettingsSection>

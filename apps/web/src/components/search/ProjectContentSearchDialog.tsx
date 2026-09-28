@@ -84,16 +84,16 @@ function SearchOptionButton(props: {
 function EmptyContentSearchDialog() {
   return (
     <CommandPaletteContent
-      aria-label="Search project contents"
+      aria-label="Search workspace contents"
       escapeLabel="Back"
       footerActionLabel="Open file"
-      inputProps={{ disabled: true, placeholder: "Search project contents…" }}
+      inputProps={{ disabled: true, placeholder: "Search workspace contents…" }}
       mode="none"
       panelClassName="flex min-h-0 flex-1 items-center justify-center px-6 text-center text-sm text-muted-foreground"
       testId="project-content-search"
       value=""
     >
-      Open a project to search its files.
+      Open a workspace to search its files.
     </CommandPaletteContent>
   );
 }
@@ -242,7 +242,7 @@ function OpenContentSearchDialog(props: {
         <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted-foreground">
           {search.hasQuery && !search.isPending && !search.error
             ? "No results found."
-            : "Type to search across your project."}
+            : "Type to search across your workspace."}
         </div>
       ) : (
         <ScrollArea className="min-h-0 flex-1" scrollFade>

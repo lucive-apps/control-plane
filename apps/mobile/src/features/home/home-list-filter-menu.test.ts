@@ -22,13 +22,13 @@ describe("buildHomeListFilterMenu", () => {
     });
 
     const projectMenu = menu.items.find(
-      (item) => item.type === "submenu" && item.title === "Project",
+      (item) => item.type === "submenu" && item.title === "Workspace",
     );
     expect(menu.items.some((item) => item.title === "Settings")).toBe(false);
     expect(projectMenu).toMatchObject({
       type: "submenu",
       items: [
-        { title: "All projects", state: "off" },
+        { title: "All workspaces", state: "off" },
         { title: "Codething", state: "on" },
         { title: "Website", state: "off" },
       ],

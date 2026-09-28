@@ -67,12 +67,12 @@ or use a package manager:
 
 ### Windows Subsystem for Linux
 
-Choose a WSL distro in **Settings → Connections** to run agents and projects
+Choose a WSL distro in **Settings → Connections** to run agents and workspaces
 there. Install the provider CLIs inside that distro. T3 Code installs its own
 server runtime there automatically; the first launch after an app update can
 take longer.
 
-### Open a project from a terminal
+### Open a workspace from a terminal
 
 With the desktop app already running on the same machine:
 
@@ -80,7 +80,7 @@ With the desktop app already running on the same machine:
 t3 app
 ```
 
-This opens a new thread for the current directory, adding the project if needed.
+This opens a new thread for the current directory, adding the workspace if needed.
 Pass a path, such as `t3 app ../my-project`, to open another directory. It requires
 the desktop app, so a standalone server or an SSH session is not enough. If the
 command cannot reach the app, start or update the desktop app and try again.

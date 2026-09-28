@@ -174,14 +174,14 @@ export function CommandPalette(props: {
         key: "newTask",
         kind: "action",
         title: "New thread in…",
-        searchTerms: ["new task", "chat", "create", "project"],
+        searchTerms: ["new task", "chat", "create", "workspace", "project"],
         run: () => navigation.navigate("NewTaskSheet", { screen: "NewTaskDraft" }),
       },
       {
         key: "addProject",
         kind: "action",
-        title: "Add project",
-        searchTerms: ["folder", "clone", "repository", "git"],
+        title: "Add workspace",
+        searchTerms: ["folder", "clone", "repository", "git", "project"],
         run: () => navigation.navigate("NewTaskSheet", { screen: "AddProject" }),
       },
       {
@@ -440,8 +440,8 @@ export function CommandPalette(props: {
                   />
                   <TextInput
                     ref={inputRef}
-                    accessibilityLabel="Search commands, projects, and threads"
-                    placeholder="Search commands, projects, and threads…"
+                    accessibilityLabel="Search commands, workspaces, and threads"
+                    placeholder="Search commands, workspaces, and threads…"
                     placeholderTextColorClassName="accent-placeholder"
                     autoCorrect={false}
                     autoCapitalize="none"

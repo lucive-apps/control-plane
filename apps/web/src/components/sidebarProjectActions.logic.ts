@@ -68,7 +68,7 @@ export function buildProjectFolderActionMenuItems(
   };
 
   return [
-    { id: "project-settings", label: "Project settings", icon: "settings" },
+    { id: "project-settings", label: "Workspace settings", icon: "settings" },
     targeted("copy-path", "Copy path", { icon: "folder" }),
     targeted("delete", "Remove", {
       destructive: true,
@@ -119,7 +119,7 @@ export function buildRemoveProjectConfirmMessage(input: {
   readonly hasOtherMembers: boolean;
 }): string {
   const isWholeGroup = input.members.length === input.groupMemberCount;
-  const targetKind = input.hasOtherMembers || !isWholeGroup ? "checkout" : "project";
+  const targetKind = input.hasOtherMembers || !isWholeGroup ? "checkout" : "workspace";
   const singleMember = input.members.length === 1 ? input.members[0]! : null;
   const targetLabel = singleMember?.title ?? input.groupDisplayName;
   return [
@@ -135,13 +135,13 @@ export function buildRemoveProjectConfirmMessage(input: {
             ? [`Environment: ${singleMember.environmentLabel}`]
             : []),
         ]
-      : [`This removes ${input.members.length} grouped project entries.`]),
+      : [`This removes ${input.members.length} grouped workspace entries.`]),
     ...(input.threadCount > 0
       ? ["This permanently clears conversation history for those threads and any archived threads."]
       : ["This permanently clears any archived conversation history."]),
     isWholeGroup && !input.hasOtherMembers
-      ? "This removes only the project entries, not the files on disk."
-      : "Other entries in this grouped project are unaffected.",
+      ? "This removes only the workspace entries, not the files on disk."
+      : "Other entries in this grouped workspace are unaffected.",
     "This action cannot be undone.",
   ].join("\n");
 }

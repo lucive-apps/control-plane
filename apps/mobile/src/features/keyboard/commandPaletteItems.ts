@@ -50,6 +50,7 @@ export function buildCommandPaletteProjectRows<
           input.environmentLabelById.get(project.environmentId) ?? "",
         ]),
         "new thread",
+        "workspace",
         "project",
       ],
       target,

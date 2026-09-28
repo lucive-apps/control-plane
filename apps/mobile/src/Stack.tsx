@@ -251,7 +251,7 @@ const SettingsContentStack = createNativeStackNavigator({
     SettingsProjectOverview: createNativeStackScreen({
       screen: SettingsProjectOverviewRouteScreen,
       linking: "project",
-      options: { title: "Project overview" },
+      options: { title: "Workspace overview" },
     }),
     SettingsKeyboard: createNativeStackScreen({
       screen: SettingsKeyboardRouteScreen,
@@ -359,7 +359,7 @@ const NewTaskSheetStack = createNativeStackNavigator({
       screen: NewTaskRouteScreen,
       linking: "",
       options: {
-        title: "Choose project",
+        title: "Choose workspace",
       },
     }),
     NewTaskDraft: createNativeStackScreen({
@@ -415,7 +415,7 @@ const NewTaskSheetStack = createNativeStackNavigator({
       screen: AddProjectSourceRoute,
       linking: "add-project",
       options: {
-        title: "Add Project",
+        title: "Add Workspace",
       },
     }),
     AddProjectRepository: createNativeStackScreen({

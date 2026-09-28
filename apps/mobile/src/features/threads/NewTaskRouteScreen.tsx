@@ -74,14 +74,14 @@ function deriveProjectEmptyState(catalogState: WorkspaceState): {
   ) {
     return {
       title: "Connecting to environment",
-      detail: "Loading projects from the saved environment.",
+      detail: "Loading workspaces from the saved environment.",
       loading: true,
     };
   }
 
   return {
-    title: "No projects found",
-    detail: "The connected environment did not report any projects.",
+    title: "No workspaces found",
+    detail: "The connected environment did not report any workspaces.",
     loading: false,
   };
 }
@@ -101,12 +101,12 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
   const incomingShare = routeShareId ? getShare(routeShareId) : null;
   const incomingShareSubtitle = incomingShare
     ? incomingShare.attachments.length === 0
-      ? "Choose a project for what you shared"
+      ? "Choose a workspace for what you shared"
       : incomingShare.attachments.length === 1
-        ? `Choose a project for the ${incomingShare.attachments[0]?.type === "image" ? "image" : "file"} you shared`
-        : `Choose a project for the ${incomingShare.attachments.length} ${incomingShare.attachments.every((attachment) => attachment.type === "image") ? "images" : "files"} you shared`
+        ? `Choose a workspace for the ${incomingShare.attachments[0]?.type === "image" ? "image" : "file"} you shared`
+        : `Choose a workspace for the ${incomingShare.attachments.length} ${incomingShare.attachments.every((attachment) => attachment.type === "image") ? "images" : "files"} you shared`
     : null;
-  const screenTitle = incomingShare ? "Start a task" : "Choose project";
+  const screenTitle = incomingShare ? "Start a task" : "Choose workspace";
   const projectEmptyState = deriveProjectEmptyState(catalogState);
   const resumedDestinationKeyRef = useRef<string | null>(null);
   const reservedDestinationProject = incomingShare?.destination
@@ -128,7 +128,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
         await releaseShareReservation(incomingShare.id, incomingShare.destination);
       } catch (error) {
         Alert.alert(
-          "Could not change project",
+          "Could not change workspace",
           error instanceof Error
             ? error.message
             : "The shared content reservation could not be updated.",
@@ -199,7 +199,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
               catalogState.hasReadyEnvironment
                 ? [
                     {
-                      accessibilityLabel: "Add project",
+                      accessibilityLabel: "Add workspace",
                       icon: "plus",
                       onPress: openAddProject,
                     },
@@ -266,7 +266,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
               </Text>
               {Platform.OS === "android" ? (
                 <MaterialButton
-                  label={catalogState.hasReadyEnvironment ? "Add new project" : "Add environment"}
+                  label={catalogState.hasReadyEnvironment ? "Add new workspace" : "Add environment"}
                   tone="primary"
                   onPress={() =>
                     catalogState.hasReadyEnvironment
@@ -289,7 +289,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                   onPress={openAddProject}
                 >
                   <Text className="text-sm font-t3-bold text-primary-foreground">
-                    Add new project
+                    Add new workspace
                   </Text>
                 </Pressable>
               )}

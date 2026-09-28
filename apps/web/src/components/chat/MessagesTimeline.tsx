@@ -4639,7 +4639,7 @@ const AgentSpawnRow = memo(function AgentSpawnRow(props: {
             onClick={onOpenAgents}
             className="mt-1 self-start rounded-sm px-1 text-xs text-muted-foreground hover:text-foreground"
           >
-            Open Agents panel ›
+            Open Subagents panel ›
           </button>
         </div>
       ) : null}

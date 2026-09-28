@@ -206,7 +206,7 @@ function ThreadPicker({
     .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   return (
     <Command mode="none" value={query} onValueChange={setQuery} aria-label="Choose a thread">
-      <CommandInput placeholder="Search threads or projects..." disabled={pending} />
+      <CommandInput placeholder="Search threads or workspaces..." disabled={pending} />
       <CommandList className="max-h-80 overflow-y-auto">
         {candidates.length === 0 ? (
           <div className="px-3 py-6 text-center text-sm text-muted-foreground">

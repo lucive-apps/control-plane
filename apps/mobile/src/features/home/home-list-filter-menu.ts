@@ -76,12 +76,12 @@ export function buildHomeListFilterMenu(props: {
   if (props.projects.length > 0) {
     items.push({
       type: "submenu",
-      title: "Project",
+      title: "Workspace",
       items: [
         {
           type: "action",
-          title: "All projects",
-          subtitle: "Show threads from every project",
+          title: "All workspaces",
+          subtitle: "Show threads from every workspace",
           state: props.selectedProjectKey === null ? "on" : "off",
           onPress: () => props.onProjectChange(null),
         },
@@ -99,7 +99,7 @@ export function buildHomeListFilterMenu(props: {
     items.push(
       {
         type: "submenu",
-        title: "Sort projects",
+        title: "Sort workspaces",
         items: PROJECT_SORT_OPTIONS.map((option) => ({
           type: "action",
           title: option.label,

@@ -95,7 +95,7 @@ export function resolveLinkPullRequestInput(input: {
   const url = parseChangeRequestUrl(parsed);
   if (url !== null) {
     if (!input.hasProject({ ...url, url: parsed })) {
-      return { error: `No project in this environment can read ${url.host}/${url.repository}.` };
+      return { error: `No workspace in this environment can read ${url.host}/${url.repository}.` };
     }
     return {
       link: { host: url.host, repository: url.repository, number: url.number, url: parsed },
@@ -109,7 +109,7 @@ export function resolveLinkPullRequestInput(input: {
   const webUrl = input.project.webUrl(number);
   const webReference = webUrl === null ? null : parseChangeRequestUrl(webUrl);
   if (webUrl === null || webReference === null) {
-    return { error: "Paste a full URL; this project's host has no known pull request URL." };
+    return { error: "Paste a full URL; this workspace's host has no known pull request URL." };
   }
   return {
     link: { ...webReference, url: webUrl },
@@ -205,7 +205,7 @@ function LinkPullRequestDialog({
           <DialogTitle>Link pull request</DialogTitle>
           <DialogDescription>
             Attach a pull request to this thread. A full URL can point at any repository on a host
-            this environment has a project for.
+            this environment has a workspace for.
           </DialogDescription>
         </DialogHeader>
         <DialogPanel className="space-y-3">

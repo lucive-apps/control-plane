@@ -65,7 +65,7 @@ export function DesktopAppActivationCoordinator() {
           const error = squashAtomCommandFailure(result);
           throw error instanceof Error
             ? error
-            : new Error("Control Plane could not add the project.");
+            : new Error("Control Plane could not add the workspace.");
         }
         return projectId;
       },

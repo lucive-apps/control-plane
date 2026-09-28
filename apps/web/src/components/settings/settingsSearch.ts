@@ -81,7 +81,7 @@ export interface SettingsSearchAvailability {
  * subtitles both render from this record, so each label exists once.
  */
 export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
-  "/settings/projects": "Project",
+  "/settings/projects": "Workspace",
   "/settings/general": "General",
   "/settings/appearance": "Appearance",
   "/settings/keybindings": "Keybindings",
@@ -133,7 +133,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/storage",
     scope: "project-defaults",
     searchTerms: [
-      "disk storage delete deleted archived threads old inactive merged unchanged worktrees retention days project inherit off custom",
+      "disk storage delete deleted archived threads old inactive merged unchanged worktrees retention days workspace project inherit off custom",
     ],
   },
   {
@@ -145,23 +145,23 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "project-defaults",
-    title: "Project defaults and overrides",
+    title: "Workspace defaults and overrides",
     to: "/settings/general",
     scope: "project-defaults",
-    searchTerms: ["model workspace environments projects inheritance checkout"],
+    searchTerms: ["model workspace environments workspaces projects inheritance checkout"],
   },
   {
     id: "project-overview",
-    title: "Project overview",
+    title: "Workspace overview",
     to: "/settings/projects",
-    searchTerms: ["name icon emoji image checkout remove delete"],
+    searchTerms: ["project name icon emoji image checkout remove delete"],
   },
   {
     id: "default-model",
     title: "Default model",
     to: "/settings/general",
     scope: "project-defaults",
-    searchTerms: ["new thread project provider reasoning effort"],
+    searchTerms: ["new thread workspace project provider reasoning effort"],
   },
   {
     id: "default-permissions",
@@ -232,7 +232,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "sidebar-font-size",
     title: "Sidebar font size",
     to: "/settings/appearance",
-    searchTerms: ["typography projects threads text size"],
+    searchTerms: ["typography workspaces projects threads text size"],
   },
   {
     id: "prompt-font",
@@ -267,9 +267,9 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "project-grouping",
-    title: "Project grouping",
+    title: "Workspace grouping",
     to: "/settings/general",
-    searchTerms: ["combine matching repositories environments sidebar"],
+    searchTerms: ["project combine matching repositories environments sidebar"],
   },
   {
     id: "auto-settle-inactive-threads",
@@ -405,7 +405,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "New threads",
     to: "/settings/general",
     scope: "project-defaults",
-    searchTerms: ["default workspace mode draft local worktree"],
+    searchTerms: ["default checkout mode draft local worktree"],
   },
   {
     id: "start-from-origin",
@@ -416,10 +416,10 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "add-project-starts-in",
-    title: "Add project starts in",
+    title: "Add workspace starts in",
     to: "/settings/general",
     scope: "environment-defaults",
-    searchTerms: ["base directory folder browser path home"],
+    searchTerms: ["project base directory folder browser path home"],
   },
   {
     id: "unpin-confirmation",
@@ -480,7 +480,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "legacy-sidebar",
     title: "Sidebar (legacy)",
     to: "/settings/general",
-    searchTerms: ["project thread tree old flat list"],
+    searchTerms: ["workspace project thread tree old flat list"],
   },
   {
     id: "keybindings",
@@ -557,7 +557,9 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Agent browser access",
     to: "/settings/integrations",
     scope: "project-defaults",
-    searchTerms: ["allow disable enable open drive preview tools sessions project override"],
+    searchTerms: [
+      "allow disable enable open drive preview tools sessions workspace project override",
+    ],
   },
   {
     id: "device-hosts",
@@ -696,7 +698,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "project-actions",
     title: "Actions",
     to: "/settings/projects",
-    searchTerms: ["commands scripts setup run dev server checkout worktree t3.json import"],
+    searchTerms: ["project commands scripts setup run dev server checkout worktree t3.json import"],
   },
   {
     id: "environment-icon",
@@ -736,7 +738,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "WSL backend",
     to: "/settings/connections",
     searchTerms: [
-      "windows subsystem linux distro second server projects stop windows backend restart",
+      "windows subsystem linux distro second server workspaces projects stop windows backend restart",
     ],
     desktopOnly: true,
     windowsOnly: true,
@@ -781,7 +783,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Load balancing",
     to: "/settings/connections",
     searchTerms: [
-      "automatic machine environment resources cpu memory capacity preference weight shared projects",
+      "automatic machine environment resources cpu memory capacity preference weight shared workspaces projects",
     ],
   },
   {
@@ -794,7 +796,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "archive",
     title: "Archived threads",
     to: "/settings/archived",
-    searchTerms: ["restore reopen deleted history projects"],
+    searchTerms: ["restore reopen deleted history workspaces projects"],
   },
 ] as const satisfies ReadonlyArray<SettingsSearchItem>;
 

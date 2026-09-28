@@ -16,7 +16,7 @@ starting the thread in the background.
 
 Use `mod+shift+m` to choose a model and `mod+shift+h` to choose a host.
 Use `mod+shift+e` for effort, `mod+shift+a` for access mode, `mod+shift+x` for the
-workspace, and `mod+shift+g` for the Git branch. The workspace menu includes the
+checkout, and `mod+shift+g` for the Git branch. The checkout menu includes the
 current checkout, a new worktree, and the previous worktree when available.
 Use `mod+shift+l` to reuse the previous worktree directly.
 
@@ -47,7 +47,7 @@ or “Copy Number”. They copy the selected PR and leave terminal input alone.
 
 With a hardware keyboard, use `Cmd+1` through `Cmd+9` to open the first nine
 displayed threads. The shortcuts follow the current list filters and order.
-`Cmd+K` opens the command palette to search commands, projects, and threads.
+`Cmd+K` opens the command palette to search commands, workspaces, and threads.
 Use the arrow keys and Return to choose a result, or `Cmd+1` through `Cmd+9` to
 choose directly. Escape or `Cmd+K` closes the palette. Start a search with `>`
 to show only actions.
@@ -79,7 +79,7 @@ Invalid rules are ignored; if the file cannot be parsed, T3 Code uses defaults.
 Each rule requires a `key` shortcut and a `command` ID. An optional `when`
 expression restricts when it runs.
 
-Project scripts use `script.{id}.run`, such as `script.test.run`.
+Workspace scripts use `script.{id}.run`, such as `script.test.run`.
 
 ## Key syntax
 
@@ -116,8 +116,8 @@ a shortcut.
 `thread.stop` interrupts the running turn in the focused thread. It has no default
 shortcut; assign one in **Settings → Keybindings**.
 
-`chat.new` and `chat.newLocal` start a new thread in the current project.
-Use **New thread in...** in the command palette to choose a different project
+`chat.new` and `chat.newLocal` start a new thread in the current workspace.
+Use **New thread in...** in the command palette to choose a different workspace
 first. Both use your [new-thread defaults](./thread-sidebar.md#start-a-thread).
 
 ## Reserved shortcuts
