@@ -1286,7 +1286,7 @@ export function makeOpenCodeAdapter(
         return;
       }
       const detail =
-        "OpenCode accepted the prompt, but T3 Code could not confirm its message or session status.";
+        "OpenCode accepted the prompt, but Control Plane could not confirm its message or session status.";
       const abortExit = yield* Effect.exit(
         runOpenCodeSdk("session.abort", (signal) =>
           context.client.session.abort({ sessionID: context.openCodeSessionId }, { signal }),
@@ -2869,7 +2869,7 @@ export function makeOpenCodeAdapter(
               if (mcpSession && !server.external) {
                 yield* runOpenCodeSdk("mcp.add", () =>
                   client.mcp.add({
-                    name: "t3-code",
+                    name: McpProviderSession.MCP_SERVER_NAME,
                     config: {
                       type: "remote",
                       url: mcpSession.endpoint,

@@ -61,7 +61,7 @@ const make = Effect.gen(function* () {
   });
 
   return ThreadsToolkit.of({
-    t3_thread_send: (input) =>
+    cp_thread_send: (input) =>
       Effect.gen(function* () {
         const invocation = yield* McpInvocationContext.McpInvocationContext;
         const sender = yield* snapshots

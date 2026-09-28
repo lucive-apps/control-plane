@@ -1015,7 +1015,7 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
                   mcpServers: [
                     {
                       type: "http" as const,
-                      name: "t3-code",
+                      name: McpProviderSession.MCP_SERVER_NAME,
                       url: mcpSession.endpoint,
                       headers: [
                         {
@@ -1525,7 +1525,8 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
           return yield* new ProviderAdapterRequestError({
             provider: PROVIDER,
             method: "session/prompt",
-            detail: "Change permissions with T3's permission selector instead of /always-approve.",
+            detail:
+              "Change permissions with Control Plane's permission selector instead of /always-approve.",
           });
         }
         const prepared = yield* withThreadLock(

@@ -91,7 +91,7 @@ export const ThreadSendResult = Schema.Struct({
 });
 export type ThreadSendResult = typeof ThreadSendResult.Type;
 
-const SendThreadMessageTool = Tool.make("t3_thread_send", {
+const SendThreadMessageTool = Tool.make("cp_thread_send", {
   description:
     "Send a message to another Control Plane thread. The receiving thread sees this as a tool call named after this thread, not as a user prompt. Pass threadId or the exact thread title.",
   parameters: ThreadSendInput,

@@ -777,11 +777,13 @@ describe("work entry labels", () => {
   );
 
   it.each([
-    ["preview_click", "Clicked in the preview browser"],
-    ["task_status", "Got delegated task status"],
+    ["t3-code", "preview_click", "Clicked in the preview browser"],
+    ["t3-code", "task_status", "Got delegated task status"],
+    ["control-plane", "preview_click", "Clicked in the preview browser"],
+    ["control-plane", "cp_thread_send", "messaged agent"],
   ] as const)(
-    "renders a settled legacy %s call directly with its completed presentation",
-    (tool, label) => {
+    "renders a settled %s %s MCP call directly with its completed presentation",
+    (server, tool, label) => {
       const rows = deriveMessagesTimelineRows({
         timelineEntries: [
           {
@@ -791,7 +793,7 @@ describe("work entry labels", () => {
             entry: {
               ...entry,
               itemType: "mcp_tool_call",
-              toolData: { server: "t3-code", tool },
+              toolData: { server, tool },
             },
           },
         ],

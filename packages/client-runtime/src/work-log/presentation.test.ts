@@ -213,12 +213,38 @@ describe("resolveWorkEntryToolPresentation", () => {
     "T3-code.preview_click",
     "t3-code · preview_click completed",
     "t3_code/preview_click",
+    "mcp__control-plane__preview_click",
+    "mcp__control_plane__preview_click",
+    "mcp__controlplane__preview_click",
+    "Control-Plane.preview_click",
+    "control-plane · preview_click completed",
+    "control_plane/preview_click",
+    "control-plane_preview_click",
+    "t3-code_preview_click",
     "preview_click",
   ])("recognizes browser tool names across providers: %s", (label) => {
     expect(resolveWorkEntryToolPresentation({ label })).toEqual({
       displayName: "Clicking in the preview browser",
       icon: "browser",
     });
+  });
+
+  it.each([
+    [
+      "control-plane_preview_click",
+      { displayName: "Clicked in the preview browser", icon: "browser" },
+    ],
+    ["t3-code_preview_click", { displayName: "Clicked in the preview browser", icon: "browser" }],
+    ["control-plane_cp_thread_send", { displayName: "messaged agent", icon: "t3-code" }],
+  ])("recognizes OpenCode's %s tool title, which carries no server field", (tool, expected) => {
+    expect(
+      resolveWorkEntryToolPresentation({
+        label: "MCP tool call",
+        toolTitle: tool,
+        toolLifecycleStatus: "completed",
+        toolData: { tool, state: { status: "completed" } },
+      }),
+    ).toEqual(expected);
   });
 
   it("labels device tools with the device icon", () => {
@@ -295,8 +321,9 @@ describe("resolveWorkEntryToolPresentation", () => {
       "Stopping recording the preview browser",
       "Stopped recording the preview browser",
     ],
-    ["t3_thread_read", "Reading a T3 thread", "Read a T3 thread"],
+    ["t3_thread_read", "Reading a Control Plane thread", "Read a Control Plane thread"],
     ["t3_thread_send", "messaging agent", "messaged agent"],
+    ["cp_thread_send", "messaging agent", "messaged agent"],
     [
       "t3_worktree_handoff",
       "Handing off thread to a git worktree",
@@ -313,10 +340,14 @@ describe("resolveWorkEntryToolPresentation", () => {
     ).toBe(completed);
   });
 
-  it("labels t3_thread_send with the peer thread title, never a thread id", () => {
+  it.each([
+    "mcp__control-plane__cp_thread_send",
+    "control-plane.cp_thread_send",
+    "t3-code.t3_thread_send",
+  ])("labels %s with the peer thread title, never a thread id", (label) => {
     expect(
       resolveWorkEntryToolPresentation({
-        label: "t3-code.t3_thread_send",
+        label,
         toolLifecycleStatus: "completed",
         toolData: {
           rawInput: {
@@ -328,20 +359,36 @@ describe("resolveWorkEntryToolPresentation", () => {
     ).toBe("messaged Coordinator");
     expect(
       resolveWorkEntryToolPresentation({
-        label: "t3-code.t3_thread_send",
+        label,
         toolLifecycleStatus: "completed",
         toolData: { arguments: { threadId: "5f13b410-5497-44d6-af9c-6bfad3804593" } },
-      })?.displayName,
-    ).toBe("messaged agent");
+      }),
+    ).toEqual({ displayName: "messaged agent", icon: "t3-code" });
   });
 
-  it("keeps T3 branding for non-browser tools and falls back to the original tool label", () => {
+  it.each(["mcp__control_plane__task_status", "mcp__t3_code__task_status"])(
+    "brands %s with the product mark and falls back to the original tool label",
+    (label) => {
+      expect(
+        resolveWorkEntryToolPresentation({
+          label,
+          toolTitle: "Check the child task",
+        }),
+      ).toEqual({ displayName: "Getting delegated task status", icon: "t3-code" });
+    },
+  );
+
+  it.each([
+    ["control-plane", "cp_thread_send"],
+    ["t3-code", "t3_thread_send"],
+  ])("uses structured identity from the %s server for %s", (server, tool) => {
     expect(
       resolveWorkEntryToolPresentation({
-        label: "mcp__t3_code__task_status",
-        toolTitle: "Check the child task",
+        label: "MCP tool call",
+        toolLifecycleStatus: "completed",
+        toolData: { server, tool, arguments: { threadTitle: "Reviewer" } },
       }),
-    ).toEqual({ displayName: "Getting delegated task status", icon: "t3-code" });
+    ).toEqual({ displayName: "messaged Reviewer", icon: "t3-code" });
   });
 
   it("does not brand unknown tools or another server's matching tool name", () => {
@@ -349,6 +396,7 @@ describe("resolveWorkEntryToolPresentation", () => {
       "mcp__github__preview_click",
       "t3-code.unknown_tool",
       "t3-code.toString",
+      "control-plane.unknown_tool",
       "Search files",
     ]) {
       expect(resolveWorkEntryToolPresentation({ label })).toBeNull();
@@ -613,6 +661,8 @@ describe("pull request tool presentation", () => {
     "mcp__t3_code__link_pull_request",
     "T3-code · link_pull_request",
     "t3code/link_pull_request",
+    "mcp__control-plane__link_pull_request",
+    "control-plane · link_pull_request",
     "link_pull_request",
   ])("recognizes the native linking tool: %s", (label) => {
     const entry = { label, tone: "tool" as const, toolLifecycleStatus: "completed" };

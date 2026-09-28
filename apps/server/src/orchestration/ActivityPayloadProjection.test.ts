@@ -263,6 +263,22 @@ describe("projectActivityPayload", () => {
     },
     { tool: "t3-code_preview_status", state: { output: '{"url":"https://example.com/"}' } },
     {
+      item: {
+        server: "control-plane",
+        tool: "preview_open",
+        result: { structuredContent: { url: "https://example.com/" } },
+      },
+    },
+    {
+      toolName: "mcp__control-plane__preview_navigate",
+      result: { content: '{"url":"https://example.com/"}' },
+    },
+    { tool: "control-plane_preview_status", state: { output: '{"url":"https://example.com/"}' } },
+    {
+      toolName: "mcp__control_plane__preview_click",
+      result: { content: '{"toolIcon":{"_tag":"website","pageUrl":"https://example.com/"}}' },
+    },
+    {
       toolName: "mcp__t3_code__preview_snapshot",
       result: {
         content: [

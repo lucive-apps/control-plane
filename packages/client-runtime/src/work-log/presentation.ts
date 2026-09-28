@@ -89,13 +89,14 @@ const T3_MCP_TOOL_LABELS: Record<
   list_scheduled_tasks: ["List", "Listing", "Listed", "scheduled tasks"],
   update_scheduled_task: ["Update", "Updating", "Updated", "a scheduled task"],
   delete_scheduled_task: ["Delete", "Deleting", "Deleted", "a scheduled task"],
-  create_threads: ["Create", "Creating", "Created", "T3 threads"],
-  t3_thread_start: ["Start", "Starting", "Started", "a T3 thread"],
-  t3_thread_list: ["List", "Listing", "Listed", "T3 threads"],
-  t3_thread_read: ["Read", "Reading", "Read", "a T3 thread"],
+  create_threads: ["Create", "Creating", "Created", "Control Plane threads"],
+  t3_thread_start: ["Start", "Starting", "Started", "a Control Plane thread"],
+  t3_thread_list: ["List", "Listing", "Listed", "Control Plane threads"],
+  t3_thread_read: ["Read", "Reading", "Read", "a Control Plane thread"],
+  cp_thread_send: ["Message", "Messaging", "Messaged", "agent"],
   t3_thread_send: ["Message", "Messaging", "Messaged", "agent"],
-  t3_thread_wait: ["Wait", "Waiting", "Waited", "for a T3 thread"],
-  t3_thread_interrupt: ["Interrupt", "Interrupting", "Interrupted", "a T3 thread"],
+  t3_thread_wait: ["Wait", "Waiting", "Waited", "for a Control Plane thread"],
+  t3_thread_interrupt: ["Interrupt", "Interrupting", "Interrupted", "a Control Plane thread"],
   t3_worktree_handoff: ["Hand off", "Handing off", "Handed off", "thread to a git worktree"],
   t3_worktree_status: ["Get", "Getting", "Got", "thread worktree status"],
   preview_status: ["Get", "Getting", "Got", "preview browser status"],
@@ -140,8 +141,11 @@ function resolveT3McpToolPresentation(
   data?: unknown,
 ) {
   if (!value) return null;
+  // `t3-code` and `t3_thread_send` predate the rename to `control-plane` and
+  // `cp_thread_send`; they stay matched so stored transcripts keep their labels.
+  // A bare `_` separator is OpenCode's `<server>_<tool>` form.
   const name = normalizeCompactToolLabel(value).replace(
-    /^(?:mcp__(?:t3-code|t3_code|t3code)__|(?:t3-code|t3_code|t3code)(?:[.:/]|\s*·\s*))/i,
+    /^(?:mcp__(?:control-plane|control_plane|controlplane|t3-code|t3_code|t3code)__|(?:control-plane|control_plane|controlplane|t3-code|t3_code|t3code)(?:[.:/_]|\s*·\s*))/i,
     "",
   );
   if (!Object.hasOwn(T3_MCP_TOOL_LABELS, name)) return null;
@@ -164,7 +168,7 @@ function resolveT3McpToolPresentation(
   const payload = asRecord(data);
   const input =
     asRecord(payload?.arguments) ?? asRecord(payload?.input) ?? asRecord(payload?.rawInput);
-  if (name === "t3_thread_send") {
+  if (name === "cp_thread_send" || name === "t3_thread_send") {
     const threadTitle = agentThreadNameFromUnknown(data);
     const source = { kind: "agent" as const, ...(threadTitle ? { threadTitle } : {}) };
     const peer = agentMessageDisplayName(source);
