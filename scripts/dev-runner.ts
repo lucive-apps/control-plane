@@ -1,7 +1,5 @@
 #!/usr/bin/env node
 
-import * as NodeOS from "node:os";
-
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NetService from "@t3tools/shared/Net";
