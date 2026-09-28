@@ -117,7 +117,13 @@ describe("shareDevServer", () => {
       );
 
       const serveCall = calls.find((args) => args.includes("--bg"));
-      assert.deepEqual(serveCall, ["serve", "--bg", "--https=5788", "http://localhost:5788"]);
+      assert.deepEqual(serveCall, [
+        "serve",
+        "--bg",
+        "--yes",
+        "--https=5788",
+        "http://localhost:5788",
+      ]);
     }),
   );
 

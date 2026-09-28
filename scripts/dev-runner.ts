@@ -9,16 +9,19 @@ import { HostProcessEnvironment, HostProcessWorkingDirectory } from "@t3tools/sh
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Hash from "effect/Hash";
 import * as Layer from "effect/Layer";
 import * as Logger from "effect/Logger";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
+import type * as Scope from "effect/Scope";
 import { Argument, Command, Flag } from "effect/unstable/cli";
-import { ChildProcess } from "effect/unstable/process";
+import { ChildProcess, type ChildProcessSpawner } from "effect/unstable/process";
 
 import { type DevShareError, shareDevServer, unshareDevServer } from "./lib/dev-share.ts";
+import { shareAutomaticDevServer } from "./lib/dev-tailnet.ts";
 import { loadRepoEnv } from "./lib/public-config.ts";
 
 Object.assign(process.env, loadRepoEnv());
@@ -639,6 +642,21 @@ interface DevRunnerCliInput {
   readonly runArgs: ReadonlyArray<string>;
 }
 
+export function shouldShareDevServer(input: {
+  readonly mode: DevMode;
+  readonly explicitShare: boolean;
+  readonly helperInstalled: boolean;
+  readonly env: Readonly<Record<string, string | undefined>>;
+}): boolean {
+  if (input.explicitShare) return true;
+  return (
+    (input.mode === "dev" || input.mode === "dev:web") &&
+    input.helperInstalled &&
+    input.env.DEV_TAILNET !== "0" &&
+    !input.env.CI
+  );
+}
+
 export function runDevRunnerWithInput(input: DevRunnerCliInput) {
   return Effect.gen(function* () {
     const { portOffset, devInstance } = yield* OffsetConfig.pipe(
@@ -729,7 +747,19 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
     }
 
     const sharedWebPort = BASE_WEB_PORT + webOffset;
-    if (input.share) {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const helperInstalled = yield* fs
+      .exists(path.join(NodeOS.homedir(), ".local", "lib", "dev-tailnet", "dev-tailnet.mjs"))
+      .pipe(Effect.catch(() => Effect.succeed(false)));
+    if (
+      shouldShareDevServer({
+        mode: input.mode,
+        explicitShare: input.share,
+        helperInstalled,
+        env: hostEnvironment,
+      })
+    ) {
       if (input.mode === "dev:server") {
         yield* Effect.logInfo("[dev-runner] --share has no effect for dev:server (no web server).");
       } else if (input.mode === "dev:desktop") {
@@ -743,7 +773,9 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
           "[dev-runner] --share is not supported for dev:desktop (the renderer is pinned to loopback). Use `dev`, which runs the whole browser stack.",
         );
       } else {
-        // acquireRelease, not share-then-addFinalizer: the mapping outlives this
+        // Explicit --share retains its legacy background mapping; automatic
+        // sharing uses a lifetime-owned foreground session in the installed helper.
+        // acquireRelease, not share-then-addFinalizer: the legacy mapping outlives this
         // process (and reboots), so the cleanup has to be registered atomically
         // with creating it. An interrupt landing in between would otherwise
         // leave a mapping pointing at a port nothing is listening on.
@@ -756,23 +788,31 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
         //
         // A tailnet that isn't up shouldn't stop the dev server from starting —
         // warn, and carry on serving locally.
-        const shared = yield* Effect.acquireRelease(
-          shareDevServer({ webPort: sharedWebPort }),
-          () =>
-            // Serve config outlives this process, so a cleanup that did not
-            // take leaves a tailnet URL pointing at a port nothing serves.
-            unshareDevServer(sharedWebPort).pipe(
-              Effect.flatMap((result) =>
-                result.cleared
-                  ? Effect.void
-                  : Effect.logWarning(
-                      `[dev-runner] could not remove the tailnet mapping for port ${String(sharedWebPort)}${
-                        result.explanation ? `: ${result.explanation}` : ""
-                      }. Remove it with \`tailscale serve --https=${String(sharedWebPort)} off\`.`,
-                    ),
+        const sharing: Effect.Effect<
+          { readonly url: string } | null,
+          DevShareError,
+          ChildProcessSpawner.ChildProcessSpawner | Scope.Scope
+        > = input.share
+          ? Effect.acquireRelease(shareDevServer({ webPort: sharedWebPort }), () =>
+              // Serve config outlives this process, so a cleanup that did not
+              // take leaves a tailnet URL pointing at a port nothing serves.
+              unshareDevServer(sharedWebPort).pipe(
+                Effect.flatMap((result) =>
+                  result.cleared
+                    ? Effect.void
+                    : Effect.logWarning(
+                        `[dev-runner] could not remove the tailnet mapping for port ${String(sharedWebPort)}${
+                          result.explanation ? `: ${result.explanation}` : ""
+                        }. Remove it with \`tailscale serve --https=${String(sharedWebPort)} off\`.`,
+                      ),
+                ),
               ),
-            ),
-        ).pipe(
+            )
+          : shareAutomaticDevServer(
+              sharedWebPort,
+              path.join(NodeOS.homedir(), ".local", "lib", "dev-tailnet", "dev-tailnet.mjs"),
+            );
+        const shared = yield* sharing.pipe(
           Effect.tapError((error: DevShareError) =>
             Effect.logWarning(
               `[dev-runner] could not share on the tailnet: ${error.message}${
@@ -785,6 +825,8 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
         );
 
         if (shared) {
+          // The personal helper proxies IPv4 loopback; Vite otherwise may bind only ::1.
+          if (!input.share) env.HOST = "127.0.0.1";
           // The app is reached from the tailnet origin. Vite already allows
           // *.ts.net hosts; the backend needs the origin for credentialed
           // requests that bypass the proxy (desktop renderer, direct calls).
