@@ -345,19 +345,24 @@ export async function pickComposerFiles(input: {
  * Longest edge kept when a photo has to be re-encoded. Matches the web composer's
  * MAX_DIMENSION so every client hands providers the same resolution.
  */
-const PHOTO_MAX_EDGE = 2048;
+// Claude limits every image to 2000 px once conversation history contains many images.
+const PHOTO_MAX_EDGE = 2000;
 const PHOTO_JPEG_QUALITY = 0.85;
 
 /**
- * Renders a photo-library pick to a provider-readable JPEG. Decode, downscale, and encode run
- * natively; only the bounded result crosses the bridge. Camera photos are 12-48 MP HEIC files,
- * so a full-size conversion is both slow to transfer and far more than a model can use.
+ * Decode and resize natively so full-resolution photos never cross the JS bridge.
+ * Returns null when the caller can retain original bytes and decoded dimensions fit.
+ * Checking the bitmap catches screenshots small in bytes but too tall for Claude.
  */
-async function renderPhotoAsJpeg(uri: string): Promise<{ base64: string; uri: string }> {
+export async function renderImageForProvider(
+  uri: string,
+  preserveOriginal = false,
+): Promise<{ base64: string; uri: string } | null> {
   const { ImageManipulator, SaveFormat } = await import("expo-image-manipulator");
   let image = await ImageManipulator.manipulate(uri).renderAsync();
   try {
     const longestEdge = Math.max(image.width, image.height);
+    if (preserveOriginal && longestEdge <= PHOTO_MAX_EDGE) return null;
     if (longestEdge > PHOTO_MAX_EDGE) {
       const resized = await ImageManipulator.manipulate(image)
         .resize(
@@ -537,7 +542,8 @@ export async function pickComposerMedia(input: {
           previewUri: asset.uri,
         };
       } else {
-        const rendered = await renderPhotoAsJpeg(asset.uri);
+        const rendered = await renderImageForProvider(asset.uri);
+        if (rendered === null) throw new Error("The image could not be rendered.");
         image = {
           base64: rendered.base64,
           mimeType: "image/jpeg",

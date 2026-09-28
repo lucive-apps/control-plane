@@ -4,6 +4,11 @@ export type ReadyAttachmentUpload = {
   readonly status: "ready";
   readonly environmentId: EnvironmentId;
   readonly attachmentId: string;
+  readonly metadata?: {
+    readonly name: string;
+    readonly mimeType: string;
+    readonly sizeBytes: number;
+  };
 };
 
 export type AttachmentUploadState =

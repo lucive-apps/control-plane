@@ -1,5 +1,6 @@
 import {
   PROVIDER_SEND_TURN_SUPPORTED_IMAGE_MIME_TYPES,
+  PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
   type ChatAttachment,
   type EnvironmentId,
 } from "@t3tools/contracts";
@@ -25,6 +26,8 @@ import { assetEnvironment } from "../state/assets";
 import { attachmentEnvironment } from "../state/attachments";
 import { readPreparedConnection } from "../state/session";
 import type { AttachmentUploadState, ReadyAttachmentUpload } from "./attachmentUploadState";
+
+import { prepareImageForAttachment } from "./imageCompression";
 
 const MAX_UPLOADS_PER_ENVIRONMENT = 3;
 const UPLOAD_TIMEOUT_MS = 5 * 60_000;
@@ -228,11 +231,38 @@ async function runUpload(job: UploadJob): Promise<void> {
     }
   }
 
+  let file = job.image.file;
+  if (!file) {
+    setUploadState(job.image.id, {
+      status: "failed",
+      environmentId: job.environmentId,
+      reason: "Original file is no longer available",
+      ...(job.previous ? { previous: job.previous } : {}),
+    });
+    return;
+  }
+  // Restored drafts can predate image normalization at composer intake.
+  if (job.image.type === "image") {
+    const prepared = await prepareImageForAttachment(file, PROVIDER_SEND_TURN_MAX_IMAGE_BYTES);
+    if (job.cancelled) return;
+    if (!prepared.ok) {
+      setUploadState(job.image.id, {
+        status: "failed",
+        environmentId: job.environmentId,
+        reason:
+          prepared.reason === "unreadable" ? "Image could not be decoded" : "Image is too large",
+        ...(job.previous ? { previous: job.previous } : {}),
+      });
+      return;
+    }
+    file = prepared.file;
+  }
+  const uploadFile = file;
   const mimeType =
     job.image.type === "file"
       ? job.image.mimeType.toLowerCase()
       : PROVIDER_SEND_TURN_SUPPORTED_IMAGE_MIME_TYPES.find(
-          (supportedMimeType) => supportedMimeType === job.image.mimeType.toLowerCase(),
+          (supportedMimeType) => supportedMimeType === uploadFile.type.toLowerCase(),
         );
   if (!mimeType) {
     setUploadState(job.image.id, {
@@ -243,16 +273,7 @@ async function runUpload(job: UploadJob): Promise<void> {
     });
     return;
   }
-  const file = job.image.file;
-  if (!file) {
-    setUploadState(job.image.id, {
-      status: "failed",
-      environmentId: job.environmentId,
-      reason: "Original file is no longer available",
-      ...(job.previous ? { previous: job.previous } : {}),
-    });
-    return;
-  }
+  const metadata = { name: file.name, mimeType, sizeBytes: file.size };
 
   let lastStep = -1;
   const result = await runAttachmentUploadCycle({
@@ -262,9 +283,7 @@ async function runUpload(job: UploadJob): Promise<void> {
     environmentId: job.environmentId,
     upload: {
       ...(job.image.type === "file" ? { type: "file" as const } : {}),
-      name: job.image.name,
-      mimeType,
-      sizeBytes: file.size,
+      ...metadata,
     },
     resolveUploadUrl: (relativeUrl) => {
       const connection = readPreparedConnection(job.environmentId);
@@ -273,7 +292,7 @@ async function runUpload(job: UploadJob): Promise<void> {
     transport: (url) =>
       uploadBytes({
         url,
-        file,
+        file: uploadFile,
         mimeType,
         onProgress: (progress) => {
           const step = Math.floor(progress * 20);
@@ -309,6 +328,7 @@ async function runUpload(job: UploadJob): Promise<void> {
       status: "ready",
       environmentId: job.environmentId,
       attachmentId: result.attachmentId,
+      ...(job.image.type === "image" ? { metadata } : {}),
     });
     stampDraftFileUpload(job, result.attachmentId);
     if (job.previous) {
@@ -563,6 +583,7 @@ export function getUploadedAttachments(input: {
       name: image.name,
       mimeType: image.mimeType,
       sizeBytes: image.sizeBytes,
+      ...upload.metadata,
       ...(image.source ? { source: image.source } : {}),
     });
   }

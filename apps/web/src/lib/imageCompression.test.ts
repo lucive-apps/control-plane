@@ -290,7 +290,7 @@ describe("compressImageForStash", () => {
   });
 
   it("compressImageToByteLimit passes small files through byte-for-byte", async () => {
-    const bitmapSpy = vi.fn();
+    const bitmapSpy = vi.fn(async () => ({ width: 2000, height: 1000, close: vi.fn() }));
     vi.stubGlobal("createImageBitmap", bitmapSpy);
 
     const original = makeFile(1024);
@@ -300,8 +300,29 @@ describe("compressImageForStash", () => {
     expect(result.ok && result.recompressed).toBe(false);
     // Pass-through must be the same File object, not a copy.
     expect(result.ok && result.file).toBe(original);
-    expect(bitmapSpy).not.toHaveBeenCalled();
+    await compressImageToByteLimit(original, 10 * 1024 * 1024);
+    expect(bitmapSpy).toHaveBeenCalledExactlyOnceWith(original);
   });
+
+  it.each([
+    { width: 1206, height: 2622, expected: { width: 920, height: 2000 } },
+    { width: 2622, height: 1206, expected: { width: 2000, height: 920 } },
+  ])(
+    "bounds a byte-small $width x $height screenshot before provider delivery",
+    async ({ width, height, expected }) => {
+      stubCanvasPipeline(() => 100);
+      const close = vi.fn();
+      const decode = vi.fn(async () => ({ width, height, close }));
+      vi.stubGlobal("createImageBitmap", decode);
+      const result = await compressImageToByteLimit(makeFile(1024), 10 * 1024 * 1024);
+      expect(result.ok && result.recompressed).toBe(true);
+      expect(result.ok && result.imageSize).toEqual(expected);
+      expect(decode).toHaveBeenCalledOnce();
+      expect(close).toHaveBeenCalledOnce();
+      if (result.ok) await compressImageToByteLimit(result.file, 10 * 1024 * 1024);
+      expect(decode).toHaveBeenCalledOnce();
+    },
+  );
 
   it("compressImageToByteLimit re-encodes an oversized file under the byte cap", async () => {
     stubCanvasPipeline(() => 200_000);
@@ -391,6 +412,10 @@ describe("HEIC attachment preparation", () => {
   });
 
   it("converts a HEIC photo with a missing MIME type into a named JPEG", async () => {
+    vi.stubGlobal(
+      "createImageBitmap",
+      vi.fn(async () => ({ width: 2000, height: 1000, close: vi.fn() })),
+    );
     const original = makeHeicFile({
       name: "IMG_1234.HEIC",
       type: "",
@@ -456,6 +481,7 @@ describe("HEIC attachment preparation", () => {
     { label: "24 MP", width: 5712, height: 4284 },
     { label: "48 MP", width: 8064, height: 6048 },
   ])("accepts $label HEIC photos", async ({ width, height }) => {
+    stubCanvasPipeline(() => 100);
     const original = makeHeicFile({ width, height });
     mocks.heicTo.mockResolvedValueOnce(new Blob(["jpeg"], { type: "image/jpeg" }));
 
@@ -512,6 +538,10 @@ describe("HEIC attachment preparation", () => {
   });
 
   it("leaves supported images untouched without loading the HEIC decoder", async () => {
+    vi.stubGlobal(
+      "createImageBitmap",
+      vi.fn(async () => ({ width: 2000, height: 1000, close: vi.fn() })),
+    );
     const original = makeFile(1024);
 
     const result = await prepareImageForAttachment(original, 2048);
@@ -573,7 +603,7 @@ describe("snapshot coordinates after compression", () => {
               sizeBytes: compressed.file.size,
               dataUrl: `data:${compressed.file.type};base64,${Buffer.from(await compressed.file.arrayBuffer()).toString("base64")}`,
             };
-      expect(image.imageSize).toEqual({ width: 2048, height: 1280 });
+      expect(image.imageSize).toEqual({ width: 2000, height: 1250 });
       const resized = resizeSnapShotSource(source, image.imageSize);
       const [restored] = hydrateImagesFromPersisted([
         {
@@ -586,10 +616,10 @@ describe("snapshot coordinates after compression", () => {
         },
       ]);
       expect(restored?.source?.accessibility).toMatchObject({
-        imageSize: { width: 2048, height: 1280 },
+        imageSize: { width: 2000, height: 1250 },
         root: {
-          bounds: { x: 0, y: 0, width: 2048, height: 1280 },
-          children: [{ bounds: { x: 1920, y: 1120, width: 80, height: 80 } }, { bounds: null }],
+          bounds: { x: 0, y: 0, width: 2000, height: 1250 },
+          children: [{ bounds: { x: 1875, y: 1094, width: 78, height: 78 } }, { bounds: null }],
         },
       });
       expect(source.accessibility).toMatchObject({ imageSize: { width: 2560, height: 1600 } });

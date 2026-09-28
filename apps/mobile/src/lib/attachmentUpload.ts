@@ -13,7 +13,10 @@ import type {
   EnvironmentId,
   UploadChatImageAttachment,
 } from "@t3tools/contracts";
-import { PROVIDER_SEND_TURN_SUPPORTED_IMAGE_MIME_TYPES } from "@t3tools/contracts";
+import {
+  PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
+  PROVIDER_SEND_TURN_SUPPORTED_IMAGE_MIME_TYPES,
+} from "@t3tools/contracts";
 import * as Option from "effect/Option";
 
 import { appAtomRegistry } from "../state/atom-registry";
@@ -25,11 +28,13 @@ import { resolveOwnedComposerAttachmentFileUri } from "./composerAttachmentFiles
 import {
   isComposerImageAttachment,
   isFileBackedComposerAttachment,
+  renderImageForProvider,
   type DraftComposerAttachment,
   type DraftComposerImageAttachment,
 } from "./composerImages";
 import { imageMimeType } from "@t3tools/shared/image";
 import { uuidv4 } from "./uuid";
+import { estimateBase64ByteSize } from "./base64";
 
 /**
  * This module owns the server side of a composer attachment's lifecycle.
@@ -301,6 +306,68 @@ async function uploadFileBytes(
   }
 }
 
+const normalizedImages = new WeakMap<DraftComposerAttachment, Promise<DraftComposerAttachment>>();
+
+/** All paths, including restored drafts and shares, converge here before upload reuse. */
+function normalizeImageForUpload(
+  attachment: DraftComposerAttachment,
+): Promise<DraftComposerAttachment> {
+  if (!isComposerImageAttachment(attachment)) return Promise.resolve(attachment);
+  const cached = normalizedImages.get(attachment);
+  if (cached) return cached;
+  const result = (async (): Promise<DraftComposerAttachment> => {
+    const release = isFileBackedComposerAttachment(attachment)
+      ? retainComposerAttachmentFileForPreview(attachment)
+      : () => {};
+    try {
+      const { File, Paths } = await import("expo-file-system");
+      const uri = attachment.fileUri
+        ? (resolveOwnedComposerAttachmentFileUri(attachment.fileUri, Paths.document.uri) ??
+          attachment.fileUri)
+        : attachment.dataUrl;
+      if (!uri) {
+        if (attachment.uploadedAttachmentId) return attachment;
+        throw new Error(`'${attachment.name}' is no longer available. Attach the image again.`);
+      }
+      if (attachment.fileUri && attachment.uploadedAttachmentId && !new File(uri).exists) {
+        return attachment;
+      }
+      const rendered = await renderImageForProvider(
+        uri,
+        attachment.sizeBytes <= PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
+      );
+      if (!rendered) return attachment;
+      // The normalized draft owns inline bytes; only this newly rendered cache file is disposable.
+      const temporary = new File(rendered.uri);
+      if (temporary.exists) temporary.delete();
+      const sizeBytes = estimateBase64ByteSize(rendered.base64);
+      if (sizeBytes <= 0 || sizeBytes > PROVIDER_SEND_TURN_MAX_IMAGE_BYTES) {
+        throw new Error(
+          `'${attachment.name}' could not be compressed to the image attachment limit.`,
+        );
+      }
+      const dataUrl = `data:image/jpeg;base64,${rendered.base64}`;
+      const normalized: DraftComposerImageAttachment = {
+        id: attachment.id,
+        type: "image",
+        name: `${attachment.name.replace(/\.[^.]+$/, "")}.jpg`,
+        mimeType: "image/jpeg",
+        sizeBytes,
+        dataUrl,
+        previewUri: dataUrl,
+      };
+      // Changed bytes cannot reuse an older pending upload.
+      normalizedImages.set(normalized, Promise.resolve(normalized));
+      return normalized;
+    } finally {
+      release();
+    }
+  })();
+  normalizedImages.set(attachment, result);
+  void result.catch(() => normalizedImages.delete(attachment));
+  return result;
+}
+
 /**
  * Acquires server-side uploads for one turn's attachments and persists the
  * uploaded ids into the attachments' durable owner.
@@ -324,7 +391,19 @@ export async function prepareTurnAttachments(input: {
 }): Promise<PrepareTurnAttachmentsResult> {
   const { environmentId } = input;
   if (input.signal?.aborted) return { status: "abandoned" };
-  const files = input.attachments.filter((attachment) => attachment.type === "file");
+  const attachments: DraftComposerAttachment[] = [];
+  try {
+    // Decode one full-resolution source at a time to bound native bitmap memory.
+    for (const attachment of input.attachments) {
+      if (input.signal?.aborted) return { status: "abandoned" };
+      attachments.push(await normalizeImageForUpload(attachment));
+    }
+  } catch (error) {
+    if (input.signal?.aborted) return { status: "abandoned" };
+    throw error;
+  }
+  if (input.signal?.aborted) return { status: "abandoned" };
+  const files = attachments.filter((attachment) => attachment.type === "file");
   const ready = (
     attachments: ReadonlyArray<UploadedMobileAttachment>,
     pendingAttachmentIds: ReadonlyArray<string>,
@@ -336,13 +415,13 @@ export async function prepareTurnAttachments(input: {
     pendingAttachmentIds,
   });
 
-  if (input.attachments.length === 0 || (files.length === 0 && !input.supportsImageUploads)) {
+  if (attachments.length === 0 || (files.length === 0 && !input.supportsImageUploads)) {
     try {
       const imageAttachments = await toUploadChatImageAttachments(
-        input.attachments.filter((attachment) => attachment.type === "image"),
+        attachments.filter((attachment) => attachment.type === "image"),
       );
       if (input.signal?.aborted) return { status: "abandoned" };
-      return ready(imageAttachments, [], input.attachments);
+      return ready(imageAttachments, [], attachments);
     } catch (error) {
       if (input.signal?.aborted) return { status: "abandoned" };
       throw error;
@@ -363,7 +442,7 @@ export async function prepareTurnAttachments(input: {
   const abort = () => controller.abort();
   input.signal?.addEventListener("abort", abort, { once: true });
   try {
-    for (const attachment of input.attachments) {
+    for (const attachment of attachments) {
       if (controller.signal.aborted) throw new Error("Upload cancelled.");
       if (attachment.type === "image" && !input.supportsImageUploads) {
         uploadedAttachments.push(...(await toUploadChatImageAttachments([attachment])));
@@ -439,7 +518,7 @@ export async function prepareTurnAttachments(input: {
 
     const draftAttachments = withUploadedMobileAttachmentReferences({
       environmentId,
-      attachments: input.attachments,
+      attachments,
       uploadedAttachments,
     });
     const referencesChanged = draftAttachments.some(

@@ -15,6 +15,10 @@ const mocks = vi.hoisted(() => ({
   writeFile: vi.fn(),
   deleteFile: vi.fn(),
   readBase64: vi.fn(),
+  imageWidth: 1000,
+  imageHeight: 2000,
+  resizeImage: vi.fn(),
+  missingFileUris: new Set<string>(),
 }));
 
 vi.mock("@t3tools/client-runtime/state/runtime", () => ({
@@ -59,10 +63,39 @@ vi.mock("./uuid", () => ({
   randomHex: () => "0000",
 }));
 
+vi.mock("expo-image-manipulator", () => ({
+  SaveFormat: { JPEG: "jpeg" },
+  ImageManipulator: {
+    manipulate: () => {
+      const context = {
+        resize: (size: unknown) => {
+          mocks.resizeImage(size);
+          return context;
+        },
+        renderAsync: async () => ({
+          width: mocks.imageWidth,
+          height: mocks.imageHeight,
+          release: () => {},
+          saveAsync: async () => ({ uri: "file:///rendered.jpg", base64: "/9j/2Q==" }),
+        }),
+      };
+      return context;
+    },
+  },
+}));
+beforeEach(() => {
+  mocks.imageWidth = 1000;
+  mocks.imageHeight = 2000;
+  mocks.resizeImage.mockClear();
+  mocks.missingFileUris.clear();
+});
+
 vi.mock("expo-file-system", () => ({
   File: class {
     readonly uri: string;
-    exists = true;
+    get exists() {
+      return !mocks.missingFileUris.has(this.uri);
+    }
     constructor(uri: string, name?: string) {
       this.uri = name ? `${uri}/${name}` : uri;
     }
@@ -220,6 +253,82 @@ describe("prepareTurnAttachments", () => {
         : { _tag: "Success", value: undefined },
     );
     mocks.upload.mockResolvedValue({ status: 204, body: "", headers: {} });
+  });
+
+  it.each([false, true])(
+    "normalizes restored image bytes before legacy or HTTP send (uploads=%s)",
+    async (supportsImageUploads) => {
+      mocks.imageWidth = 1206;
+      mocks.imageHeight = 2622;
+      const restored = {
+        ...fileBackedImage,
+        uploadedAttachmentId: "pending-old-image",
+        uploadEnvironmentId: environmentId,
+      };
+      const prepared = await prepareTurnAttachments({
+        environmentId,
+        attachments: [restored],
+        supportsImageUploads,
+      });
+      expect(mocks.resizeImage).toHaveBeenCalledWith({ height: 2000 });
+      expect(mocks.deleteFile).toHaveBeenCalledWith("file:///rendered.jpg");
+      expect(mocks.deleteFile).not.toHaveBeenCalledWith(fileBackedImage.fileUri);
+      expect(mocks.executeAtomQuery).not.toHaveBeenCalled();
+      expect(prepared.status).toBe("ready");
+      if (prepared.status !== "ready") return;
+      expect(prepared.attachments).toEqual([
+        expect.objectContaining({ name: "photo.jpg", mimeType: "image/jpeg", sizeBytes: 4 }),
+      ]);
+      expect(prepared.draftAttachments).toEqual([
+        expect.objectContaining({ dataUrl: "data:image/jpeg;base64,/9j/2Q==" }),
+      ]);
+      if (supportsImageUploads) {
+        expect(mocks.upload).toHaveBeenCalledWith(
+          expect.any(String),
+          expect.any(String),
+          expect.objectContaining({ headers: { "Content-Type": "image/jpeg" } }),
+        );
+      } else {
+        expect(prepared.attachments[0]).toMatchObject({
+          dataUrl: "data:image/jpeg;base64,/9j/2Q==",
+        });
+      }
+    },
+  );
+
+  it("reuses the verified server image when its retained local file has gone missing", async () => {
+    mocks.missingFileUris.add(fileBackedImage.fileUri);
+    mocks.imageHeight = 2622;
+    const restored = {
+      ...fileBackedImage,
+      uploadedAttachmentId: "pending-saved-image",
+      uploadEnvironmentId: environmentId,
+    };
+    const prepared = await prepareTurnAttachments({
+      environmentId,
+      attachments: [restored],
+      supportsImageUploads: true,
+    });
+    expect(mocks.resizeImage).not.toHaveBeenCalled();
+    expect(mocks.executeAtomQuery).toHaveBeenCalledOnce();
+    expect(mocks.upload).not.toHaveBeenCalled();
+    expect(prepared.status).toBe("ready");
+    if (prepared.status === "ready")
+      expect(prepared.attachments[0]).toMatchObject({
+        id: "pending-saved-image",
+        mimeType: "image/png",
+      });
+  });
+
+  it("normalizes shared inline images and caches the normalized draft", async () => {
+    mocks.imageWidth = 2622;
+    mocks.imageHeight = 1206;
+    const shared = { ...image, id: "incoming-share-image" };
+    const first = await prepareTurnAttachments({ environmentId, attachments: [shared] });
+    expect(first.status).toBe("ready");
+    if (first.status !== "ready") return;
+    await prepareTurnAttachments({ environmentId, attachments: first.draftAttachments });
+    expect(mocks.resizeImage).toHaveBeenCalledExactlyOnceWith({ width: 2000 });
   });
 
   it("keeps existing image attachments on the legacy wire path", async () => {
