@@ -1,5 +1,13 @@
 import type { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 
+/**
+ * The name every provider registers Control Plane's MCP server under, so agents
+ * see its tools as `mcp__cplane__<tool>`. Short and distinct so it does not
+ * collide with a user's own MCP servers. Transcripts recorded before the rename
+ * carry `t3-code`; the read-side matchers accept both.
+ */
+export const MCP_SERVER_NAME = "cplane";
+
 export interface McpProviderSessionConfig {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;

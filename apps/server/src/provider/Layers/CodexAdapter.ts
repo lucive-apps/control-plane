@@ -85,6 +85,8 @@ const isCodexSessionRuntimeThreadIdMissingError = Schema.is(
 const isCodexResumeCursorSchema = Schema.is(CodexResumeCursorSchema);
 
 const PROVIDER = ProviderDriverKind.make("codex");
+/** Codex reads the MCP bearer token from this variable, which only this adapter sets. */
+const CODEX_MCP_BEARER_TOKEN_ENV = "CP_MCP_BEARER_TOKEN";
 
 export interface CodexAdapterLiveOptions {
   readonly instanceId?: ProviderInstanceId;
@@ -2288,13 +2290,16 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
                     options?.environment ?? process.env,
                     mcpSession,
                   ),
-                  T3_MCP_BEARER_TOKEN: mcpSession.authorizationHeader.replace(/^Bearer\s+/, ""),
+                  [CODEX_MCP_BEARER_TOKEN_ENV]: mcpSession.authorizationHeader.replace(
+                    /^Bearer\s+/,
+                    "",
+                  ),
                 },
                 appServerArgs: [
                   "-c",
-                  `mcp_servers.t3-code.url=${mcpSession.endpoint}`,
+                  `mcp_servers.${McpProviderSession.MCP_SERVER_NAME}.url=${mcpSession.endpoint}`,
                   "-c",
-                  'mcp_servers.t3-code.bearer_token_env_var="T3_MCP_BEARER_TOKEN"',
+                  `mcp_servers.${McpProviderSession.MCP_SERVER_NAME}.bearer_token_env_var="${CODEX_MCP_BEARER_TOKEN_ENV}"`,
                 ],
                 mcpCapabilities: mcpSession.capabilities,
               }

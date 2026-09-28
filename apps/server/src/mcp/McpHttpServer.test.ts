@@ -422,7 +422,7 @@ it.effect(
 it.effect("registers the threads toolkit", () =>
   Effect.gen(function* () {
     const server = yield* McpServer.McpServer;
-    expect(server.tools.map(({ tool }) => tool.name)).toContain("t3_thread_send");
+    expect(server.tools.map(({ tool }) => tool.name)).toContain("cp_thread_send");
   }).pipe(Effect.provide(ThreadsTestLayer)),
 );
 

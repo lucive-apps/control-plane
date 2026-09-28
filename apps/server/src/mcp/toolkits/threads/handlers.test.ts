@@ -103,8 +103,8 @@ const makeHarness = Effect.fn("makeThreadsToolkitHarness")(function* (
   );
   return {
     commands,
-    send: (params: Parameters<typeof toolkit.handle<"t3_thread_send">>[1]) =>
-      toolkit.handle("t3_thread_send", params).pipe(
+    send: (params: Parameters<typeof toolkit.handle<"cp_thread_send">>[1]) =>
+      toolkit.handle("cp_thread_send", params).pipe(
         Stream.unwrap,
         Stream.runCollect,
         Effect.map((chunk) => chunk.at(-1)!.result),
