@@ -3,6 +3,7 @@ import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 
 import { assert, expect, it } from "@effect/vitest";
+import { afterAll, vi } from "vite-plus/test";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -20,6 +21,20 @@ import * as NetService from "@t3tools/shared/Net";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { deriveServerPaths } from "../config.ts";
 import { resolveServerConfig } from "./config.ts";
+
+// The home resolver probes `<home>/.t3` and `<home>/.cplane`, and an implicit
+// home gets its state directories created; keep all of it in a throwaway home.
+vi.mock("node:os", async (importOriginal) => {
+  const os = await importOriginal<typeof import("node:os")>();
+  const { mkdtempSync } = await import("node:fs");
+  const home = mkdtempSync(`${os.tmpdir()}/t3-cli-test-home-`);
+  return { ...os, homedir: () => home };
+});
+afterAll(() => {
+  // Guarded so a broken mock can never delete a real home.
+  const home = NodeOS.homedir();
+  if (home.includes("t3-cli-test-home-")) NodeFS.rmSync(home, { recursive: true, force: true });
+});
 
 const deriveExplicitServerPaths = (baseDir: string, devUrl: URL | undefined) =>
   deriveServerPaths(baseDir, devUrl, { baseDirIsExplicit: true });
@@ -587,6 +602,61 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         tailscaleServeEnabled: false,
         tailscaleServePort: 443,
       });
+    }),
+  );
+
+  it.effect("ranks --base-dir over CPLANE_HOME over T3CODE_HOME and the bootstrap home", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cli-config-home-" });
+      const cplaneHome = path.join(root, "cplane");
+      const flagHome = path.join(root, "flag");
+      const resolveHomeWith = (baseDir: Option.Option<string>) =>
+        Effect.gen(function* () {
+          const fd = yield* openBootstrapFd(
+            makeDesktopBootstrap({ t3Home: path.join(root, "bootstrap") }),
+          );
+          return yield* resolveServerConfig(
+            {
+              mode: Option.none(),
+              port: Option.none(),
+              host: Option.none(),
+              baseDir,
+              cwd: Option.none(),
+              devUrl: Option.none(),
+              noBrowser: Option.none(),
+              bootstrapFd: Option.none(),
+              autoBootstrapProjectFromCwd: Option.none(),
+              logWebSocketEvents: Option.none(),
+              tailscaleServeEnabled: Option.none(),
+              tailscaleServePort: Option.none(),
+            },
+            Option.none(),
+          ).pipe(
+            Effect.provide(
+              Layer.mergeAll(
+                ConfigProvider.layer(
+                  ConfigProvider.fromEnv({
+                    env: {
+                      T3CODE_BOOTSTRAP_FD: String(fd),
+                      CPLANE_HOME: cplaneHome,
+                      T3CODE_HOME: path.join(root, "t3"),
+                    },
+                  }),
+                ),
+                NetService.layer,
+              ),
+            ),
+          );
+        });
+
+      const fromEnv = yield* resolveHomeWith(Option.none());
+      const fromFlag = yield* resolveHomeWith(Option.some(flagHome));
+
+      assert.equal(fromEnv.baseDir, cplaneHome);
+      assert.equal(fromEnv.stateDir, path.join(cplaneHome, "userdata"));
+      assert.equal(fromFlag.baseDir, flagHome);
     }),
   );
 

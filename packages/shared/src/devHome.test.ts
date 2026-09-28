@@ -103,4 +103,17 @@ describe("resolveWorktreeT3Home", () => {
       assert.isFalse(NodeFS.existsSync(home ?? ""));
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
+
+  it.effect("honors an existing .cplane without copying the .t3 beside it", () =>
+    Effect.gen(function* () {
+      const { root, nested } = yield* makeRepo("worktree");
+      NodeFS.mkdirSync(NodePath.join(root, ".t3", "userdata"), { recursive: true });
+      NodeFS.mkdirSync(NodePath.join(root, ".cplane"));
+
+      const home = yield* resolveWorktreeT3Home(nested);
+
+      assert.equal(home, NodePath.join(NodePath.resolve(root), ".cplane"));
+      assert.deepEqual(NodeFS.readdirSync(NodePath.join(root, ".cplane")), []);
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
 });

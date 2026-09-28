@@ -1,5 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
+import { HomeMigrationRecord } from "@t3tools/shared/home";
 import {
   HostProcessExecutablePath,
   HostProcessPlatform,
@@ -11,6 +12,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import * as Schema from "effect/Schema";
 import { HttpClient } from "effect/unstable/http";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 
@@ -23,6 +25,8 @@ import {
   SERVICE_RESTART_PENDING_FILE,
   serviceStateHasPendingUpdate,
 } from "./serviceProtocol.ts";
+
+const encodeHomeMigrationRecord = Schema.encodeSync(Schema.fromJsonString(HomeMigrationRecord));
 
 const linuxRuntime = "/home/theo/.t3/runtime/versions/1.2.3/t3";
 const linuxPlan = {
@@ -66,6 +70,17 @@ it("reads the served T3 home back out of a rendered unit or plist", () => {
     ),
   ).toBe("/Users/theo/a&b");
   expect(BootService.bootServiceBaseDirOf("[Service]\nExecStart=/x\n")).toBeUndefined();
+  // A later release may render the new variable; it outranks the old one there too.
+  expect(
+    BootService.bootServiceBaseDirOf(
+      "[Service]\nEnvironment=T3CODE_HOME=/home/theo/.t3\nEnvironment=CPLANE_HOME=/home/theo/.cplane\n",
+    ),
+  ).toBe("/home/theo/.cplane");
+  expect(
+    BootService.bootServiceBaseDirOf(
+      "<dict>\n    <key>CPLANE_HOME</key>\n    <string>/Users/theo/.cplane</string>\n</dict>",
+    ),
+  ).toBe("/Users/theo/.cplane");
 });
 
 it("survives the kernel OOM-killing a greedy agent child", () => {
@@ -247,7 +262,7 @@ const makeHarness = Effect.fn("test.make_boot_service_harness")(function* (
       ),
     );
   const service = yield* makeService();
-  return { service, makeService, fs, statePath, commands, timeouts, control, runtime };
+  return { service, makeService, fs, home, statePath, commands, timeouts, control, runtime };
 });
 
 it.layer(NodeServices.layer)("boot service install", (it) => {
@@ -598,6 +613,26 @@ it.layer(NodeServices.layer)("boot service install", (it) => {
       const other = yield* makeService(undefined, "1.2.3", path.join(otherHome, ".t3"));
       expect(yield* other.restart).toBe(false);
       expect(commands.filter((command) => command.startsWith("systemctl "))).toEqual([]);
+    }),
+  );
+
+  it.effect("leaves a unit naming a moved home alone, since its launcher keeps that home", () =>
+    Effect.gen(function* () {
+      const { service, fs, home, makeService } = yield* makeHarness();
+      const path = yield* Path.Path;
+      yield* service.install();
+      const legacyHome = path.join(home, ".t3");
+      const movedHome = path.join(home, ".cplane");
+      yield* fs.makeDirectory(path.join(movedHome, "userdata"), { recursive: true });
+      yield* fs.writeFileString(
+        path.join(movedHome, "userdata", "home-migration.json"),
+        encodeHomeMigrationRecord({ state: "complete", from: legacyHome }),
+      );
+
+      const moved = yield* makeService(undefined, "1.2.3", movedHome);
+
+      expect((yield* moved.status).installedBaseDir).toBe(legacyHome);
+      expect(yield* moved.restart).toBe(false);
     }),
   );
 

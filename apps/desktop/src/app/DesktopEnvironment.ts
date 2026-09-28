@@ -14,8 +14,10 @@ import * as Path from "effect/Path";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopConfig from "./DesktopConfig.ts";
 import { resolveLinuxDesktopEntryName } from "./DesktopEarlyElectronStartup.ts";
-import { resolveDesktopBaseDir, resolveDesktopStateDir } from "./DesktopStatePaths.ts";
+import { syncHomeProbe } from "./DesktopHomeProbe.ts";
+import { resolveDesktopStateDir } from "./DesktopStatePaths.ts";
 import { isNightlyDesktopVersion } from "../updates/updateChannels.ts";
+import { logHomeWarnings, resolveHomeSync } from "@t3tools/shared/home";
 import type { OtlpProtocol } from "@t3tools/shared/observability";
 
 export interface MakeDesktopEnvironmentInput {
@@ -82,8 +84,6 @@ export class DesktopEnvironment extends Context.Service<
     readonly linuxWmClass: string;
     readonly linuxApplicationsDir: string;
     readonly appImagePath: Option.Option<string>;
-    readonly userDataDirName: string;
-    readonly legacyUserDataDirName: string;
     readonly staticRenderer: boolean;
     readonly defaultDesktopSettings: DesktopAppSettings.DesktopSettings;
     readonly runtimeInfo: DesktopRuntimeInfo;
@@ -166,11 +166,21 @@ const make = Effect.fn("desktop.environment.make")(function* (
       : input.platform === "darwin"
         ? path.join(homeDirectory, "Library", "Application Support")
         : Option.getOrElse(config.xdgConfigHome, () => path.join(homeDirectory, ".config"));
-  const baseDir = resolveDesktopBaseDir({
-    homeDirectory,
-    joinPath: path.join,
-    t3Home: config.t3Home,
-  });
+  // Synchronous: the Clerk bridge needs `stateDir` before Electron's `ready`.
+  const home = resolveHomeSync(
+    {
+      homeDirectory,
+      join: path.join,
+      env: {
+        CPLANE_HOME: Option.getOrUndefined(config.cplaneHome),
+        T3CODE_HOME: Option.getOrUndefined(config.t3Home),
+      },
+      variant: isDevelopment ? "dev" : "userdata",
+    },
+    syncHomeProbe,
+  );
+  yield* logHomeWarnings(home.warnings);
+  const baseDir = home.baseDir;
   const rootDir = path.resolve(input.dirname, "../../..");
   const appRoot = input.isPackaged ? input.appPath : rootDir;
   const serverRoot =
@@ -182,14 +192,7 @@ const make = Effect.fn("desktop.environment.make")(function* (
     appVersion: input.appVersion,
   });
   const displayName = branding.displayName;
-  const stateDir = resolveDesktopStateDir({
-    baseDir,
-    isDevelopment,
-    joinPath: path.join,
-    t3Home: config.t3Home,
-  });
-  const userDataDirName = isDevelopment ? "t3code-dev" : "t3code";
-  const legacyUserDataDirName = isDevelopment ? "T3 Code (Dev)" : "T3 Code (Alpha)";
+  const stateDir = resolveDesktopStateDir({ home, isDevelopment, joinPath: path.join });
   const linuxApplicationsDir = path.join(
     Option.getOrElse(config.xdgDataHome, () => path.join(homeDirectory, ".local", "share")),
     "applications",
@@ -243,8 +246,6 @@ const make = Effect.fn("desktop.environment.make")(function* (
     linuxWmClass: isDevelopment ? "t3code-dev" : "t3code",
     linuxApplicationsDir,
     appImagePath: config.appImagePath,
-    userDataDirName,
-    legacyUserDataDirName,
     staticRenderer: config.staticRenderer,
     defaultDesktopSettings: DesktopAppSettings.resolveDefaultDesktopSettings(input.appVersion),
     runtimeInfo: resolveDesktopRuntimeInfo({

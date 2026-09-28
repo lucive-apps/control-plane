@@ -5,9 +5,10 @@
  * Discovery reads the `server-runtime.json` a live server persists next to its
  * database, then confirms the process is actually answering by fetching its
  * public environment descriptor. Inside a linked git worktree the worktree's
- * own `.t3` is checked first (matching dev-runner precedence); otherwise the
- * shared T3 home. `--tailscale` publishes the server over Tailscale Serve
- * HTTPS and pairs through the tailnet URL instead.
+ * own home (`.cplane` if it exists, else `.t3`) is checked first (matching
+ * dev-runner precedence); otherwise the shared T3 home. `--tailscale`
+ * publishes the server over Tailscale Serve HTTPS and pairs through the
+ * tailnet URL instead.
  */
 import {
   AuthStandardClientScopes,
@@ -21,7 +22,6 @@ import {
   ensureTailscaleServe,
   readTailscaleStatus,
 } from "@t3tools/tailscale";
-import * as Config from "effect/Config";
 import * as Console from "effect/Console";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
@@ -240,52 +240,55 @@ interface DiscoveredPairTarget {
 const discoverPairTarget = Effect.fn("pair.discoverPairTarget")(function* (
   explicitBaseDir: string | undefined,
 ) {
-  const bases: Array<string> = [];
-  if (explicitBaseDir !== undefined && explicitBaseDir.trim().length > 0) {
-    bases.push(yield* resolveBaseDir(explicitBaseDir));
-  } else {
-    // Same precedence as dev-runner: inside a linked worktree its own `.t3`
-    // outranks the shared home, so `t3 pair` in a worktree pairs with the dev
+  const candidates: Array<readonly [string, PairStateVariant]> = [];
+  const hasExplicitBaseDir = explicitBaseDir !== undefined && explicitBaseDir.trim().length > 0;
+  if (!hasExplicitBaseDir) {
+    // Same precedence as dev-runner: inside a linked worktree its own home
+    // outranks the shared one, so `t3 pair` in a worktree pairs with the dev
     // server under test rather than the daily-driver install.
     const worktreeHome = yield* resolveWorktreeT3Home(process.cwd());
     if (worktreeHome !== undefined) {
-      bases.push(worktreeHome);
+      candidates.push([worktreeHome, "userdata"], [worktreeHome, "dev"]);
     }
-    const envHome = yield* Config.String("T3CODE_HOME").pipe(Config.option);
-    bases.push(yield* resolveBaseDir(Option.getOrUndefined(envHome)));
+  }
+  // An implicit dev home can differ from the userdata one, so resolve each.
+  for (const variant of ["userdata", "dev"] as const) {
+    const home = yield* resolveBaseDir({ baseDir: explicitBaseDir, variant });
+    candidates.push([home.baseDir, variant]);
   }
 
   const checkedStatePaths: Array<string> = [];
-  for (const baseDir of new Set(bases)) {
-    for (const variant of ["userdata", "dev"] as const) {
-      const derivedPaths = yield* ServerConfig.deriveServerPaths(
-        baseDir,
-        variant === "dev" ? DEV_VARIANT_PLACEHOLDER_URL : undefined,
-        {},
-      );
-      const statePath = derivedPaths.serverRuntimeStatePath;
-      checkedStatePaths.push(statePath);
-      const state = yield* readPersistedServerRuntimeState(statePath);
-      if (Option.isNone(state)) {
-        continue;
-      }
-      // The pid check guards against a dead server's state file whose port
-      // was since reused by a different server: pairing would then mint a
-      // token in the old database while the QR code points at the new server.
-      if (!isProcessAlive(state.value.pid)) {
-        continue;
-      }
-      const probed = yield* probeEnvironmentDescriptor(state.value.origin);
-      if (probed._tag !== "descriptor") {
-        continue;
-      }
-      return {
-        baseDir,
-        variant,
-        state: state.value,
-        descriptor: probed.descriptor,
-      } satisfies DiscoveredPairTarget;
+  for (const [baseDir, variant] of candidates) {
+    const derivedPaths = yield* ServerConfig.deriveServerPaths(
+      baseDir,
+      variant === "dev" ? DEV_VARIANT_PLACEHOLDER_URL : undefined,
+      {},
+    );
+    const statePath = derivedPaths.serverRuntimeStatePath;
+    if (checkedStatePaths.includes(statePath)) {
+      continue;
     }
+    checkedStatePaths.push(statePath);
+    const state = yield* readPersistedServerRuntimeState(statePath);
+    if (Option.isNone(state)) {
+      continue;
+    }
+    // The pid check guards against a dead server's state file whose port
+    // was since reused by a different server: pairing would then mint a
+    // token in the old database while the QR code points at the new server.
+    if (!isProcessAlive(state.value.pid)) {
+      continue;
+    }
+    const probed = yield* probeEnvironmentDescriptor(state.value.origin);
+    if (probed._tag !== "descriptor") {
+      continue;
+    }
+    return {
+      baseDir,
+      variant,
+      state: state.value,
+      descriptor: probed.descriptor,
+    } satisfies DiscoveredPairTarget;
   }
   return yield* new NoRunningServerError({ checkedStatePaths });
 });

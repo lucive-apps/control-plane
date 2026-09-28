@@ -1,3 +1,4 @@
+import { desktopProfileDirs, selectDesktopProfileDir } from "@t3tools/shared/home";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -48,22 +49,26 @@ const normalizeCommitHash = (value: string): Option.Option<string> => {
 export const resolveUserDataPath = Effect.gen(function* () {
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
   const fileSystem = yield* FileSystem.FileSystem;
-  const legacyPath = environment.path.join(
-    environment.appDataDirectory,
-    environment.legacyUserDataDirName,
-  );
-  const legacyPathExists = yield* fileSystem.exists(legacyPath).pipe(
+  const dirs = desktopProfileDirs({
+    appDataDirectory: environment.appDataDirectory,
+    isDevelopment: environment.isDevelopment,
+    join: environment.path.join,
+  });
+  const legacyPathExists = yield* fileSystem.exists(dirs.legacy).pipe(
     Effect.mapError(
       (cause) =>
         new DesktopUserDataPathResolutionError({
-          legacyPath,
+          legacyPath: dirs.legacy,
           cause,
         }),
     ),
   );
-  return legacyPathExists
-    ? legacyPath
-    : environment.path.join(environment.appDataDirectory, environment.userDataDirName);
+  // Only the R1 move creates a `cplane` profile; if it cannot be inspected,
+  // keep today's profile rather than fail startup.
+  const cplanePathExists = yield* fileSystem
+    .exists(dirs.cplane)
+    .pipe(Effect.orElseSucceed(() => false));
+  return selectDesktopProfileDir(dirs, { cplane: cplanePathExists, legacy: legacyPathExists });
 }).pipe(Effect.withSpan("desktop.appIdentity.resolveUserDataPath"));
 
 /** @public Service construction is part of the canonical Effect module API. */

@@ -212,6 +212,7 @@ const signedBuildEnv = (version: string): NodeJS.ProcessEnv => {
   delete env.VITE_HTTP_URL;
   delete env.VITE_WS_URL;
   delete env.T3CODE_SINGLE_ORIGIN_DEV;
+  delete env.CPLANE_HOME;
   delete env.T3CODE_HOME;
   delete env.T3CODE_DESKTOP_SKIP_BUILD;
   return env;

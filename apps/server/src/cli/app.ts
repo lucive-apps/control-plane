@@ -178,7 +178,6 @@ function sendDesktopAppActivationRequest(input: {
 }
 
 const appEnvironment = Config.all({
-  t3Home: Config.String("T3CODE_HOME").pipe(Config.option, Config.map(Option.getOrUndefined)),
   sshConnection: Config.String("SSH_CONNECTION").pipe(Config.option),
   sshTty: Config.String("SSH_TTY").pipe(Config.option),
 });
@@ -197,14 +196,14 @@ const runAppCommand = Effect.fn("cli.app")(function* (flags: {
   }
 
   const path = yield* Path.Path;
-  const configuredBaseDir = Option.getOrUndefined(flags.baseDir) ?? environment.t3Home;
-  const baseDir = yield* resolveBaseDir(configuredBaseDir);
-  const allowDevFallback = Option.isNone(flags.baseDir) && !environment.t3Home?.trim();
+  const home = yield* resolveBaseDir({ baseDir: Option.getOrUndefined(flags.baseDir) });
+  // Only an implicit home can have a dev desktop, and its dev home is resolved separately.
+  const devHome = home.explicit ? undefined : yield* resolveBaseDir({ variant: "dev" });
   const rawWorkspaceRoot =
     Option.getOrUndefined(flags.workspaceRoot) ?? (yield* HostProcessWorkingDirectory);
   const workspaceRoot = path.resolve(yield* expandHomePath(rawWorkspaceRoot));
   const userId = yield* HostProcessUserId;
-  const resolveAddress = (stateSubdirectory: "userdata" | "dev") =>
+  const resolveAddress = (baseDir: string, stateSubdirectory: "userdata" | "dev") =>
     resolveDesktopAppControlAddress({
       stateDir: path.join(baseDir, stateSubdirectory),
       platform: hostPlatform,
@@ -219,8 +218,8 @@ const runAppCommand = Effect.fn("cli.app")(function* (flags: {
     workspaceRoot,
     platform: hostPlatform,
   };
-  const address = resolveAddress("userdata");
-  const fallbackAddress = allowDevFallback ? resolveAddress("dev") : undefined;
+  const address = resolveAddress(home.baseDir, "userdata");
+  const fallbackAddress = devHome ? resolveAddress(devHome.baseDir, "dev") : undefined;
 
   const response = yield* Effect.tryPromise({
     try: () =>

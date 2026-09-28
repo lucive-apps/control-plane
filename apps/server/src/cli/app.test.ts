@@ -13,21 +13,35 @@ import {
   HostProcessUserId,
   HostProcessWorkingDirectory,
 } from "@t3tools/shared/hostProcess";
+import { HomeMigrationRecord } from "@t3tools/shared/home";
 import * as NetService from "@t3tools/shared/Net";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
 import { Command } from "effect/unstable/cli";
 import { afterEach, describe, expect, vi } from "vite-plus/test";
 
 import { makeCli } from "../bin.ts";
+import { DesktopAppUnreachableError } from "./app.ts";
 
+// Hermetic by construction. The CLI derives the desktop control socket from
+// the resolved home and `os.tmpdir()`, so a real home or temp dir here can
+// reach the user's running desktop app: a resolver bug once sent it a live
+// activation request and created a stray project. Every test runs in its own
+// sandbox that points both `os.homedir()` and `os.tmpdir()` inside it, for the
+// fake desktop and the CLI under test alike. Outside a sandbox both point at a
+// path nothing listens on.
 vi.mock("node:os", async (importOriginal) => {
   const os = await importOriginal<typeof import("node:os")>();
-  return { ...os, homedir: vi.fn(os.homedir) };
+  const unset = `${os.tmpdir()}/t3-app-test-unset`;
+  return { ...os, homedir: vi.fn(() => `${unset}/home`), tmpdir: vi.fn(() => `${unset}/tmp`) };
 });
 
-afterEach(() => vi.mocked(NodeOS.homedir).mockReset());
+afterEach(() => {
+  vi.mocked(NodeOS.homedir).mockReset();
+  vi.mocked(NodeOS.tmpdir).mockReset();
+});
 
 const runCli = (args: ReadonlyArray<string>, env: Record<string, string> = {}) =>
   Command.runWith(makeCli(), { version: "0.0.0" })(args).pipe(
@@ -120,21 +134,80 @@ const fakeDesktop = Effect.fn(function* (
   );
 });
 
-const withTempDirectory = <A, E, R>(
-  prefix: string,
-  use: (root: string) => Effect.Effect<A, E, R>,
-) =>
+interface Sandbox {
+  /** What `os.homedir()` returns, so the implicit home is `<home>/.t3`. */
+  readonly home: string;
+  /** What `os.tmpdir()` returns, where every desktop socket lives. */
+  readonly tmp: string;
+}
+
+// Unix socket paths are capped near 104 bytes, and an isolated TMPDIR on macOS
+// is already over half of that, so POSIX sandboxes live under `/tmp`. Windows
+// uses named pipes, which ignore the temp dir.
+const withSandbox = <A, E, R>(use: (sandbox: Sandbox) => Effect.Effect<A, E, R>) =>
   Effect.acquireUseRelease(
-    Effect.promise(() => NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), prefix))),
-    use,
-    (root) => Effect.promise(() => NodeFSP.rm(root, { recursive: true, force: true })),
+    Effect.gen(function* () {
+      const platform = yield* HostProcessPlatform;
+      const parent =
+        platform === "win32"
+          ? (yield* Effect.promise(() => vi.importActual<typeof NodeOS>("node:os"))).tmpdir()
+          : "/tmp";
+      const root = yield* Effect.promise(() => NodeFSP.mkdtemp(NodePath.join(parent, "t3a-")));
+      const sandbox = { home: NodePath.join(root, "home"), tmp: NodePath.join(root, "tmp") };
+      yield* Effect.promise(() => NodeFSP.mkdir(sandbox.home));
+      yield* Effect.promise(() => NodeFSP.mkdir(sandbox.tmp));
+      vi.mocked(NodeOS.homedir).mockReturnValue(sandbox.home);
+      vi.mocked(NodeOS.tmpdir).mockReturnValue(sandbox.tmp);
+      return { root, sandbox };
+    }),
+    ({ sandbox }) => use(sandbox),
+    ({ root }) => Effect.promise(() => NodeFSP.rm(root, { recursive: true, force: true })),
   );
 
+const encodeHomeMigrationRecord = Schema.encodeSync(Schema.fromJsonString(HomeMigrationRecord));
+const isDesktopAppUnreachable = Schema.is(DesktopAppUnreachableError);
+
+/** Records that a move copied `from` to `<home>/.cplane`. */
+const writeCompletedMove = (home: string, from: string) =>
+  Effect.promise(async () => {
+    const userdata = NodePath.join(home, ".cplane", "userdata");
+    await NodeFSP.mkdir(userdata, { recursive: true });
+    await NodeFSP.writeFile(
+      NodePath.join(userdata, "home-migration.json"),
+      encodeHomeMigrationRecord({
+        state: "complete",
+        from,
+        environmentId: "environment-1",
+        sourceMaxSequence: 1,
+        at: "2026-01-01T00:00:00.000Z",
+        version: "0.0.60",
+      }),
+    );
+  });
+
 describe("t3 app", () => {
-  it.effect("rejects SSH before it tries to reach a desktop app", () =>
-    withTempDirectory("t3-app-ssh-test-", (root) =>
+  it.effect("reaches only sockets inside its sandbox", () =>
+    withSandbox((sandbox) =>
       Effect.gen(function* () {
-        const baseDir = NodePath.join(root, "missing-t3-home");
+        const platform = yield* HostProcessPlatform;
+        const error = yield* runCli(["app"]).pipe(Effect.flip);
+
+        expect(error).toMatchObject({ _tag: "DesktopAppUnreachableError" });
+        const addresses = isDesktopAppUnreachable(error) ? error.candidateAddresses : [];
+        expect(addresses).toHaveLength(2);
+        if (platform !== "win32") {
+          for (const address of addresses) {
+            expect(address.startsWith(`${sandbox.tmp}${NodePath.sep}`)).toBe(true);
+          }
+        }
+      }),
+    ),
+  );
+
+  it.effect("rejects SSH before it tries to reach a desktop app", () =>
+    withSandbox((sandbox) =>
+      Effect.gen(function* () {
+        const baseDir = NodePath.join(sandbox.home, "missing-t3-home");
         const error = yield* runCli(["app", "--base-dir", baseDir], {
           SSH_CONNECTION: "client server",
         }).pipe(Effect.flip);
@@ -150,9 +223,9 @@ describe("t3 app", () => {
   );
 
   it.effect("rejects unsupported platforms without creating state", () =>
-    withTempDirectory("t3-app-platform-test-", (root) =>
+    withSandbox((sandbox) =>
       Effect.gen(function* () {
-        const baseDir = NodePath.join(root, "missing-t3-home");
+        const baseDir = NodePath.join(sandbox.home, "missing-t3-home");
         const error = yield* runCli(["app", "--base-dir", baseDir]).pipe(
           Effect.provideService(HostProcessPlatform, "freebsd"),
           Effect.flip,
@@ -169,9 +242,9 @@ describe("t3 app", () => {
   );
 
   it.effect("does not create state when only a server or no desktop app is running", () =>
-    withTempDirectory("t3-app-missing-test-", (root) =>
+    withSandbox((sandbox) =>
       Effect.gen(function* () {
-        const baseDir = NodePath.join(root, "missing-t3-home");
+        const baseDir = NodePath.join(sandbox.home, "missing-t3-home");
         const error = yield* runCli(["app", "--base-dir", baseDir]).pipe(Effect.flip);
 
         expect(error).toMatchObject({
@@ -187,10 +260,10 @@ describe("t3 app", () => {
   );
 
   it.effect("uses T3CODE_HOME or --base-dir and sends the default or explicit path", () =>
-    withTempDirectory("t3-app-command-test-", (root) =>
+    withSandbox((sandbox) =>
       Effect.gen(function* () {
-        const baseDir = NodePath.join(root, "t3-home");
-        const explicitPath = NodePath.join(root, "project");
+        const baseDir = NodePath.join(sandbox.home, "t3-home");
+        const explicitPath = NodePath.join(sandbox.home, "project");
         const platform = yield* HostProcessPlatform;
         const workingDirectory = yield* HostProcessWorkingDirectory;
         const desktop = yield* fakeDesktop({ baseDir });
@@ -207,11 +280,68 @@ describe("t3 app", () => {
     ),
   );
 
-  it.effect("prefers the installed desktop app when a dev desktop is also running", () =>
-    withTempDirectory("t3-app-preferred-test-", (root) =>
+  it.effect("ranks --base-dir over CPLANE_HOME over T3CODE_HOME", () =>
+    withSandbox((sandbox) =>
       Effect.gen(function* () {
-        vi.mocked(NodeOS.homedir).mockReturnValue(root);
-        const baseDir = NodePath.join(root, ".t3");
+        const flagHome = NodePath.join(sandbox.home, "flag-home");
+        const cplaneHome = NodePath.join(sandbox.home, "cplane-home");
+        const t3Home = NodePath.join(sandbox.home, "t3-home");
+        const flagDesktop = yield* fakeDesktop({ baseDir: flagHome });
+        const cplaneDesktop = yield* fakeDesktop({ baseDir: cplaneHome });
+        const t3Desktop = yield* fakeDesktop({ baseDir: t3Home });
+        const env = { CPLANE_HOME: cplaneHome, T3CODE_HOME: t3Home };
+
+        yield* runCli(["app", "--base-dir", flagHome], env);
+        yield* runCli(["app"], env);
+        yield* runCli(["app"], { CPLANE_HOME: "  ", T3CODE_HOME: t3Home });
+
+        expect(flagDesktop.received).toHaveLength(1);
+        expect(cplaneDesktop.received).toHaveLength(1);
+        expect(t3Desktop.received).toHaveLength(1);
+      }).pipe(Effect.scoped),
+    ),
+  );
+
+  it.effect("follows a completed move of an explicit home without searching dev state", () =>
+    withSandbox((sandbox) =>
+      Effect.gen(function* () {
+        const legacyHome = NodePath.join(sandbox.home, ".t3");
+        yield* writeCompletedMove(sandbox.home, legacyHome);
+        const moved = yield* fakeDesktop({ baseDir: NodePath.join(sandbox.home, ".cplane") });
+        const legacy = yield* fakeDesktop({ baseDir: legacyHome });
+        const development = yield* fakeDesktop({ baseDir: legacyHome, stateSubdirectory: "dev" });
+
+        yield* runCli(["app"], { T3CODE_HOME: legacyHome });
+
+        expect(moved.received).toHaveLength(1);
+        expect(legacy.received).toHaveLength(0);
+        expect(development.received).toHaveLength(0);
+      }).pipe(Effect.scoped),
+    ),
+  );
+
+  it.effect("uses an existing ~/.cplane and still finds the dev desktop in ~/.t3/dev", () =>
+    withSandbox((sandbox) =>
+      Effect.gen(function* () {
+        const legacyHome = NodePath.join(sandbox.home, ".t3");
+        yield* Effect.promise(() =>
+          NodeFSP.mkdir(NodePath.join(sandbox.home, ".cplane", "userdata"), { recursive: true }),
+        );
+        const legacy = yield* fakeDesktop({ baseDir: legacyHome });
+        const development = yield* fakeDesktop({ baseDir: legacyHome, stateSubdirectory: "dev" });
+
+        yield* runCli(["app"]);
+
+        expect(legacy.received).toHaveLength(0);
+        expect(development.received).toHaveLength(1);
+      }).pipe(Effect.scoped),
+    ),
+  );
+
+  it.effect("prefers the installed desktop app when a dev desktop is also running", () =>
+    withSandbox((sandbox) =>
+      Effect.gen(function* () {
+        const baseDir = NodePath.join(sandbox.home, ".t3");
         const desktop = yield* fakeDesktop({ baseDir });
         const development = yield* fakeDesktop({ baseDir, stateSubdirectory: "dev" });
 
@@ -224,10 +354,9 @@ describe("t3 app", () => {
   );
 
   it.effect("finds the dev desktop when the default desktop socket is absent", () =>
-    withTempDirectory("t3-app-dev-test-", (root) =>
+    withSandbox((sandbox) =>
       Effect.gen(function* () {
-        vi.mocked(NodeOS.homedir).mockReturnValue(root);
-        const baseDir = NodePath.join(root, ".t3");
+        const baseDir = NodePath.join(sandbox.home, ".t3");
         const development = yield* fakeDesktop({ baseDir, stateSubdirectory: "dev" });
 
         yield* runCli(["app"]);
@@ -240,17 +369,18 @@ describe("t3 app", () => {
   );
 
   it.effect("never searches a dev state directory for an explicit T3 home", () =>
-    withTempDirectory("t3-app-explicit-test-", (root) =>
+    withSandbox((sandbox) =>
       Effect.gen(function* () {
-        vi.mocked(NodeOS.homedir).mockReturnValue(root);
-        const baseDir = NodePath.join(root, ".t3");
+        const baseDir = NodePath.join(sandbox.home, ".t3");
         const development = yield* fakeDesktop({ baseDir, stateSubdirectory: "dev" });
 
         const flagError = yield* runCli(["app", "--base-dir", baseDir]).pipe(Effect.flip);
         const envError = yield* runCli(["app"], { T3CODE_HOME: baseDir }).pipe(Effect.flip);
+        const cplaneEnvError = yield* runCli(["app"], { CPLANE_HOME: baseDir }).pipe(Effect.flip);
 
         expect(flagError).toMatchObject({ _tag: "DesktopAppUnreachableError" });
         expect(envError).toMatchObject({ _tag: "DesktopAppUnreachableError" });
+        expect(cplaneEnvError).toMatchObject({ _tag: "DesktopAppUnreachableError" });
         expect(development.received).toHaveLength(0);
       }).pipe(Effect.scoped),
     ),
@@ -258,10 +388,9 @@ describe("t3 app", () => {
 
   for (const responseKind of ["failure", "invalid"] as const) {
     it.effect(`never falls back after the default desktop sends a ${responseKind} response`, () =>
-      withTempDirectory("t3-app-response-test-", (root) =>
+      withSandbox((sandbox) =>
         Effect.gen(function* () {
-          vi.mocked(NodeOS.homedir).mockReturnValue(root);
-          const baseDir = NodePath.join(root, ".t3");
+          const baseDir = NodePath.join(sandbox.home, ".t3");
           const desktop = yield* fakeDesktop({
             baseDir,
             reply: (request) =>

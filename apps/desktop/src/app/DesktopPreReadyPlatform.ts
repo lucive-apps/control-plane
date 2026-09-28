@@ -11,6 +11,7 @@ import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 
 import * as DesktopEarlyElectronStartup from "./DesktopEarlyElectronStartup.ts";
 import { resolveDesktopAppBranding } from "./DesktopEnvironment.ts";
+import { syncHomeProbe } from "./DesktopHomeProbe.ts";
 import { renderUrlHandlerDesktopEntry } from "./DesktopLinuxUrlHandler.ts";
 import * as ElectronProtocol from "../electron/ElectronProtocol.ts";
 
@@ -44,6 +45,9 @@ export const resolveEarlyLinuxElectronOptionsFromProcess =
       homeDirectory: NodeOS.homedir(),
       joinPath: NodePath.posix.join,
       readFileString: (path) => NodeFS.readFileSync(path, "utf8"),
+      pathExists: syncHomeProbe.exists,
+      isSymbolicLink: syncHomeProbe.isSymbolicLink,
+      fileIdentity: syncHomeProbe.fileIdentity,
     });
 
 export class DesktopPreReadyElectronOptions extends Context.Service<

@@ -25,7 +25,6 @@ import {
 } from "@t3tools/contracts";
 import { fromJsonStringPretty, fromLenientJson } from "@t3tools/shared/schemaJson";
 import { BUILT_IN_THEME_IDS, UNPUBLISHABLE_THEME_IDS } from "@t3tools/shared/themePalettes";
-import * as Config from "effect/Config";
 import * as Console from "effect/Console";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -178,17 +177,13 @@ export class ThemeTargetMissingError extends Schema.TaggedError<ThemeTargetMissi
   }
 }
 
-const envT3Home = Config.String("T3CODE_HOME").pipe(Config.option);
-
 const resolveThemePaths = Effect.fn(function* (explicitBaseDir: Option.Option<string>) {
-  // Same precedence as the rest of the CLI: --base-dir, then T3CODE_HOME,
-  // then the default home. A provisioning script exporting T3CODE_HOME must
-  // not have this one command silently target the default install.
-  const envHome = Option.filter(yield* envT3Home, (value) => value.trim().length > 0);
-  const configuredBaseDir = Option.orElse(explicitBaseDir, () => envHome);
-  const baseDir = yield* resolveBaseDir(Option.getOrUndefined(configuredBaseDir));
-  const derivedPaths = yield* ServerConfig.deriveServerPaths(baseDir, undefined, {
-    baseDirIsExplicit: Option.isSome(configuredBaseDir),
+  // Same precedence as the rest of the CLI: --base-dir, then the home
+  // variables, then the default home. A provisioning script exporting
+  // T3CODE_HOME must not have this one command silently target the default install.
+  const home = yield* resolveBaseDir({ baseDir: Option.getOrUndefined(explicitBaseDir) });
+  const derivedPaths = yield* ServerConfig.deriveServerPaths(home.baseDir, undefined, {
+    baseDirIsExplicit: home.explicit,
   });
   return {
     settingsPath: derivedPaths.settingsPath,

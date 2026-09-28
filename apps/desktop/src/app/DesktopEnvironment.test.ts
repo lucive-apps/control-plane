@@ -2,6 +2,7 @@ import * as NodePath from "@effect/platform-node/NodePath";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 
@@ -178,6 +179,29 @@ describe("DesktopEnvironment", () => {
       assert.equal(development.stateDir, "/Users/alice/.t3/dev");
       assert.equal(production.stateDir, "/Users/alice/.t3/userdata");
     }),
+  );
+
+  it.effect("follows CPLANE_HOME and an existing ~/.cplane, keeping dev state in ~/.t3", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const homeDirectory = yield* fs.makeTempDirectoryScoped({ prefix: "t3-desktop-home-" });
+      yield* fs.makeDirectory(`${homeDirectory}/.cplane/userdata`, { recursive: true });
+
+      const production = yield* makeEnvironment({ homeDirectory });
+      const development = yield* makeEnvironment(
+        { homeDirectory },
+        { VITE_DEV_SERVER_URL: "http://localhost:5173" },
+      );
+      const explicit = yield* makeEnvironment(
+        { homeDirectory },
+        { CPLANE_HOME: " /tmp/cplane ", T3CODE_HOME: "/tmp/t3" },
+      );
+
+      assert.equal(production.baseDir, `${homeDirectory}/.cplane`);
+      assert.equal(production.stateDir, `${homeDirectory}/.cplane/userdata`);
+      assert.equal(development.stateDir, `${homeDirectory}/.t3/dev`);
+      assert.equal(explicit.stateDir, "/tmp/cplane/userdata");
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
   it.effect("uses a configured app user model id override", () =>

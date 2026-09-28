@@ -8,6 +8,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NetService from "@t3tools/shared/Net";
 import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
 import { assert, describe, expect, it } from "@effect/vitest";
+import { afterAll, vi } from "vite-plus/test";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as TestConsole from "effect/testing/TestConsole";
@@ -31,6 +32,20 @@ import {
 } from "./pair.ts";
 
 import packageJson from "../../package.json" with { type: "json" };
+
+// The home resolver probes `<home>/.t3` and `<home>/.cplane`, and an implicit
+// home gets its state directories created; keep all of it in a throwaway home.
+vi.mock("node:os", async (importOriginal) => {
+  const os = await importOriginal<typeof import("node:os")>();
+  const { mkdtempSync } = await import("node:fs");
+  const home = mkdtempSync(`${os.tmpdir()}/t3-cli-test-home-`);
+  return { ...os, homedir: () => home };
+});
+afterAll(() => {
+  // Guarded so a broken mock can never delete a real home.
+  const home = NodeOS.homedir();
+  if (home.includes("t3-cli-test-home-")) NodeFS.rmSync(home, { recursive: true, force: true });
+});
 
 const CliRuntimeLayer = Layer.mergeAll(NodeServices.layer, NetService.layer);
 

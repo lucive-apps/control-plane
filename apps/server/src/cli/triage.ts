@@ -16,7 +16,6 @@ import * as NodeReadlinePromises from "node:readline/promises";
 
 import { HostProcessArchitecture, HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { isCommandAvailable, resolveSpawnCommand } from "@t3tools/shared/shell";
-import * as Config from "effect/Config";
 import * as Console from "effect/Console";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -166,11 +165,8 @@ export const triageCommand = Command.make("triage", {
       const path = yield* Path.Path;
 
       // Triage is a user-facing feature: always the userdata state, never dev.
-      // --base-dir wins; T3CODE_HOME is its documented env equivalent (same
-      // precedence as `t3 pair`).
-      const explicitBaseDir = Option.getOrUndefined(flags.baseDir);
-      const envHome = yield* Config.String("T3CODE_HOME").pipe(Config.option);
-      const baseDir = yield* resolveBaseDir(explicitBaseDir ?? Option.getOrUndefined(envHome));
+      // --base-dir wins over the home variables (same precedence as `t3 pair`).
+      const { baseDir } = yield* resolveBaseDir({ baseDir: Option.getOrUndefined(flags.baseDir) });
       const paths = yield* ServerConfig.deriveServerPaths(baseDir, undefined, {});
 
       const now = yield* DateTime.now;

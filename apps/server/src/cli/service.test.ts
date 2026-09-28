@@ -1,3 +1,7 @@
+// @effect-diagnostics nodeBuiltinImport:off - mocks the user home directory.
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, expect, it } from "@effect/vitest";
 import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
@@ -8,7 +12,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Terminal from "effect/Terminal";
 import { Command } from "effect/unstable/cli";
-import { afterEach, vi } from "vite-plus/test";
+import { afterAll, afterEach, vi } from "vite-plus/test";
 
 import packageJson from "../../package.json" with { type: "json" };
 import * as BootService from "../cloud/bootService.ts";
@@ -19,6 +23,20 @@ import {
   recoverServiceOnboardingOffer,
   serviceCommand,
 } from "./service.ts";
+
+// The home resolver probes `<home>/.t3` and `<home>/.cplane`, and an implicit
+// home gets its state directories created; keep all of it in a throwaway home.
+vi.mock("node:os", async (importOriginal) => {
+  const os = await importOriginal<typeof import("node:os")>();
+  const { mkdtempSync } = await import("node:fs");
+  const home = mkdtempSync(`${os.tmpdir()}/t3-cli-test-home-`);
+  return { ...os, homedir: () => home };
+});
+afterAll(() => {
+  // Guarded so a broken mock can never delete a real home.
+  const home = NodeOS.homedir();
+  if (home.includes("t3-cli-test-home-")) NodeFS.rmSync(home, { recursive: true, force: true });
+});
 
 afterEach(() => vi.restoreAllMocks());
 
