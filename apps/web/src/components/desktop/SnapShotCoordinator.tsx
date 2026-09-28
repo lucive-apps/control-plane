@@ -285,8 +285,8 @@ export function SnapShotCoordinator() {
             toastManager.add(
               stackedThreadToast({
                 type: "error",
-                title: "Snapshot taken, but no project is available",
-                description: "Add a project, then capture the window again.",
+                title: "Snapshot taken, but no workspace is available",
+                description: "Add a workspace, then capture the window again.",
               }),
             );
             continue;

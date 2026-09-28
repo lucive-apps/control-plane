@@ -1,6 +1,6 @@
 /**
- * Sidebar nav: New Chat above the search row. New Project lives on the
- * Projects section header.
+ * Sidebar nav: New Chat above the search row. Add workspace lives on the
+ * Tasks section header.
  */
 import { SearchIcon, SquarePenIcon, XIcon } from "lucide-react";
 import {

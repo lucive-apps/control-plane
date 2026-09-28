@@ -21,7 +21,7 @@ export function ThreadCreationFailedCard(props: {
         {props.reason}
       </Text>
       <Text className="font-sans text-xs leading-normal text-adaptive-neutral-600-400">
-        Your prompt was kept in the project draft.
+        Your prompt was kept in the workspace draft.
       </Text>
       <View className="flex-row">
         <RequestActionButton label="Edit task" onPress={props.onEditTask} />

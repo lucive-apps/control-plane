@@ -62,7 +62,7 @@ uses its account catalog and does not support custom models.
 ## Model defaults
 
 T3 Code remembers your provider, model, and model options for new threads. A
-project's configured model takes precedence; resetting that project setting
+workspace's configured model takes precedence; resetting that workspace setting
 returns to the remembered selection.
 
 Leaving reasoning level or service tier unset uses the provider's own configuration.
@@ -117,7 +117,7 @@ the conversation to before that message. Choose **Revert and keep changes** to
 leave workspace files as they are, or **Revert files too** to restore them as well.
 File restore is only offered for threads running in a worktree, and it is
 refused when another thread or agent session also uses that directory, since
-restoring would erase their changes. A thread that works in the project directory
+restoring would erase their changes. A thread that works in the workspace directory
 rewinds the conversation only. The selected prompt and its attachments return to the composer for editing and
 resending. Any unsent draft stays above the restored prompt.
 
@@ -178,7 +178,7 @@ excerpt, Terminal 1 lines 3-4" and similar to screen readers.
 A pull request appears as its icon and number. Its color reflects whether it was open, draft,
 merged, or closed when it was attached. Select it to inspect the captured title and branches,
 then choose **Open pull request** to visit the pull request. On web and desktop, type `#` to browse the newest
-pull requests in the current project's repository. Continue typing digits to filter the recent list
+pull requests in the current workspace's repository. Continue typing digits to filter the recent list
 by any part of its pull request numbers. A complete number is also resolved directly, even when that
 pull request is older than the recent list. Type a single word after `#` to search pull requests in
 the repository by text. Choose a result to insert it as a chip.

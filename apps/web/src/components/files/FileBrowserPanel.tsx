@@ -216,7 +216,7 @@ export default function FileBrowserPanel({
           toastManager.add({
             type: "error",
             title: "Unable to add to chat",
-            description: "Open a chat for this project and try again.",
+            description: "Open a chat for this workspace and try again.",
           });
           return;
         }

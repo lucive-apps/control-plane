@@ -25,7 +25,7 @@ Turning capture off releases the shortcut. It does not uninstall a helper or ext
 
 Switch to the window you want and press the shortcut. The default on macOS and Windows is both
 Shift keys together. T3 Code attaches the image to your draft and brings itself forward. If no thread
-is open it starts a draft in the current project.
+is open it starts a draft in the current workspace.
 
 Pressing the shortcut while T3 Code is in front captures T3 Code itself.
 

@@ -320,7 +320,9 @@ describe("searchSettings", () => {
     ["agent browser access", "agent-browser-access", "/settings/integrations"],
     ["automatically pull", "automatic-pull", "/settings/source-control"],
     ["actions", "project-actions", "/settings/projects"],
+    ["workspace overview", "project-overview", "/settings/projects"],
     ["project overview", "project-overview", "/settings/projects"],
+    ["project grouping", "project-grouping", "/settings/general"],
   ])("routes %s to its owning category", (query, id, to) => {
     expect(searchSettings(query)[0]).toMatchObject({ id, to });
   });

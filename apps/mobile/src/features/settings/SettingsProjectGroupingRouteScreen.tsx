@@ -23,7 +23,7 @@ const GROUPING_OPTIONS: ReadonlyArray<{
   {
     mode: "repository",
     label: "Group by repository",
-    description: "Matching repositories appear as one project.",
+    description: "Matching repositories appear as one workspace.",
   },
   {
     mode: "repository_path",
@@ -33,7 +33,7 @@ const GROUPING_OPTIONS: ReadonlyArray<{
   {
     mode: "separate",
     label: "Keep separate",
-    description: "Show every workspace as its own project.",
+    description: "Show every folder as its own workspace.",
   },
 ];
 
@@ -55,7 +55,7 @@ export function SettingsProjectGroupingRouteScreen() {
         contentContainerClassName="gap-3 px-5 pt-4"
         contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) + 18 }}
       >
-        <SettingsSection title="Project grouping">
+        <SettingsSection title="Workspace grouping">
           {GROUPING_OPTIONS.map((option, index) => (
             <Pressable
               key={option.mode}

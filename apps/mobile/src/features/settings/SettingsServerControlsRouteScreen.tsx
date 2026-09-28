@@ -57,7 +57,7 @@ const WORKSPACE_CHOICES: ReadonlyArray<{
   {
     mode: "local",
     label: "Current checkout",
-    description: "Start new threads in the existing workspace.",
+    description: "Start new threads in the existing checkout.",
   },
   {
     mode: "worktree",
@@ -198,14 +198,14 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
           {!hasConnectedSelection || reference === null ? (
             <Text className="px-2 text-base text-foreground-muted">
               {projectSelected
-                ? "Select a project with a checkout on a connected environment."
+                ? "Select a workspace with a checkout on a connected environment."
                 : "Use the filter above to select a connected environment."}
             </Text>
           ) : (
             <>
               {projectSelected ? (
                 <SettingsProjectOverridesSection
-                  projectLabel={selectedProject?.label ?? "Unavailable project"}
+                  projectLabel={selectedProject?.label ?? "Unavailable workspace"}
                   hasOverrides={targets.some((target) =>
                     PAGE_PROJECT_KEYS[props.page].some((key) => target.sources[key] === "project"),
                   )}
@@ -217,7 +217,7 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
               {props.page === "new-threads" ? (
                 <>
                   <SettingsSection
-                    title="Default workspace"
+                    title="Default checkout"
                     trailing={
                       pendingWrites === 0 && uniform("defaultThreadEnvMode") === null ? (
                         <MixedValuesLabel projectSelected={projectSelected} />
@@ -342,7 +342,7 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                     label="Check provider updates"
                     subtitle={
                       projectSelected
-                        ? "Environment-wide setting. Select All projects to change it."
+                        ? "Environment-wide setting. Select All workspaces to change it."
                         : "Check installed provider CLIs for newer versions."
                     }
                     value={uniform("enableProviderUpdateChecks")}
@@ -423,7 +423,7 @@ function MixedValuesLabel(props: { readonly projectSelected: boolean }) {
     <Text
       accessibilityLabel={
         props.projectSelected
-          ? "Selected project checkouts use different values"
+          ? "Selected workspace checkouts use different values"
           : "Selected environments use different values"
       }
       className="px-2 text-sm text-foreground-muted android:px-4"

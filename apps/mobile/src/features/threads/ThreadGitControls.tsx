@@ -270,10 +270,10 @@ function useThreadGitHeaderActionItems(props: ThreadGitControlsProps): ThreadGit
             ...(props.projectScripts.length === 0
               ? [
                   {
-                    description: "This project has no saved scripts yet",
+                    description: "This workspace has no saved scripts yet",
                     disabled: true,
                     icon: { name: "play", type: "sfSymbol" as const },
-                    label: "No project scripts",
+                    label: "No workspace scripts",
                     onPress: () => {},
                     type: "action" as const,
                   },
@@ -487,9 +487,9 @@ export function ThreadGitControls(props: ThreadGitControlsProps) {
               icon="play"
               disabled
               onPress={() => {}}
-              subtitle="This project has no saved scripts yet"
+              subtitle="This workspace has no saved scripts yet"
             >
-              <NativeHeaderToolbar.Label>No project scripts</NativeHeaderToolbar.Label>
+              <NativeHeaderToolbar.Label>No workspace scripts</NativeHeaderToolbar.Label>
             </NativeHeaderToolbar.MenuAction>
           )}
           {props.terminalSessions.map((session) => (

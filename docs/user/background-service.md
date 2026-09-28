@@ -16,7 +16,7 @@ run these commands on the machine that will host T3 Code:
 | Restart                         | `t3 service restart`   |
 | Stop and remove from startup    | `t3 service uninstall` |
 
-Uninstalling the service leaves your projects, threads, and settings intact.
+Uninstalling the service leaves your workspaces, threads, and settings intact.
 Running `t3 service install` again repairs a service that `t3 service status`
 reports as broken.
 
@@ -36,7 +36,7 @@ updates, so the installer and `t3 update` ask for confirmation before
 installing one.
 
 `t3 uninstall` removes the background service, the `t3` launcher, and the
-downloaded versions after showing you the list and asking once. Your projects,
+downloaded versions after showing you the list and asking once. Your workspaces,
 threads, and settings under `~/.t3/userdata` are kept. Pass `--yes` from a
 script.
 

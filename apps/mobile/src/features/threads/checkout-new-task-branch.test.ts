@@ -106,7 +106,7 @@ describe("new-task branch checkout", () => {
     });
     expect(result._tag).toBe("Failure");
     if (result._tag !== "Failure") throw new Error("Expected an unavailable-project failure");
-    expect(String(squashAtomCommandFailure(result))).toContain("selected project is unavailable");
+    expect(String(squashAtomCommandFailure(result))).toContain("selected workspace is unavailable");
     expect((await git("branch", "--show-current")).stdout.trim()).toBe("main");
   });
 

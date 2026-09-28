@@ -90,8 +90,8 @@ type WizardStep = "connection" | "agents" | "import";
 const NO_ENVIRONMENTS: readonly EnvironmentId[] = [];
 
 const AGENT_ONBOARDING_THREAD_ID = ThreadId.make("onboarding-agent-setup");
-const ONBOARDING_STAGES = ["Connect", "Agents", "Projects"] as const;
-const SCAN_LIMIT_MESSAGE = "Scan limit reached. Some projects or conversations may be missing.";
+const ONBOARDING_STAGES = ["Connect", "Agents", "Workspaces"] as const;
+const SCAN_LIMIT_MESSAGE = "Scan limit reached. Some workspaces or conversations may be missing.";
 
 export function WelcomeWizard({
   localAvailable,
@@ -301,7 +301,7 @@ function ConnectionStep({
         Connect your computers
       </h1>
       <p className="mt-2.5 text-sm leading-relaxed text-muted-foreground">
-        Choose one or more computers. We’ll set up agents and projects on each.
+        Choose one or more computers. We’ll set up agents and workspaces on each.
       </p>
       {directEnvironments.length > 0 ? (
         <fieldset className="mt-5 space-y-2">
@@ -1159,16 +1159,16 @@ function ImportStep({
   if (scans.every((scan) => scan.data === null) && scans.some((scan) => scan.isPending)) {
     return (
       <div className="flex h-full min-h-40 flex-col">
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Your projects</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Your workspaces</h1>
         <div className="flex flex-1 flex-col items-center justify-center gap-3 py-6">
           <Spinner className="size-5 text-muted-foreground" />
           <p className="text-center text-sm text-muted-foreground">
-            Looking for projects from Claude Code and Codex…
+            Looking for folders used with Claude Code and Codex…
           </p>
         </div>
         <div className="flex justify-end">
           <Button variant="ghost-muted" onClick={() => void onDone()}>
-            Do not import projects
+            Do not import workspaces
           </Button>
         </div>
       </div>
@@ -1177,8 +1177,8 @@ function ImportStep({
 
   return (
     <StepShell
-      title="Choose your projects"
-      description="Import projects and conversations from your selected computers."
+      title="Choose your workspaces"
+      description="Import workspaces and conversations from your selected computers."
     >
       {candidates.length > 0 ? (
         <div className="mt-5 flex items-center justify-between gap-3 text-xs text-muted-foreground">
@@ -1229,21 +1229,21 @@ function ImportStep({
                 {scan.isPending && scan.data === null ? (
                   <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
                     <Spinner className="size-4" />
-                    Looking for projects…
+                    Looking for workspaces…
                   </div>
                 ) : scan.error !== null ? (
                   <div
                     role="alert"
                     className="flex items-center justify-between gap-3 text-sm text-muted-foreground"
                   >
-                    <span>Could not check projects. {scan.error}</span>
+                    <span>Could not check workspaces. {scan.error}</span>
                     <Button variant="ghost" size="sm" onClick={scan.refresh}>
                       Retry
                     </Button>
                   </div>
                 ) : scanCandidates.length === 0 ? (
                   <p className="py-2 text-sm text-muted-foreground">
-                    No existing Claude Code or Codex projects found.
+                    No Claude Code or Codex folders found.
                   </p>
                 ) : null}
                 {scan.data?.truncated ? (
@@ -1268,7 +1268,7 @@ function ImportStep({
           disabled={isImporting}
           onClick={importError ? finishAfterImport : () => void onDone()}
         >
-          {importError ? "Continue without the rest" : "Do not import projects"}
+          {importError ? "Continue without the rest" : "Do not import workspaces"}
         </Button>
         <Button
           autoFocus
@@ -1277,7 +1277,7 @@ function ImportStep({
         >
           {isImporting
             ? "Importing…"
-            : `Import ${selected.length} ${selected.length === 1 ? "project" : "projects"}`}
+            : `Import ${selected.length} ${selected.length === 1 ? "workspace" : "workspaces"}`}
         </Button>
       </div>
     </StepShell>

@@ -259,7 +259,7 @@ export function NewTaskDraftScreen(props: {
     if (AsyncResult.isFailure(result)) {
       const error = Cause.squash(result.cause);
       Alert.alert(
-        "Failed to remove project",
+        "Failed to remove workspace",
         error instanceof Error ? error.message : "An error occurred.",
       );
       return;
@@ -1450,8 +1450,8 @@ export function NewTaskDraftScreen(props: {
   const workspaceControls = (
     <View className="flex-row items-center gap-1 px-2">
       <ComposerInlineControl
-        accessibilityHint="Opens the project picker"
-        accessibilityLabel={`Project: ${selectedProject.title}`}
+        accessibilityHint="Opens the workspace picker"
+        accessibilityLabel={`Workspace: ${selectedProject.title}`}
         chevronDirection="down"
         disabled={isComposerInteractionLocked}
         label={selectedProject.title}

@@ -3087,7 +3087,7 @@ export function ConnectionsSettings() {
       <>
         <SettingsRow
           {...searchableSetting("wsl-backend")}
-          description="Run the selected WSL distro alongside Windows. Projects remain on their current filesystem."
+          description="Run the selected WSL distro alongside Windows. Workspaces remain on their current filesystem."
           status={
             desktopWslError ? (
               <span className="block text-destructive">{desktopWslError}</span>
@@ -3481,14 +3481,14 @@ export function ConnectionsSettings() {
                 <AlertDialogDescription>
                   {pendingWslChange?.kind === "disable"
                     ? pendingWslChange.wasWslOnly
-                      ? "Control Plane will restart on the Windows backend. Threads and projects opened against WSL stay safe inside the distro and become available again when you re-enable WSL."
-                      : "The WSL backend will stop. Threads and projects opened against WSL stay safe inside the distro, but they'll be unavailable in Control Plane until you re-enable WSL."
+                      ? "Control Plane will restart on the Windows backend. Threads and workspaces opened against WSL stay safe inside the distro and become available again when you re-enable WSL."
+                      : "The WSL backend will stop. Threads and workspaces opened against WSL stay safe inside the distro, but they'll be unavailable in Control Plane until you re-enable WSL."
                     : pendingWslChange?.kind === "distro"
                       ? "Control Plane will restart the WSL backend on the new distro. Sessions still running on the current distro will be interrupted."
                       : pendingWslChange?.kind === "enable"
                         ? "Run the WSL backend alongside the Windows one, or stop the Windows backend and use only WSL? You can change this later from Settings."
                         : pendingWslChange?.nextValue
-                          ? "Control Plane will restart and start only the WSL backend. Your Windows-side projects won't be accessible until you turn this off again."
+                          ? "Control Plane will restart and start only the WSL backend. Your Windows-side workspaces won't be accessible until you turn this off again."
                           : "Control Plane will restart and bring the Windows backend back up alongside WSL."}
                 </AlertDialogDescription>
               </AlertDialogHeader>

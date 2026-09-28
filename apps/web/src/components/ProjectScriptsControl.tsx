@@ -246,7 +246,7 @@ export default function ProjectScriptsControl({
       {variant === "menu" ? (
         <HeaderOverflowMenuItems>{overflowItems}</HeaderOverflowMenuItems>
       ) : primaryScript ? (
-        <Group aria-label="Project scripts">
+        <Group aria-label="Workspace scripts">
           <Tooltip>
             <TooltipTrigger
               render={
@@ -289,7 +289,9 @@ export default function ProjectScriptsControl({
           open={actionsMenuOpen.imports}
           onOpenChange={(open) => setActionsMenuOpen({ scripts: false, imports: open })}
         >
-          <MenuTrigger render={<Button size="xs" variant="outline" aria-label="Project actions" />}>
+          <MenuTrigger
+            render={<Button size="xs" variant="outline" aria-label="Workspace actions" />}
+          >
             <PlusIcon className="size-3.5" />
             <span className="sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5">
               Add action

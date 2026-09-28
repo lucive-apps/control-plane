@@ -444,7 +444,7 @@ function EmptyEnvironmentState() {
     <View className="items-center gap-3 rounded-2xl bg-card px-5 py-8">
       <Text className="text-center text-lg font-t3-bold">Environment unavailable</Text>
       <Text className="text-center text-sm leading-normal text-foreground-muted">
-        Start or reconnect an environment before adding a project.
+        Start or reconnect an environment before adding a workspace.
       </Text>
       <Pressable
         onPress={() => navigation.dispatch(StackActions.replace("ConnectionsNew"))}
@@ -528,7 +528,7 @@ export function AddProjectSourceScreen() {
   );
 
   return (
-    <AddProjectShell title="Add project">
+    <AddProjectShell title="Add workspace">
       {selectedEnvironment === null ? <EmptyEnvironmentState /> : null}
 
       {environmentOptions.length > 1 ? (
@@ -656,7 +656,7 @@ function useCreateProject(environment: EnvironmentOption | null) {
         path: workspaceRoot,
       });
       if (existing) {
-        Alert.alert("Project already exists", existing.title);
+        Alert.alert("Workspace already exists", existing.title);
         completeAddProject(navigation, {
           environmentId: existing.environmentId,
           projectId: existing.id,
@@ -926,7 +926,7 @@ export function AddProjectLocalFolderScreen(props: { readonly environmentId?: st
             onSubmit={() => void submitPath()}
           />
           <PrimaryActionButton
-            label="Add project"
+            label="Add workspace"
             disabled={isBrowseNavigating || isSubmitting}
             onPress={() => void submitPath()}
             loading={isSubmitting}
@@ -1016,7 +1016,7 @@ export function AddProjectDestinationScreen(props: {
         );
         if (project === null) {
           setError(
-            "The project was created but has not reached this device yet. It will appear in the project list once the connection catches up.",
+            "The workspace was created but has not reached this device yet. It will appear in the workspace list once the connection catches up.",
           );
         } else {
           completeAddProject(navigation, {
@@ -1077,7 +1077,7 @@ export function AddProjectDestinationScreen(props: {
             onSubmit={() => void submitPath()}
           />
           <PrimaryActionButton
-            label="Clone project"
+            label="Clone workspace"
             disabled={isBrowseNavigating || isSubmitting || !remoteUrl}
             onPress={() => void submitPath()}
             loading={isSubmitting}

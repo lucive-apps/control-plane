@@ -172,7 +172,7 @@ function deriveEmptyState(props: {
   if (!catalogState.hasConnections) {
     return {
       title: "No environments connected",
-      detail: "Add an environment to load projects and start coding sessions.",
+      detail: "Add an environment to load workspaces and start coding sessions.",
       loading: false,
     };
   }
@@ -203,22 +203,22 @@ function deriveEmptyState(props: {
   ) {
     return {
       title: "Connecting to environment",
-      detail: "Loading projects and threads from the saved environment.",
+      detail: "Loading workspaces and threads from the saved environment.",
       loading: true,
     };
   }
 
   if (props.projectCount === 0 && catalogState.hasLoadedShellSnapshot) {
     return {
-      title: "No projects found",
-      detail: "The connected environment did not report any projects.",
+      title: "No workspaces found",
+      detail: "The connected environment did not report any workspaces.",
       loading: false,
     };
   }
 
   return {
     title: "No threads yet",
-    detail: "Create a task to start a new coding session in one of your connected projects.",
+    detail: "Create a task to start a new coding session in one of your connected workspaces.",
     loading: false,
   };
 }

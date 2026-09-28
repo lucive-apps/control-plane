@@ -79,7 +79,7 @@ export function resolveSettingsScope(
   });
 
   if (search.checkout && !search.project) {
-    return unavailable("project-required", "Select a project to choose one of its checkouts.");
+    return unavailable("project-required", "Select a workspace to choose one of its checkouts.");
   }
 
   const environment = environments.find((candidate) => candidate.environmentId === search.machine);
@@ -89,7 +89,7 @@ export function resolveSettingsScope(
 
   if (search.project) {
     const group = groups.find((candidate) => candidate.projectKey === search.project);
-    if (!group) return unavailable("project-missing", "This project is no longer available.");
+    if (!group) return unavailable("project-missing", "This workspace is no longer available.");
     const members = group.memberProjects.filter(
       (member) =>
         (search.machine === undefined || member.environmentId === search.machine) &&
@@ -99,8 +99,8 @@ export function resolveSettingsScope(
       return unavailable(
         "checkout-missing",
         search.checkout
-          ? "This checkout is no longer available in the selected project and environment."
-          : "This project has no checkout on this environment.",
+          ? "This checkout is no longer available in the selected workspace and environment."
+          : "This workspace has no checkout on this environment.",
       );
     }
     if (search.checkout) {

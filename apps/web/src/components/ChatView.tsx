@@ -2239,7 +2239,7 @@ export default function ChatView(props: ChatViewProps) {
             variant="ghost"
             onClick={() => void removeClonedProject({ environmentId, projectId })}
           >
-            Remove project
+            Remove workspace
           </Button>
           <Button
             size="xs"
@@ -2494,7 +2494,7 @@ export default function ChatView(props: ChatViewProps) {
   const openOrReuseProjectDraftThread = useCallback(
     async (input: { branch: string; worktreePath: string | null; envMode: DraftThreadEnvMode }) => {
       if (!activeProject) {
-        throw new Error("No active project is available for this pull request.");
+        throw new Error("No active workspace is available for this pull request.");
       }
       const activeProjectRef = scopeProjectRef(activeProject.environmentId, activeProject.id);
       const logicalProjectKey = deriveLogicalProjectKeyFromSettings(
@@ -6285,7 +6285,7 @@ export default function ChatView(props: ChatViewProps) {
       ),
       title: working
         ? liveCount > 0
-          ? `${liveCount} ${liveCount === 1 ? "agent" : "agents"} working`
+          ? `${liveCount} ${liveCount === 1 ? "subagent" : "subagents"} working`
           : "Background work"
         : "Monitoring",
       actions: (
@@ -6393,7 +6393,7 @@ export default function ChatView(props: ChatViewProps) {
   const compactDisabled = compactThreadUnavailable;
   const compactDisabledReason = compactDisabled
     ? !activeProject
-      ? "Choose a project before compacting"
+      ? "Choose a workspace before compacting"
       : !manualCompactionProviderAvailable
         ? "Compaction is unavailable for this provider"
         : "Compacting is unavailable right now"
@@ -7397,7 +7397,7 @@ export default function ChatView(props: ChatViewProps) {
           type: "warning",
           title: "Choose models and a base branch",
           description:
-            "Multiple models need a new thread in a Git project. Each gets its own worktree.",
+            "Multiple models need a new thread in a Git workspace. Each gets its own worktree.",
         }),
       );
       return;
@@ -7635,8 +7635,8 @@ export default function ChatView(props: ChatViewProps) {
       toastManager.add(
         stackedThreadToast({
           type: "warning",
-          title: "Choose a project first",
-          description: "This draft no longer points to an available project.",
+          title: "Choose a workspace first",
+          description: "This draft no longer points to an available workspace.",
         }),
       );
       return;
@@ -10430,7 +10430,7 @@ export default function ChatView(props: ChatViewProps) {
               Rewind chat to before this message. Your prompt and attachments return to the
               composer.
               {activeWorktreePath === null
-                ? " Files stay as they are because this thread shares the project directory."
+                ? " Files stay as they are because this thread shares the workspace directory."
                 : null}
             </AlertDialogDescription>
           </AlertDialogHeader>

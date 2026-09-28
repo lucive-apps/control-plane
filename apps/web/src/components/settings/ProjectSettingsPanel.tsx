@@ -128,15 +128,15 @@ export function ProjectSettingsPanel({
     return (
       <div className="flex flex-1 items-center justify-center p-8 text-sm text-muted-foreground">
         {groups.length === 0
-          ? "Add a project from the sidebar to configure it here."
-          : "This project is no longer available."}
+          ? "Add a workspace from the sidebar to configure it here."
+          : "This workspace is no longer available."}
       </div>
     );
   }
   if (members.length === 0)
     return (
       <p className="p-8 text-sm text-muted-foreground">
-        This checkout is no longer available in the selected project and environment.
+        This checkout is no longer available in the selected workspace and environment.
       </p>
     );
   const scopedGroup = {
@@ -253,7 +253,7 @@ function ProjectDetail({
     async (nextTitle: string, wasEdited: boolean) => {
       const title = nextTitle.trim();
       if (!title) {
-        toastManager.add({ type: "warning", title: "Project title cannot be empty" });
+        toastManager.add({ type: "warning", title: "Workspace title cannot be empty" });
         return;
       }
       if (
@@ -265,7 +265,7 @@ function ProjectDetail({
       ) {
         return;
       }
-      await updateAllMembers({ title }, "Failed to rename project");
+      await updateAllMembers({ title }, "Failed to rename workspace");
     },
     [group.memberProjects, updateAllMembers],
   );
@@ -281,7 +281,7 @@ function ProjectDetail({
       savingFaviconRef.current = true;
       setIsSavingFavicon(true);
       try {
-        await updateAllMembers(input, "Failed to update project icon");
+        await updateAllMembers(input, "Failed to update workspace icon");
       } finally {
         savingFaviconRef.current = false;
         setIsSavingFavicon(false);
@@ -381,16 +381,16 @@ function ProjectDetail({
   return (
     <>
       <SettingsPageContainer className="gap-6">
-        <SettingsSection id="project-overview" title="Project" hideTitle>
+        <SettingsSection id="project-overview" title="Workspace" hideTitle>
           <SettingsRow
             title="Name"
-            description="The shared name for this project group in the sidebar and thread lists."
+            description="The shared name for this workspace group in the sidebar and thread lists."
             control={
               <Input
                 key={`${group.projectKey}:${group.displayName}`}
                 size="sm"
                 className="w-full sm:w-64"
-                aria-label="Project name"
+                aria-label="Workspace name"
                 defaultValue={group.displayName}
                 onChange={() => {
                   projectNameEditedRef.current = true;
@@ -407,7 +407,7 @@ function ProjectDetail({
             }
           />
           <SettingsRow
-            title="Project icon"
+            title="Workspace icon"
             description={
               projectIcon?.kind === "lucide"
                 ? `${projectIcon.name} · ${projectIcon.color}`
@@ -422,7 +422,7 @@ function ProjectDetail({
                 (member) => member.faviconPath != null || member.projectIcon != null,
               ) ? (
                 <SettingResetButton
-                  label="project icon"
+                  label="workspace icon"
                   disabled={isSavingFavicon}
                   onClick={() => void setProjectIcon({ faviconPath: null, projectIcon: null })}
                 />
@@ -435,7 +435,7 @@ function ProjectDetail({
                   size="sm"
                   variant="outline"
                   type="button"
-                  aria-label="Choose a project icon"
+                  aria-label="Choose a workspace icon"
                   disabled={isSavingFavicon}
                   onClick={() => setIconPickerOpen(true)}
                 >
@@ -445,7 +445,7 @@ function ProjectDetail({
                   size="sm"
                   variant="outline"
                   type="button"
-                  aria-label="Choose a project icon file"
+                  aria-label="Choose a workspace icon file"
                   disabled={isSavingFavicon}
                   onClick={() => setFaviconPickerOpen(true)}
                 >
@@ -463,15 +463,15 @@ function ProjectDetail({
               hasOtherMembers
                 ? "Remove checkout"
                 : group.memberProjects.length > 1
-                  ? "Remove this project everywhere"
-                  : "Remove project"
+                  ? "Remove this workspace everywhere"
+                  : "Remove workspace"
             }
             description={
               hasOtherMembers
                 ? "Deletes the selected machine's checkout entries and their threads. Other machines and files on disk are not touched."
                 : group.memberProjects.length > 1
                   ? `Deletes all ${group.memberProjects.length} checkout entries and their threads on every machine. Files on disk are not touched.`
-                  : "Deletes the project entry and its threads. Files on disk are not touched."
+                  : "Deletes the workspace entry and its threads. Files on disk are not touched."
             }
             control={
               <Button
@@ -484,7 +484,7 @@ function ProjectDetail({
                   ? "Remove checkout"
                   : group.memberProjects.length > 1
                     ? "Remove all entries"
-                    : "Remove project"}
+                    : "Remove workspace"}
               </Button>
             }
           />

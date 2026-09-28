@@ -4848,8 +4848,8 @@ export default function Sidebar() {
                         items.push(
                           <SidebarListSectionHeader
                             key="projects-section"
-                            title="Projects"
-                            actionLabel="New Project"
+                            title="Tasks"
+                            actionLabel="Add workspace"
                             onAction={handleNewProject}
                           >
                             <FolderPlusIcon aria-hidden className="size-3.5" />
@@ -4947,14 +4947,14 @@ export default function Sidebar() {
           visibleDraftSessionCount === 0 &&
           projects.length === 0 ? (
             <div className="flex flex-col items-center gap-2 px-2 py-6 text-center text-xs text-muted-foreground/60">
-              <span>No projects yet</span>
+              <span>No workspaces yet</span>
               <button
                 type="button"
                 onClick={openAddProjectCommandPalette}
                 className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-sidebar-border px-2.5 py-1 text-[11px] font-medium text-sidebar-muted-foreground transition-colors hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
               >
                 <PlusIcon className="-mx-0.5 size-3" />
-                Add project
+                Add workspace
               </button>
             </div>
           ) : null}

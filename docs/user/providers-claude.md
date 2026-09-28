@@ -63,7 +63,7 @@ timestamp shows when the displayed wait started.
 
 ## Skills
 
-Claude skills come from the config directory's `skills` folder and the project's
+Claude skills come from the config directory's `skills` folder and the workspace's
 `.claude/skills` folder. If both define the same name, the config-directory copy
 wins. Skills disabled in Claude's settings do not appear in the composer.
 

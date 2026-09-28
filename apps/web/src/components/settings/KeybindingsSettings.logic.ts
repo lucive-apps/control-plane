@@ -14,7 +14,7 @@ import {
 import { shortcutKeyFromEvent } from "../../keybindings";
 import { isMacPlatform } from "../../lib/utils";
 
-export type KeybindingSource = "Default" | "Custom" | "Project";
+export type KeybindingSource = "Default" | "Custom" | "Workspace";
 
 export interface KeybindingRow {
   readonly id: string;
@@ -108,7 +108,7 @@ export function parseWhenExpressionDraft(
 
 function sourceForBinding(binding: ResolvedKeybindingRule): KeybindingSource {
   if (String(binding.command).startsWith("script.")) {
-    return "Project";
+    return "Workspace";
   }
 
   const bindingKey = shortcutToKeybindingInput(binding.shortcut);
@@ -286,6 +286,8 @@ export function commandLabel(command: KeybindingCommand): string {
   if (command === "composer.nextFavoriteModel") return "Next favorite model";
   if (command === "composer.previousFavoriteModel") return "Previous favorite model";
   if (command === "thread.copyReference") return "Pull Request: Copy Link or Thread ID";
+  if (command === "projectSearch.toggle") return "Workspace Search: Toggle";
+  if (command === "composer.workspace") return "Composer: Checkout";
   const raw = String(command);
   if (raw.startsWith("script.") && raw.endsWith(".run")) {
     return `Run Script: ${titleCaseCommandSegment(raw.slice("script.".length, -".run".length))}`;

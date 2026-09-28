@@ -361,7 +361,8 @@ describe("scoped settings writes", () => {
       planScopedSettingsPatch(project, environments, { enableProviderUpdateChecks: false }),
     ).toMatchObject({
       serverWrites: [],
-      unavailableReason: "This setting is environment-wide and cannot be overridden by a project.",
+      unavailableReason:
+        "This setting is environment-wide and cannot be overridden by a workspace.",
     });
     const legacy = environment("Server", { projectOverrides: false });
     expect(

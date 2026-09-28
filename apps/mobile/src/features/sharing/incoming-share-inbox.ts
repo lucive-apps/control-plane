@@ -156,7 +156,7 @@ export class IncomingShareInbox {
           target.destination.environmentId !== destination.environmentId ||
           target.destination.projectId !== destination.projectId
         ) {
-          throw new Error("The shared content is already reserved for another project draft.");
+          throw new Error("The shared content is already reserved for another workspace draft.");
         }
         return sortAndDedupeIncomingShares(persisted);
       }

@@ -34,7 +34,7 @@ describe("settingInheritanceLayers", () => {
       "defaultAutoPull",
     );
     expect(layers.map((layer) => [layer.label, layer.value, layer.effective])).toEqual([
-      ["Project", "Off", true],
+      ["Workspace", "Off", true],
       ["Laptop", "On", false],
       ["Default", "Off", false],
     ]);

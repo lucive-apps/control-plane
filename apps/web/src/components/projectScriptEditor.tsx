@@ -304,7 +304,7 @@ export function ProjectScriptEditorDialog({
           <DialogHeader>
             <DialogTitle>{isEditing ? "Edit Action" : "Add Action"}</DialogTitle>
             <DialogDescription>
-              Actions are project-scoped commands you can run from the top bar or keybindings.
+              Actions are workspace-scoped commands you can run from the top bar or keybindings.
             </DialogDescription>
           </DialogHeader>
           <DialogPanel>
@@ -372,7 +372,7 @@ export function ProjectScriptEditorDialog({
                   />
                   <p className="text-xs text-muted-foreground">
                     Press a shortcut. Use <code>Backspace</code> to clear. Shortcuts are
-                    environment-wide. Projects using the same action share its shortcut.
+                    environment-wide. Workspaces using the same action share its shortcut.
                   </p>
                 </div>
                 <div className="space-y-1.5">

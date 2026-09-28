@@ -92,11 +92,11 @@ function AndroidHomeHeader(props: HomeHeaderProps) {
         : ([
             {
               id: "project",
-              title: "Project",
+              title: "Workspace",
               subactions: [
                 {
                   id: "project:all",
-                  title: "All projects",
+                  title: "All workspaces",
                   state: checkedMenuState(props.selectedProjectKey === null),
                 },
                 ...props.projects.map((project) => ({
@@ -112,7 +112,7 @@ function AndroidHomeHeader(props: HomeHeaderProps) {
         : ([
             {
               id: "project-sort",
-              title: "Sort projects",
+              title: "Sort workspaces",
               subactions: PROJECT_SORT_OPTIONS.map((option) => ({
                 id: `project-sort:${option.value}`,
                 title: option.label,

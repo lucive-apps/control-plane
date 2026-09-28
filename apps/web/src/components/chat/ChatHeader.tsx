@@ -287,7 +287,7 @@ export const ChatHeader = memo(function ChatHeader({
         const api = readLocalApi();
         if (!api) return;
         void api.contextMenu
-          .show([{ id: "project-settings", label: "Project settings", icon: "settings" }], {
+          .show([{ id: "project-settings", label: "Workspace settings", icon: "settings" }], {
             x: event.clientX,
             y: event.clientY,
           })

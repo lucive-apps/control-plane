@@ -8,7 +8,7 @@ notice.
 ## Before you update
 
 Server updates restart the connection and can interrupt active agents and
-terminal commands. Saved threads, settings, and project files remain.
+terminal commands. Saved threads, settings, and workspace files remain.
 
 **Settings → General → Continue threads after restarts** is off by default.
 Enable it to resume supported active threads after an update, crash, or machine

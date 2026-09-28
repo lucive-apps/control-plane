@@ -202,10 +202,10 @@ function ProjectScopeMenu({ value, groups, onChange }: SettingsScopeBreadcrumbPr
   const selected = groups.find((group) => group.projectKey === value.project);
   return (
     <ScopeMenu
-      ariaLabel="Project scope"
+      ariaLabel="Workspace scope"
       narrowed={value.project !== undefined}
       icon={selected ? <ProjectFavicon project={selected} className="size-3.5 shrink-0" /> : null}
-      label={selected?.displayName ?? (value.project ? "Unavailable project" : "All projects")}
+      label={selected?.displayName ?? (value.project ? "Unavailable workspace" : "All workspaces")}
     >
       <MenuRadioGroup
         value={projectAxisValue(value)}
@@ -215,7 +215,7 @@ function ProjectScopeMenu({ value, groups, onChange }: SettingsScopeBreadcrumbPr
       >
         <MenuRadioItem value={ALL_PROJECTS_VALUE}>
           <span className="flex min-w-0 items-center gap-2">
-            <span className="min-w-0 flex-1 truncate">All projects</span>
+            <span className="min-w-0 flex-1 truncate">All workspaces</span>
             <MenuRadioItemIndicator />
           </span>
         </MenuRadioItem>

@@ -655,12 +655,12 @@ function ThreadNavigationSidebarPane(
         : ([
             {
               id: "project",
-              title: "Project",
+              title: "Workspace",
               subactions: [
                 {
                   id: "project:all",
-                  title: "All projects",
-                  subtitle: "Show threads from every project",
+                  title: "All workspaces",
+                  subtitle: "Show threads from every workspace",
                   state: selectedProjectKey === null ? "on" : "off",
                 },
                 ...projectFilterOptions.map((project) => ({
@@ -679,7 +679,7 @@ function ThreadNavigationSidebarPane(
         : ([
             {
               id: "project-sort",
-              title: "Sort projects",
+              title: "Sort workspaces",
               subactions: PROJECT_SORT_OPTIONS.map((option) => ({
                 id: `project-sort:${option.value}`,
                 title: option.label,

@@ -121,11 +121,11 @@ describe("buildRemoveProjectConfirmMessage", () => {
       }),
     ).toBe(
       [
-        'Remove project "alpha"?',
+        'Remove workspace "alpha"?',
         "Path: /Users/nick/Code/alpha",
         "Environment: This device",
         "This permanently clears any archived conversation history.",
-        "This removes only the project entries, not the files on disk.",
+        "This removes only the workspace entries, not the files on disk.",
         "This action cannot be undone.",
       ].join("\n"),
     );
@@ -146,7 +146,7 @@ describe("buildRemoveProjectConfirmMessage", () => {
         "Path: /home/nick/alpha",
         "Environment: studio",
         "This permanently clears conversation history for those threads and any archived threads.",
-        "Other entries in this grouped project are unaffected.",
+        "Other entries in this grouped workspace are unaffected.",
         "This action cannot be undone.",
       ].join("\n"),
     );
@@ -161,7 +161,7 @@ describe("buildRemoveProjectConfirmMessage", () => {
         threadCount: 1,
         hasOtherMembers: false,
       }),
-    ).toContain("This removes 2 grouped project entries.");
+    ).toContain("This removes 2 grouped workspace entries.");
   });
 });
 

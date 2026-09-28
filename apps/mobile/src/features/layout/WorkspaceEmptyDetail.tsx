@@ -22,7 +22,7 @@ export function WorkspaceEmptyDetail(props: {
         <View className="w-full max-w-[430px]">
           <EmptyState
             title="No environments connected"
-            detail="Add an environment to load projects and start coding sessions."
+            detail="Add an environment to load workspaces and start coding sessions."
             variant="plain"
             action={
               <MaterialFloatingActionButton
