@@ -1318,7 +1318,7 @@ describe("buildThreadFeed", () => {
       item: { server: "cplane", tool: "cp_thread_send" },
       status: "inProgress",
       displayName: "messaging agent",
-      icon: "t3-code",
+      icon: "message-circle",
     },
     {
       source: "renamed provider-qualified title",

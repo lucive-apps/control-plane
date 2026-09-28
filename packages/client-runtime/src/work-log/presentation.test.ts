@@ -230,7 +230,7 @@ describe("resolveWorkEntryToolPresentation", () => {
   it.each([
     ["cplane_preview_click", { displayName: "Clicked in the preview browser", icon: "browser" }],
     ["t3-code_preview_click", { displayName: "Clicked in the preview browser", icon: "browser" }],
-    ["cplane_cp_thread_send", { displayName: "messaged agent", icon: "t3-code" }],
+    ["cplane_cp_thread_send", { displayName: "messaged agent", icon: "message-circle" }],
   ])("recognizes OpenCode's %s tool title, which carries no server field", (tool, expected) => {
     expect(
       resolveWorkEntryToolPresentation({
@@ -356,7 +356,7 @@ describe("resolveWorkEntryToolPresentation", () => {
           toolLifecycleStatus: "completed",
           toolData: { arguments: { threadId: "5f13b410-5497-44d6-af9c-6bfad3804593" } },
         }),
-      ).toEqual({ displayName: "messaged agent", icon: "t3-code" });
+      ).toEqual({ displayName: "messaged agent", icon: "message-circle" });
     },
   );
 
@@ -382,7 +382,7 @@ describe("resolveWorkEntryToolPresentation", () => {
         toolLifecycleStatus: "completed",
         toolData: { server, tool, arguments: { threadTitle: "Reviewer" } },
       }),
-    ).toEqual({ displayName: "messaged Reviewer", icon: "t3-code" });
+    ).toEqual({ displayName: "messaged Reviewer", icon: "message-circle" });
   });
 
   it("does not brand unknown tools or another server's matching tool name", () => {
