@@ -17,6 +17,7 @@ import { HttpClient } from "effect/unstable/http";
 import * as Schema from "effect/Schema";
 
 import { CLI_RELEASE_BASE_URL_ENV } from "@t3tools/shared/cliRelease";
+import { HOME_ENV_NAMES } from "@t3tools/shared/home";
 
 import * as ProcessRunner from "../processRunner.ts";
 import {
@@ -57,23 +58,31 @@ function quoteSystemdValue(value: string): string {
 }
 
 /**
- * Reads `T3CODE_HOME` back out of a rendered unit or plist. Only values this
- * file writes are expected, so a quoted systemd value is unquoted and
- * unescaped the same way `quoteSystemdValue` produced it.
+ * Reads the home back out of a rendered unit or plist, in the resolver's
+ * variable precedence (`CPLANE_HOME` may be rendered by a later release, this
+ * one writes `T3CODE_HOME`). Only values these renderers write are expected,
+ * so a quoted systemd value is unquoted and unescaped the same way
+ * `quoteSystemdValue` produced it.
+ *
+ * The value is taken literally, never redirected by a completed home move:
+ * the launcher keeps its runtime and state under that literal home, so a unit
+ * naming a moved home is left for the move to re-render.
  */
 export function bootServiceBaseDirOf(contents: string): string | undefined {
-  const systemd = /^Environment=T3CODE_HOME=(.*)$/m.exec(contents)?.[1];
-  if (systemd !== undefined) {
-    const raw = systemd.trim();
-    const unquoted =
-      raw.startsWith('"') && raw.endsWith('"')
-        ? raw.slice(1, -1).replaceAll('\\"', '"').replaceAll("\\\\", "\\")
-        : raw;
-    return unquoted.replaceAll("%%", "%");
-  }
-  const plist = /<key>T3CODE_HOME<\/key>\s*<string>([^<]*)<\/string>/.exec(contents)?.[1];
-  if (plist !== undefined) {
-    return plist.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&");
+  for (const name of HOME_ENV_NAMES) {
+    const systemd = new RegExp(`^Environment=${name}=(.*)$`, "m").exec(contents)?.[1];
+    if (systemd !== undefined) {
+      const raw = systemd.trim();
+      const unquoted =
+        raw.startsWith('"') && raw.endsWith('"')
+          ? raw.slice(1, -1).replaceAll('\\"', '"').replaceAll("\\\\", "\\")
+          : raw;
+      return unquoted.replaceAll("%%", "%");
+    }
+    const plist = new RegExp(`<key>${name}</key>\\s*<string>([^<]*)</string>`).exec(contents)?.[1];
+    if (plist !== undefined) {
+      return plist.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&");
+    }
   }
   return undefined;
 }

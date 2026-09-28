@@ -6,6 +6,7 @@ import * as NodePath from "node:path";
 import * as NetService from "@t3tools/shared/Net";
 import {
   HostProcessEnvironment,
+  HostProcessHomeDirectory,
   HostProcessPlatform,
   HostProcessWorkingDirectory,
 } from "@t3tools/shared/hostProcess";
@@ -73,7 +74,16 @@ const devServerInput = {
   runArgs: ["--inspect", "secret-token-value"],
 } as const;
 
-it.layer(NodeServices.layer)("dev-runner", (it) => {
+it.layer(
+  Layer.mergeAll(
+    NodeServices.layer,
+    // The implicit dev home derives from the user's home; never the real one here.
+    Layer.succeed(
+      HostProcessHomeDirectory,
+      NodePath.join(NodeOS.tmpdir(), "t3-devrunner-empty-home"),
+    ),
+  ),
+)("dev-runner", (it) => {
   it.effect("accepts a dry run without the optional browser flag", () =>
     Effect.gen(function* () {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -952,15 +962,16 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
 
     // `tailscale serve` config outlives the process, so a dry run that shared
     // would replace and then tear down whatever mapping the port already had.
-    // Base-dir precedence (--home-dir > worktree .t3 > ambient T3CODE_HOME)
-    // lives in runDevRunnerWithInput; the env builder must not consult the
-    // ambient variable on its own, or it would silently outrank the worktree
-    // default and land dev state on the user's real database.
-    it.effect("ignores an ambient T3CODE_HOME when no home is resolved", () =>
+    // Base-dir precedence (--home-dir > worktree home > ambient CPLANE_HOME >
+    // ambient T3CODE_HOME) lives in runDevRunnerWithInput; the env builder
+    // must not pass either ambient variable on by itself, or it would silently
+    // outrank the worktree default and land dev state on the user's real
+    // database.
+    it.effect("ignores ambient home variables when no home is resolved", () =>
       Effect.gen(function* () {
         const env = yield* createDevRunnerEnv({
           mode: "dev",
-          baseEnv: { T3CODE_HOME: "/home/user/.t3" },
+          baseEnv: { CPLANE_HOME: "/home/user/.cplane", T3CODE_HOME: "/home/user/.t3" },
           serverOffset: 0,
           webOffset: 0,
           t3Home: undefined,
@@ -973,6 +984,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
         });
 
         assert.equal(env.T3CODE_HOME, undefined);
+        assert.equal(env.CPLANE_HOME, undefined);
       }),
     );
 
@@ -1297,10 +1309,10 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
         (root) => Effect.sync(() => NodeFS.rmSync(root, { recursive: true, force: true })),
       );
 
-      const spawnedHome = (input: {
+      const spawnedEnv = (input: {
         readonly t3Home: string | undefined;
         readonly cwd: string;
-        readonly ambientHome: string | undefined;
+        readonly ambient: Record<string, string>;
       }) =>
         Effect.gen(function* () {
           let captured: Record<string, string | undefined> | undefined;
@@ -1320,14 +1332,22 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
             Effect.provide(Layer.mergeAll(emptyConfigLayer, netServiceLayer, spawnerLayer)),
             Effect.provideService(HostProcessPlatform, "linux"),
             Effect.provideService(HostProcessWorkingDirectory, input.cwd),
-            Effect.provideService(
-              HostProcessEnvironment,
-              input.ambientHome === undefined ? {} : { T3CODE_HOME: input.ambientHome },
-            ),
+            Effect.provideService(HostProcessEnvironment, input.ambient),
           );
 
-          return captured?.T3CODE_HOME;
+          return captured;
         });
+
+      const spawnedHome = (input: {
+        readonly t3Home: string | undefined;
+        readonly cwd: string;
+        readonly ambientHome: string | undefined;
+      }) =>
+        spawnedEnv({
+          t3Home: input.t3Home,
+          cwd: input.cwd,
+          ambient: input.ambientHome === undefined ? {} : { T3CODE_HOME: input.ambientHome },
+        }).pipe(Effect.map((env) => env?.T3CODE_HOME));
 
       it.effect("prefers an explicit --home-dir over the worktree default", () =>
         Effect.gen(function* () {
@@ -1377,6 +1397,36 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
             ambientHome: "/home/user/.t3",
           });
           assert.equal(home, path.resolve("/home/user/.t3"));
+        }),
+      );
+
+      it.effect("honors an existing worktree .cplane over an ambient CPLANE_HOME", () =>
+        Effect.gen(function* () {
+          const path = yield* Path.Path;
+          const root = yield* makeWorktree;
+          NodeFS.mkdirSync(NodePath.join(root, ".cplane"));
+          const env = yield* spawnedEnv({
+            t3Home: undefined,
+            cwd: root,
+            ambient: { CPLANE_HOME: "/home/user/.cplane", T3CODE_HOME: "/home/user/.t3" },
+          });
+          assert.equal(env?.T3CODE_HOME, path.join(path.resolve(root), ".cplane"));
+          // The child resolves CPLANE_HOME first, so an inherited one would
+          // outrank the home chosen here.
+          assert.notProperty(env, "CPLANE_HOME");
+        }).pipe(Effect.scoped),
+      );
+
+      it.effect("ranks an ambient CPLANE_HOME over T3CODE_HOME outside a worktree", () =>
+        Effect.gen(function* () {
+          const path = yield* Path.Path;
+          const env = yield* spawnedEnv({
+            t3Home: undefined,
+            cwd: NodeOS.tmpdir(),
+            ambient: { CPLANE_HOME: "/home/user/.cplane", T3CODE_HOME: "/home/user/.t3" },
+          });
+          assert.equal(env?.T3CODE_HOME, path.resolve("/home/user/.cplane"));
+          assert.notProperty(env, "CPLANE_HOME");
         }),
       );
 

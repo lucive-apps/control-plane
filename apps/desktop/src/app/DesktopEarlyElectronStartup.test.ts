@@ -10,12 +10,19 @@ import {
 
 describe("DesktopEarlyElectronStartup", () => {
   const joinPath = NodePath.posix.join;
+  // No `~/.cplane` and no symlinks: the home resolves exactly as before M1.
+  const noHomeLayout = {
+    pathExists: () => false,
+    isSymbolicLink: () => false,
+    fileIdentity: () => undefined,
+  };
 
   it("reads the persisted linux password-store preference before Electron is ready", () => {
     const preference = resolveEarlyLinuxPasswordStorePreference({
       env: { T3CODE_HOME: "/home/user/.t3-test" },
       homeDirectory: "/home/user",
       joinPath,
+      ...noHomeLayout,
       readFileString: (path) => {
         assert.equal(path, "/home/user/.t3-test/userdata/desktop-settings.json");
         return JSON.stringify({ linuxPasswordStore: "kwallet6" });
@@ -30,6 +37,7 @@ describe("DesktopEarlyElectronStartup", () => {
       env: { T3CODE_HOME: "/home/user/.t3-test" },
       homeDirectory: "/home/user",
       joinPath,
+      ...noHomeLayout,
       readFileString: () => `{
         // manually edited setting
         "linuxPasswordStore": "gnome-libsecret",
@@ -44,6 +52,7 @@ describe("DesktopEarlyElectronStartup", () => {
       env: {},
       homeDirectory: "/home/user",
       joinPath,
+      ...noHomeLayout,
       readFileString: () => {
         throw new Error("missing");
       },
@@ -57,6 +66,7 @@ describe("DesktopEarlyElectronStartup", () => {
       env: { T3CODE_HOME: "/" },
       homeDirectory: "/home/user",
       joinPath,
+      ...noHomeLayout,
       readFileString: (path) => {
         assert.equal(path, "/userdata/desktop-settings.json");
         return JSON.stringify({ linuxPasswordStore: "kwallet6" });
@@ -75,6 +85,7 @@ describe("DesktopEarlyElectronStartup", () => {
       },
       homeDirectory: "/home/user",
       joinPath,
+      ...noHomeLayout,
       readFileString: (path) => {
         assert.equal(path, "/home/user/.t3-test/userdata/desktop-settings.json");
         return JSON.stringify({ linuxPasswordStore: "auto" });
@@ -96,6 +107,7 @@ describe("DesktopEarlyElectronStartup", () => {
       },
       homeDirectory: "/home/user",
       joinPath,
+      ...noHomeLayout,
       readFileString: (path) => {
         assert.equal(path, "/home/user/.t3/dev/desktop-settings.json");
         return JSON.stringify({ linuxPasswordStore: "kwallet" });
@@ -113,6 +125,7 @@ describe("DesktopEarlyElectronStartup", () => {
       },
       homeDirectory: "/home/user",
       joinPath,
+      ...noHomeLayout,
       readFileString: (path) => {
         assert.equal(path, "/home/user/.t3/dev/desktop-settings.json");
         return JSON.stringify({ linuxPasswordStore: "gnome-libsecret" });
@@ -143,6 +156,82 @@ describe("DesktopEarlyElectronStartup", () => {
         pathExists: (path) => path.endsWith("T3 Code (Dev)"),
       }),
       "/Users/alice/Library/Application Support/T3 Code (Dev)",
+    );
+  });
+
+  it("switches Chromium userData to an existing cplane profile", () => {
+    const appDataDirectory = "/Users/alice/Library/Application Support";
+    const everyProfileExists = () => true;
+
+    assert.equal(
+      resolveDesktopChromiumUserDataPath({
+        appDataDirectory,
+        isDevelopment: false,
+        joinPath,
+        pathExists: everyProfileExists,
+      }),
+      `${appDataDirectory}/cplane`,
+    );
+    assert.equal(
+      resolveDesktopChromiumUserDataPath({
+        appDataDirectory,
+        isDevelopment: true,
+        joinPath,
+        pathExists: everyProfileExists,
+      }),
+      `${appDataDirectory}/cplane-dev`,
+    );
+  });
+
+  it("reads settings from the home the desktop will use once ~/.cplane exists", () => {
+    const layout = (paths: Record<string, string>) => ({
+      homeDirectory: "/home/user",
+      joinPath,
+      isSymbolicLink: () => false,
+      fileIdentity: () => undefined,
+      pathExists: (path: string) =>
+        path === "/home/user/.cplane/userdata" || Object.hasOwn(paths, path),
+      readFileString: (path: string) => {
+        const contents = paths[path];
+        if (contents === undefined) throw new Error(`missing ${path}`);
+        return contents;
+      },
+    });
+    const settings = JSON.stringify({ linuxPasswordStore: "kwallet6" });
+    const completedMove = JSON.stringify({
+      state: "complete",
+      from: "/home/user/.t3",
+      environmentId: "environment-1",
+      sourceMaxSequence: 7,
+      at: "2026-01-01T00:00:00.000Z",
+      version: "0.0.60",
+    });
+
+    assert.equal(
+      resolveEarlyLinuxPasswordStorePreference({
+        env: {},
+        ...layout({ "/home/user/.cplane/userdata/desktop-settings.json": settings }),
+      }),
+      "kwallet6",
+    );
+    // An inherited T3CODE_HOME follows the completed move.
+    assert.equal(
+      resolveEarlyLinuxPasswordStorePreference({
+        env: { T3CODE_HOME: "/home/user/.t3" },
+        ...layout({
+          "/home/user/.cplane/userdata/home-migration.json": completedMove,
+          "/home/user/.cplane/userdata/desktop-settings.json": settings,
+        }),
+      }),
+      "kwallet6",
+    );
+    // Dev state stays in ~/.t3/dev.
+    assert.equal(
+      resolveEarlyLinuxPasswordStorePreference({
+        env: { VITE_DEV_SERVER_URL: "http://127.0.0.1:5173" },
+        ...layout({ "/home/user/.t3/dev/desktop-settings.json": settings }),
+      }),
+      "kwallet6",
     );
   });
 });

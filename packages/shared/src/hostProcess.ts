@@ -39,6 +39,14 @@ export const HostProcessWorkingDirectory = Context.Reference<string>(
   },
 );
 
+/** The user's home directory, where the default data home lives. Tests inject a temp dir. */
+export const HostProcessHomeDirectory = Context.Reference<string>(
+  "@t3tools/shared/hostProcess/HostProcessHomeDirectory",
+  {
+    defaultValue: () => NodeOS.homedir(),
+  },
+);
+
 export const HostProcessExecutablePath = Context.Reference<string>(
   "@t3tools/shared/hostProcess/HostProcessExecutablePath",
   {

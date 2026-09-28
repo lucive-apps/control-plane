@@ -7,6 +7,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as NetService from "@t3tools/shared/Net";
 import { assert, describe, it } from "@effect/vitest";
+import { afterAll, vi } from "vite-plus/test";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as TestConsole from "effect/testing/TestConsole";
@@ -15,6 +16,20 @@ import { Command } from "effect/unstable/cli";
 import { cli } from "../bin.ts";
 import { symlinksSupported } from "@t3tools/shared/testing/symlinks";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+
+// The home resolver probes `<home>/.t3` and `<home>/.cplane`, and an implicit
+// home gets its state directories created; keep all of it in a throwaway home.
+vi.mock("node:os", async (importOriginal) => {
+  const os = await importOriginal<typeof import("node:os")>();
+  const { mkdtempSync } = await import("node:fs");
+  const home = mkdtempSync(`${os.tmpdir()}/t3-cli-test-home-`);
+  return { ...os, homedir: () => home };
+});
+afterAll(() => {
+  // Guarded so a broken mock can never delete a real home.
+  const home = NodeOS.homedir();
+  if (home.includes("t3-cli-test-home-")) NodeFS.rmSync(home, { recursive: true, force: true });
+});
 
 // These force a failure with chmod, which Windows ignores for directories and
 // cannot use to make a file unreadable, so the failure never happens there.

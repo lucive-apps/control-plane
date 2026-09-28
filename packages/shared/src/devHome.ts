@@ -13,6 +13,8 @@ import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 
+import { resolveLocalDevHome } from "./home.ts";
+
 /**
  * A `.git` file points at the real git directory. A linked worktree's lives at
  * `<common-dir>/worktrees/<name>`; a submodule's at
@@ -86,9 +88,10 @@ export const resolveGitWorktreePath = (
   });
 
 /**
- * The worktree-local data directory for `cwd`, or undefined outside a linked
- * worktree. Deliberately does not require the directory to exist yet: falling
- * back because it is missing would send callers at the shared home.
+ * The worktree-local data directory for `cwd` (an existing `.cplane`, else
+ * `.t3`), or undefined outside a linked worktree. Deliberately does not
+ * require the directory to exist yet: falling back because it is missing would
+ * send callers at the shared home.
  */
 export const resolveWorktreeT3Home = (
   cwd: string,
@@ -98,6 +101,5 @@ export const resolveWorktreeT3Home = (
     if (worktreePath === undefined) {
       return undefined;
     }
-    const path = yield* Path.Path;
-    return path.join(worktreePath, ".t3");
+    return yield* resolveLocalDevHome(worktreePath);
   });

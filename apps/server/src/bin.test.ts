@@ -26,6 +26,7 @@ import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
 import * as CliError from "effect/unstable/cli/CliError";
 import * as TestConsole from "effect/testing/TestConsole";
 import { Command } from "effect/unstable/cli";
+import { afterAll, vi } from "vite-plus/test";
 
 import { cli, makeCli } from "./bin.ts";
 import * as ServiceLauncherClient from "./cloud/serviceLauncherClient.ts";
@@ -52,6 +53,20 @@ import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import { environmentAuthenticatedAuthLayer } from "./auth/http.ts";
 
 import packageJson from "../package.json" with { type: "json" };
+
+// The root command starts a server on the implicit home, and the home resolver
+// probes the user's home even for an explicit one. Keep both in a throwaway home.
+vi.mock("node:os", async (importOriginal) => {
+  const os = await importOriginal<typeof import("node:os")>();
+  const { mkdtempSync } = await import("node:fs");
+  const home = mkdtempSync(`${os.tmpdir()}/t3-cli-test-home-`);
+  return { ...os, homedir: () => home };
+});
+afterAll(() => {
+  // Guarded so a broken mock can never delete a real home.
+  const home = NodeOS.homedir();
+  if (home.includes("t3-cli-test-home-")) NodeFS.rmSync(home, { recursive: true, force: true });
+});
 
 const CliRuntimeLayer = Layer.mergeAll(NodeServices.layer, NetService.layer);
 const DisconnectedLauncherChildLayer = Layer.mergeAll(
