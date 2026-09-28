@@ -8,12 +8,15 @@
 import {
   DEFAULT_CODE_FONT_SIZE,
   DEFAULT_INTERFACE_FONT_SIZE,
+  DEFAULT_SIDEBAR_FONT_SIZE,
   DEFAULT_PROMPT_FONT_SIZE,
   MAX_CODE_FONT_SIZE,
   MAX_INTERFACE_FONT_SIZE,
+  MAX_SIDEBAR_FONT_SIZE,
   MAX_PROMPT_FONT_SIZE,
   MIN_CODE_FONT_SIZE,
   MIN_INTERFACE_FONT_SIZE,
+  MIN_SIDEBAR_FONT_SIZE,
   MIN_PROMPT_FONT_SIZE,
 } from "@t3tools/contracts";
 
@@ -76,6 +79,7 @@ export interface AppearanceFontPreferences {
   readonly code: string;
   readonly composer: string;
   readonly sizeInterface: number;
+  readonly sizeSidebar: number;
   readonly sizePrompt: number;
   readonly sizeCode: number;
   /** Grayscale `antialiased` rendering; false keeps the heavier platform default. */
@@ -87,8 +91,8 @@ export interface AppearanceFontPreferences {
  * override so the stylesheet defaults (and theme changes) stay in charge.
  *
  * Sizes are always written: the interface size drives the root font size (and
- * with it every rem-based dimension), while the prompt and code sizes stay in
- * absolute pixels so they do not scale twice.
+ * with it every rem-based dimension), while the sidebar, prompt, and code sizes
+ * stay in absolute pixels so they do not scale twice.
  */
 export function applyAppearanceFontVariables(
   root: HTMLElement,
@@ -110,6 +114,10 @@ export function applyAppearanceFontVariables(
   }
 
   root.style.fontSize = `${clampInterfaceFontSize(preferences.sizeInterface)}px`;
+  root.style.setProperty(
+    "--font-size-sidebar",
+    `${clampSidebarFontSize(preferences.sizeSidebar)}px`,
+  );
   root.style.setProperty("--font-size-prompt", `${clampPromptFontSize(preferences.sizePrompt)}px`);
   const code = clampCodeFontSize(preferences.sizeCode);
   root.style.setProperty("--font-size-code", `${code}px`);
@@ -138,6 +146,15 @@ export function clampInterfaceFontSize(value: number): number {
     MIN_INTERFACE_FONT_SIZE,
     MAX_INTERFACE_FONT_SIZE,
     DEFAULT_INTERFACE_FONT_SIZE,
+  );
+}
+
+export function clampSidebarFontSize(value: number): number {
+  return clampFontSize(
+    value,
+    MIN_SIDEBAR_FONT_SIZE,
+    MAX_SIDEBAR_FONT_SIZE,
+    DEFAULT_SIDEBAR_FONT_SIZE,
   );
 }
 

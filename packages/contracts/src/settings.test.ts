@@ -487,6 +487,18 @@ describe("ClientSettings glass opacity", () => {
   });
 });
 
+describe("ClientSettings sidebar font size", () => {
+  it("defaults to the current sidebar size and accepts independent updates", () => {
+    expect(decodeClientSettings({}).fontSizeSidebar).toBe(16);
+    expect(decodeClientSettingsPatch({ fontSizeSidebar: 14 })).toEqual({ fontSizeSidebar: 14 });
+    expect(decodeClientSettings({ fontSizeSidebar: 14 }).fontSizeInterface).toBe(16);
+  });
+
+  it.each([11, 21, 14.5])("rejects an out-of-range sidebar size: %s", (value) => {
+    expect(() => decodeClientSettingsPatch({ fontSizeSidebar: value })).toThrow();
+  });
+});
+
 describe("ClientSettings appearance contrast", () => {
   it("defaults to the theme's original contrast", () => {
     expect(decodeClientSettings({}).appearanceContrast).toBe(100);

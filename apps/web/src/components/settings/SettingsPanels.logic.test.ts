@@ -27,9 +27,10 @@ describe("typography settings restore", () => {
       getChangedTypographySettingLabels({
         ...DEFAULT_UNIFIED_SETTINGS,
         fontSizeInterface: 18,
+        fontSizeSidebar: 14,
         fontFamilyCode: "Fira Code",
       }),
-    ).toEqual(["Interface font", "Code font"]);
+    ).toEqual(["Interface font", "Sidebar font size", "Code font"]);
   });
 });
 

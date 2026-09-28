@@ -229,6 +229,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["typography family size system sans"],
   },
   {
+    id: "sidebar-font-size",
+    title: "Sidebar font size",
+    to: "/settings/appearance",
+    searchTerms: ["typography projects threads text size"],
+  },
+  {
     id: "prompt-font",
     title: "Prompt font",
     to: "/settings/appearance",

@@ -995,8 +995,8 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --placeholder: var(--muted-foreground);
   --secondary-label: var(--muted-foreground);
   --icon-muted: var(--muted-foreground);
-  --message-surface: var(--accent);
-  --message-foreground: var(--foreground);
+  --message-surface: #000;
+  --message-foreground: #fff;
   --message-action: var(--primary);
   --message-action-foreground: var(--primary-foreground);
   --message-action-hover: color-mix(in srgb, var(--primary) 90%, var(--background));
@@ -1057,6 +1057,8 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     --muted-foreground: color-mix(in srgb, var(--color-neutral-500) 90%, var(--color-white));
     --accent: --alpha(var(--color-white) / 4%);
     --accent-foreground: var(--color-neutral-100);
+    --message-surface: #141414;
+    --message-foreground: var(--color-neutral-100);
     --error: color-mix(in srgb, var(--color-red-500) 90%, var(--color-white));
     --error-foreground: var(--color-red-400);
     --tool-error-icon: #fca5a5;
@@ -1084,8 +1086,8 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
    zinc hierarchy: zinc-50 navigation, zinc-25 hover, and white selected/raised
    surfaces. */
 [data-app-sidebar] {
-  /* Appearance → interface size is html rem; compact titles used to lock 13px. */
-  font-size: 1rem;
+  /* Sidebar text has its own size; controls and spacing keep their existing geometry. */
+  font-size: var(--font-size-sidebar, 16px);
   --background: var(--color-zinc-25);
   --foreground: var(--color-zinc-800);
   --card: var(--color-white);
@@ -1837,6 +1839,24 @@ code {
 .chat-markdown .chat-markdown-file-link:focus-visible {
   outline: none;
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 70%, transparent);
+}
+
+html
+  [data-user-message-body]
+  .chat-markdown
+  :is(h1, h2, h3, h4, h5, h6, a, .chat-markdown-file-link) {
+  color: var(--contrast-message-foreground);
+}
+
+html [data-user-message-body] .chat-markdown blockquote {
+  border-color: color-mix(in srgb, var(--contrast-message-foreground) 40%, transparent);
+  color: color-mix(in srgb, var(--contrast-message-foreground) 80%, transparent);
+}
+
+html [data-user-message-body] .chat-markdown :not(pre) > code {
+  border-color: color-mix(in srgb, var(--contrast-message-foreground) 20%, transparent);
+  background: color-mix(in srgb, var(--contrast-message-foreground) 12%, transparent);
+  color: var(--contrast-message-foreground);
 }
 
 .chat-markdown pre {

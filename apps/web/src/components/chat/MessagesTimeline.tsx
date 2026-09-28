@@ -4034,7 +4034,7 @@ const CollapsibleUserMessageBody = memo(function CollapsibleUserMessageBody(prop
               aria-expanded={expanded}
               data-scroll-anchor-ignore
               onClick={() => setExpanded((value) => !value)}
-              className="-ml-1 h-6 rounded-md px-1.5 text-secondary-label text-xs hover:bg-muted/55 hover:text-message-foreground"
+              className="-ml-1 h-6 rounded-md px-1.5 text-message-foreground/75 text-xs hover:bg-message-foreground/10 hover:text-message-foreground"
             >
               {expanded ? "Show less" : "Show full message"}
             </Button>

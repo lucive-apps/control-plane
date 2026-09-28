@@ -30,6 +30,7 @@ import {
   MAX_INTERFACE_FONT_SIZE,
   MAX_PANEL_ANIMATION_DURATION_MS,
   MAX_PROMPT_FONT_SIZE,
+  MAX_SIDEBAR_FONT_SIZE,
   MAX_SIDEBAR_AUTO_SETTLE_AFTER_DAYS,
   MAX_TERMINAL_FONT_SIZE,
   MIN_CODE_FONT_SIZE,
@@ -38,6 +39,7 @@ import {
   MIN_INTERFACE_FONT_SIZE,
   MIN_PANEL_ANIMATION_DURATION_MS,
   MIN_PROMPT_FONT_SIZE,
+  MIN_SIDEBAR_FONT_SIZE,
   MIN_SIDEBAR_AUTO_SETTLE_AFTER_DAYS,
   type ResponseStreamingMode,
   MIN_TERMINAL_FONT_SIZE,
@@ -663,6 +665,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.fontFamilyTerminal,
       settings.fontSizeCode,
       settings.fontSizeInterface,
+      settings.fontSizeSidebar,
       settings.fontSizePrompt,
       settings.fontSizeTerminal,
       settings.glassOpacity,
@@ -791,6 +794,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       fontFamilyCode: DEFAULT_UNIFIED_SETTINGS.fontFamilyCode,
       fontFamilyTerminal: DEFAULT_UNIFIED_SETTINGS.fontFamilyTerminal,
       fontSizeInterface: DEFAULT_UNIFIED_SETTINGS.fontSizeInterface,
+      fontSizeSidebar: DEFAULT_UNIFIED_SETTINGS.fontSizeSidebar,
       fontSizePrompt: DEFAULT_UNIFIED_SETTINGS.fontSizePrompt,
       fontSizeCode: DEFAULT_UNIFIED_SETTINGS.fontSizeCode,
       fontSizeTerminal: DEFAULT_UNIFIED_SETTINGS.fontSizeTerminal,
@@ -1467,7 +1471,7 @@ function InterfaceFontRow({ preview }: { preview?: ReactNode }) {
   return (
     <FontFamilySettingsRow
       {...searchableSetting("interface-font")}
-      description="Everything outside code blocks and the terminal."
+      description="App text, including the sidebar. Sidebar size can be adjusted separately."
       defaultFamily={defaults.sans}
       defaultValue={DEFAULT_UNIFIED_SETTINGS.fontFamilySans}
       value={settings.fontFamilySans}
@@ -1487,6 +1491,57 @@ function InterfaceFontRow({ preview }: { preview?: ReactNode }) {
         onChange: (fontSizeInterface) => updateSettings({ fontSizeInterface }),
       }}
       {...(preview !== undefined ? { preview } : {})}
+    />
+  );
+}
+
+function SidebarFontSizeRow() {
+  const settings = useScopedSettings();
+  const updateSettings = useUpdateScopedSettings();
+  return (
+    <SettingsRow
+      {...searchableSetting("sidebar-font-size")}
+      description="Project and thread names in the sidebar. Chat text keeps its current size."
+      resetAction={
+        settings.fontSizeSidebar !== DEFAULT_UNIFIED_SETTINGS.fontSizeSidebar ? (
+          <SettingResetButton
+            label="sidebar font size"
+            onClick={() =>
+              updateSettings({ fontSizeSidebar: DEFAULT_UNIFIED_SETTINGS.fontSizeSidebar })
+            }
+          />
+        ) : null
+      }
+      control={
+        <Select
+          value={String(settings.fontSizeSidebar)}
+          onValueChange={(next) => {
+            if (typeof next !== "string") return;
+            const size = Number(next);
+            if (
+              Number.isInteger(size) &&
+              size >= MIN_SIDEBAR_FONT_SIZE &&
+              size <= MAX_SIDEBAR_FONT_SIZE
+            ) {
+              updateSettings({ fontSizeSidebar: size });
+            }
+          }}
+        >
+          <SelectTrigger size="sm" className="w-22 shrink-0" aria-label="Sidebar font size">
+            <SelectValue>{settings.fontSizeSidebar} px</SelectValue>
+          </SelectTrigger>
+          <SelectPopup align="end" alignItemWithTrigger={false}>
+            {Array.from(
+              { length: MAX_SIDEBAR_FONT_SIZE - MIN_SIDEBAR_FONT_SIZE + 1 },
+              (_, index) => MIN_SIDEBAR_FONT_SIZE + index,
+            ).map((size) => (
+              <SelectItem hideIndicator key={size} value={String(size)}>
+                {size} px
+              </SelectItem>
+            ))}
+          </SelectPopup>
+        </Select>
+      }
     />
   );
 }
@@ -1672,9 +1727,9 @@ function FontSettingsGroup() {
 }
 
 /**
- * The two-font view: one sans, one monospace. The prompt follows the
- * interface font and the terminal follows the monospace font, so the demos
- * under each row show every surface the choice reaches.
+ * The two-family view: one sans, one monospace. The prompt follows the
+ * interface family and the terminal follows monospace. Sidebar size remains
+ * independent in both modes.
  */
 function SimpleFontRows() {
   const settings = useScopedSettings();
@@ -1717,9 +1772,8 @@ const ADVANCED_TYPOGRAPHY_TARGET_IDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The two-font view by default - one sans, one monospace, each cascading to
- * every surface it reaches - with an Advanced switch in the section header
- * that reveals the per-surface override rows. The choice persists locally,
+ * The two-family view by default, with an Advanced switch in the section
+ * header that reveals the per-surface override rows. The choice persists locally,
  * and a settings-search jump to an override row flips Advanced on so the
  * target exists to scroll to.
  */
@@ -1756,6 +1810,7 @@ function TypographySection() {
       }
     >
       {advanced ? <FontSettingsGroup /> : <SimpleFontRows />}
+      <SidebarFontSizeRow />
       <WordWrapRow />
     </SettingsSection>
   );

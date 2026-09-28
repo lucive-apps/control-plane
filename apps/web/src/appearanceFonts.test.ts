@@ -4,6 +4,7 @@ import {
   areFontAdvancesMonospace,
   clampCodeFontSize,
   clampInterfaceFontSize,
+  clampSidebarFontSize,
   clampPromptFontSize,
   cssFontFamilies,
   resolveDefaultFamilyLabel,
@@ -98,6 +99,8 @@ describe("font size clamping", () => {
     expect(clampInterfaceFontSize(16)).toBe(16);
     expect(clampInterfaceFontSize(2)).toBe(12);
     expect(clampInterfaceFontSize(96)).toBe(20);
+    expect(clampSidebarFontSize(2)).toBe(12);
+    expect(clampSidebarFontSize(96)).toBe(20);
     expect(clampPromptFontSize(40)).toBe(20);
     expect(clampCodeFontSize(1)).toBe(10);
   });
@@ -105,6 +108,7 @@ describe("font size clamping", () => {
   it("rounds fractional values and falls back for unusable input", () => {
     expect(clampCodeFontSize(13.4)).toBe(13);
     expect(clampInterfaceFontSize(Number.NaN)).toBe(16);
+    expect(clampSidebarFontSize(Number.NaN)).toBe(16);
     expect(clampPromptFontSize(Number.POSITIVE_INFINITY)).toBe(14);
   });
 });

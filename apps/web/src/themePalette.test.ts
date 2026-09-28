@@ -80,6 +80,13 @@ function contrastRatio(first: string, second: string): number {
 }
 
 describe("theme files", () => {
+  it("uses a black sent-message bubble in the stock light theme", () => {
+    expectThemeColors(getStandardThemeColors("light"), {
+      messageSurface: "#000000",
+      messageForeground: "#ffffff",
+    });
+  });
+
   it("keeps every built-in palette value in canonical OKLCH form", () => {
     for (const theme of BUILT_IN_THEMES) {
       for (const colors of [theme.colors, ...Object.values(theme.variants ?? {})]) {

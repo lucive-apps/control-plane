@@ -126,6 +126,14 @@ export const InterfaceFontSize = Schema.Int.check(
 export type InterfaceFontSize = typeof InterfaceFontSize.Type;
 export const DEFAULT_INTERFACE_FONT_SIZE: InterfaceFontSize = 16;
 
+export const MIN_SIDEBAR_FONT_SIZE = 12;
+export const MAX_SIDEBAR_FONT_SIZE = 20;
+export const SidebarFontSize = Schema.Int.check(
+  Schema.isBetween({ minimum: MIN_SIDEBAR_FONT_SIZE, maximum: MAX_SIDEBAR_FONT_SIZE }),
+);
+export type SidebarFontSize = typeof SidebarFontSize.Type;
+export const DEFAULT_SIDEBAR_FONT_SIZE: SidebarFontSize = 16;
+
 export const MIN_PROMPT_FONT_SIZE = 12;
 export const MAX_PROMPT_FONT_SIZE = 20;
 export const PromptFontSize = Schema.Int.check(
@@ -367,6 +375,9 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   fontSizeInterface: InterfaceFontSize.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_INTERFACE_FONT_SIZE)),
+  ),
+  fontSizeSidebar: SidebarFontSize.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_FONT_SIZE)),
   ),
   fontSizePrompt: PromptFontSize.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_PROMPT_FONT_SIZE)),
@@ -1538,6 +1549,7 @@ export const ClientSettingsPatch = Schema.Struct({
   glassOpacity: Schema.optionalKey(GlassOpacity),
   onboardingCompletedAt: Schema.optionalKey(Schema.NullOr(Schema.String)),
   fontSizeInterface: Schema.optionalKey(InterfaceFontSize),
+  fontSizeSidebar: Schema.optionalKey(SidebarFontSize),
   fontSizePrompt: Schema.optionalKey(PromptFontSize),
   fontSizeCode: Schema.optionalKey(CodeFontSize),
   fontSizeTerminal: Schema.optionalKey(TerminalFontSize),

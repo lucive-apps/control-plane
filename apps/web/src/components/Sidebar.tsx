@@ -2136,7 +2136,7 @@ function SidebarListSectionHeader({
   return (
     <li className="list-none w-full" data-testid={`sidebar-section-${title.toLowerCase()}`}>
       <div className="group/section flex h-7 w-full items-center gap-0.5 px-2">
-        <span className="min-w-0 flex-1 truncate text-[length:1em] font-normal leading-tight text-sidebar-muted-foreground">
+        <span className="min-w-0 flex-1 truncate text-[length:1em] font-normal leading-tight text-sidebar-muted-foreground/65 dark:text-sidebar-muted-foreground">
           {title}
         </span>
         <SidebarSectionIconButton label={actionLabel} onClick={onAction}>
@@ -2279,15 +2279,9 @@ const SidebarProjectFolderBlock = memo(function SidebarProjectFolderBlock({
             )}
           />
           {expanded ? (
-            <FolderOpenIcon
-              aria-hidden
-              className="size-3.5 shrink-0 text-[var(--sidebar-icon-color)]"
-            />
+            <FolderOpenIcon aria-hidden className="size-3.5 shrink-0 text-sidebar-foreground" />
           ) : (
-            <FolderIcon
-              aria-hidden
-              className="size-3.5 shrink-0 text-[var(--sidebar-icon-color)]"
-            />
+            <FolderIcon aria-hidden className="size-3.5 shrink-0 text-sidebar-foreground" />
           )}
           <span className="min-w-0 flex-1 truncate">{displayName}</span>
         </button>
