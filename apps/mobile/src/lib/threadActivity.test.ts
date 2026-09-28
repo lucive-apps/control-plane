@@ -1315,7 +1315,7 @@ describe("buildThreadFeed", () => {
       source: "renamed MCP server identity",
       label: "Call MCP tool",
       title: "Call MCP tool",
-      item: { server: "control-plane", tool: "cp_thread_send" },
+      item: { server: "cplane", tool: "cp_thread_send" },
       status: "inProgress",
       displayName: "messaging agent",
       icon: "t3-code",
@@ -1323,7 +1323,7 @@ describe("buildThreadFeed", () => {
     {
       source: "renamed provider-qualified title",
       label: "Call MCP tool",
-      title: "mcp__control-plane__preview_snapshot",
+      title: "mcp__cplane__preview_snapshot",
       item: undefined,
       status: "inProgress",
       displayName: "Taking a snapshot of the preview page",

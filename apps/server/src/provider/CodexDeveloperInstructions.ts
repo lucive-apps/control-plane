@@ -202,7 +202,7 @@ export function buildCodexDeveloperInstructions(
   interactionMode: ProviderInteractionMode,
   runtime: CodexRuntimeInfo,
   /**
-   * Whether the `control-plane` MCP server is attached to this turn. Callers derive
+   * Whether the `cplane` MCP server is attached to this turn. Callers derive
    * it from the session's actual MCP configuration rather than re-reading the
    * setting, so the prompt cannot claim tools the turn doesn't have.
    */

@@ -779,8 +779,8 @@ describe("work entry labels", () => {
   it.each([
     ["t3-code", "preview_click", "Clicked in the preview browser"],
     ["t3-code", "task_status", "Got delegated task status"],
-    ["control-plane", "preview_click", "Clicked in the preview browser"],
-    ["control-plane", "cp_thread_send", "messaged agent"],
+    ["cplane", "preview_click", "Clicked in the preview browser"],
+    ["cplane", "cp_thread_send", "messaged agent"],
   ] as const)(
     "renders a settled %s %s MCP call directly with its completed presentation",
     (server, tool, label) => {

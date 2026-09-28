@@ -141,11 +141,11 @@ function resolveT3McpToolPresentation(
   data?: unknown,
 ) {
   if (!value) return null;
-  // `t3-code` and `t3_thread_send` predate the rename to `control-plane` and
+  // `t3-code` and `t3_thread_send` predate the rename to `cplane` and
   // `cp_thread_send`; they stay matched so stored transcripts keep their labels.
   // A bare `_` separator is OpenCode's `<server>_<tool>` form.
   const name = normalizeCompactToolLabel(value).replace(
-    /^(?:mcp__(?:control-plane|control_plane|controlplane|t3-code|t3_code|t3code)__|(?:control-plane|control_plane|controlplane|t3-code|t3_code|t3code)(?:[.:/_]|\s*·\s*))/i,
+    /^(?:mcp__(?:cplane|t3-code|t3_code|t3code)__|(?:cplane|t3-code|t3_code|t3code)(?:[.:/_]|\s*·\s*))/i,
     "",
   );
   if (!Object.hasOwn(T3_MCP_TOOL_LABELS, name)) return null;

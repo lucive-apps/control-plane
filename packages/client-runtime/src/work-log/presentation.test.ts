@@ -213,13 +213,11 @@ describe("resolveWorkEntryToolPresentation", () => {
     "T3-code.preview_click",
     "t3-code · preview_click completed",
     "t3_code/preview_click",
-    "mcp__control-plane__preview_click",
-    "mcp__control_plane__preview_click",
-    "mcp__controlplane__preview_click",
-    "Control-Plane.preview_click",
-    "control-plane · preview_click completed",
-    "control_plane/preview_click",
-    "control-plane_preview_click",
+    "mcp__cplane__preview_click",
+    "CPlane.preview_click",
+    "cplane · preview_click completed",
+    "cplane/preview_click",
+    "cplane_preview_click",
     "t3-code_preview_click",
     "preview_click",
   ])("recognizes browser tool names across providers: %s", (label) => {
@@ -230,12 +228,9 @@ describe("resolveWorkEntryToolPresentation", () => {
   });
 
   it.each([
-    [
-      "control-plane_preview_click",
-      { displayName: "Clicked in the preview browser", icon: "browser" },
-    ],
+    ["cplane_preview_click", { displayName: "Clicked in the preview browser", icon: "browser" }],
     ["t3-code_preview_click", { displayName: "Clicked in the preview browser", icon: "browser" }],
-    ["control-plane_cp_thread_send", { displayName: "messaged agent", icon: "t3-code" }],
+    ["cplane_cp_thread_send", { displayName: "messaged agent", icon: "t3-code" }],
   ])("recognizes OpenCode's %s tool title, which carries no server field", (tool, expected) => {
     expect(
       resolveWorkEntryToolPresentation({
@@ -340,33 +335,32 @@ describe("resolveWorkEntryToolPresentation", () => {
     ).toBe(completed);
   });
 
-  it.each([
-    "mcp__control-plane__cp_thread_send",
-    "control-plane.cp_thread_send",
-    "t3-code.t3_thread_send",
-  ])("labels %s with the peer thread title, never a thread id", (label) => {
-    expect(
-      resolveWorkEntryToolPresentation({
-        label,
-        toolLifecycleStatus: "completed",
-        toolData: {
-          rawInput: {
-            threadTitle: "Coordinator",
-            threadId: "5f13b410-5497-44d6-af9c-6bfad3804593",
+  it.each(["mcp__cplane__cp_thread_send", "cplane.cp_thread_send", "t3-code.t3_thread_send"])(
+    "labels %s with the peer thread title, never a thread id",
+    (label) => {
+      expect(
+        resolveWorkEntryToolPresentation({
+          label,
+          toolLifecycleStatus: "completed",
+          toolData: {
+            rawInput: {
+              threadTitle: "Coordinator",
+              threadId: "5f13b410-5497-44d6-af9c-6bfad3804593",
+            },
           },
-        },
-      })?.displayName,
-    ).toBe("messaged Coordinator");
-    expect(
-      resolveWorkEntryToolPresentation({
-        label,
-        toolLifecycleStatus: "completed",
-        toolData: { arguments: { threadId: "5f13b410-5497-44d6-af9c-6bfad3804593" } },
-      }),
-    ).toEqual({ displayName: "messaged agent", icon: "t3-code" });
-  });
+        })?.displayName,
+      ).toBe("messaged Coordinator");
+      expect(
+        resolveWorkEntryToolPresentation({
+          label,
+          toolLifecycleStatus: "completed",
+          toolData: { arguments: { threadId: "5f13b410-5497-44d6-af9c-6bfad3804593" } },
+        }),
+      ).toEqual({ displayName: "messaged agent", icon: "t3-code" });
+    },
+  );
 
-  it.each(["mcp__control_plane__task_status", "mcp__t3_code__task_status"])(
+  it.each(["mcp__cplane__task_status", "mcp__t3_code__task_status"])(
     "brands %s with the product mark and falls back to the original tool label",
     (label) => {
       expect(
@@ -379,7 +373,7 @@ describe("resolveWorkEntryToolPresentation", () => {
   );
 
   it.each([
-    ["control-plane", "cp_thread_send"],
+    ["cplane", "cp_thread_send"],
     ["t3-code", "t3_thread_send"],
   ])("uses structured identity from the %s server for %s", (server, tool) => {
     expect(
@@ -396,7 +390,7 @@ describe("resolveWorkEntryToolPresentation", () => {
       "mcp__github__preview_click",
       "t3-code.unknown_tool",
       "t3-code.toString",
-      "control-plane.unknown_tool",
+      "cplane.unknown_tool",
       "Search files",
     ]) {
       expect(resolveWorkEntryToolPresentation({ label })).toBeNull();
@@ -661,8 +655,8 @@ describe("pull request tool presentation", () => {
     "mcp__t3_code__link_pull_request",
     "T3-code · link_pull_request",
     "t3code/link_pull_request",
-    "mcp__control-plane__link_pull_request",
-    "control-plane · link_pull_request",
+    "mcp__cplane__link_pull_request",
+    "cplane · link_pull_request",
     "link_pull_request",
   ])("recognizes the native linking tool: %s", (label) => {
     const entry = { label, tone: "tool" as const, toolLifecycleStatus: "completed" };
