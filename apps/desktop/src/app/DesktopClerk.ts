@@ -11,8 +11,9 @@ import { clerkFrontendApiHostnameFromPublishableKey } from "@t3tools/shared/rela
 import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as ElectronProtocol from "../electron/ElectronProtocol.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
-import * as DesktopAppIdentity from "./DesktopAppIdentity.ts";
+import { resolveDesktopChromiumUserDataPath } from "./DesktopEarlyElectronStartup.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
+import { syncHomeProbe } from "./DesktopHomeProbe.ts";
 
 declare const __T3CODE_BUILD_CLERK_PUBLISHABLE_KEY__: string | undefined;
 
@@ -94,7 +95,15 @@ export const make = Effect.gen(function* () {
   // directory here — under the default productName-derived path, acquiring
   // the lock would create "T3 Code (Alpha)" and make the legacy-install
   // detection in resolveUserDataPath match on fresh installs.
-  const userDataPath = yield* DesktopAppIdentity.resolveUserDataPath;
+  // The bridge also registers its scheme as privileged, which Electron rejects
+  // once `ready` has fired, so nothing before it may await: an awaited read
+  // hands the main thread back to Electron, which can emit `ready` first.
+  const userDataPath = resolveDesktopChromiumUserDataPath({
+    appDataDirectory: environment.appDataDirectory,
+    isDevelopment: environment.isDevelopment,
+    joinPath: environment.path.join,
+    pathExists: syncHomeProbe.exists,
+  });
   yield* electronApp.setPath("userData", userDataPath);
 
   const bridge = yield* Effect.acquireRelease(

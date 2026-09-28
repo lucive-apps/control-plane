@@ -390,6 +390,27 @@ it.layer(NodeServices.layer)("resolveHomeSync", (it) => {
       assert.equal(yield* compare({ env: {} }), at(".cplane"));
     }).pipe(Effect.scoped),
   );
+
+  it.effect("warns about a move record it cannot read, like resolveHome", () =>
+    Effect.sync(() => {
+      const resolution = resolveHomeSync(
+        { env: {}, homeDirectory: "/home/user", join: NodePath.join },
+        {
+          exists: (path) => path === "/home/user/.cplane/userdata",
+          isSymbolicLink: () => false,
+          fileIdentity: () => undefined,
+          readFileString: () => {
+            throw new Error("EACCES: permission denied");
+          },
+        },
+      );
+
+      assert.equal(resolution.baseDir, "/home/user/.cplane");
+      assert.deepEqual(resolution.warnings, [
+        "Ignoring /home/user/.cplane/userdata/home-migration.json: it could not be read (EACCES: permission denied).",
+      ]);
+    }),
+  );
 });
 
 it.layer(NodeServices.layer)("resolveLocalDevHome", (it) => {

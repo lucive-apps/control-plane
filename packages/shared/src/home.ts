@@ -204,7 +204,8 @@ const decideHome = Effect.fn(function* (
 
 const warned = new Set<string>();
 
-const logHomeWarnings = (warnings: ReadonlyArray<string>) =>
+/** Logs each warning once per process, to stderr. */
+export const logHomeWarnings = (warnings: ReadonlyArray<string>) =>
   Effect.forEach(
     warnings.filter((warning) => !warned.has(warning)),
     (warning) =>
@@ -262,19 +263,19 @@ export const resolveHome = Effect.fn("resolveHome")(function* (
 });
 
 /** Synchronous reads for `resolveHomeSync`. */
-interface HomeProbe {
+export interface HomeProbe {
   readonly exists: (path: string) => boolean;
   readonly isSymbolicLink: (path: string) => boolean;
-  /** Undefined when the file cannot be read. */
+  /** Undefined when the file is absent; throws when it cannot be read. */
   readonly readFileString: (path: string) => string | undefined;
   /** Device and inode (`fs.statSync`), or undefined when `path` cannot be inspected. */
   readonly fileIdentity: (path: string) => FileIdentity | undefined;
 }
 
 /**
- * `resolveHome` for code that runs before any Effect runtime exists (Electron
- * pre-ready setup). Returns warnings without logging them; the later
- * `resolveHome` call logs the same ones.
+ * `resolveHome` without awaiting, for Electron's main process: everything
+ * before `ready` must run synchronously. Returns warnings without logging
+ * them; pass them to `logHomeWarnings` once a runtime exists.
  */
 export const resolveHomeSync = (
   input: HomeInput & { readonly homeDirectory: string; readonly join: JoinPath },
@@ -285,7 +286,11 @@ export const resolveHomeSync = (
     reads: {
       exists: (path) => Effect.sync(() => probe.exists(path)),
       isSymbolicLink: (path) => Effect.sync(() => probe.isSymbolicLink(path)),
-      readFileString: (path) => Effect.sync(() => probe.readFileString(path)),
+      readFileString: (path) =>
+        Effect.try({
+          try: () => probe.readFileString(path),
+          catch: (error) => (error instanceof Error ? error.message : String(error)),
+        }),
       fileIdentity: (path) => Effect.sync(() => probe.fileIdentity(path)),
     },
   }).pipe(Effect.runSync);

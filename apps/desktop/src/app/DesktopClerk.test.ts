@@ -1,5 +1,6 @@
 import { assert, describe, it } from "@effect/vitest";
 import * as Cause from "effect/Cause";
+import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { beforeEach, vi } from "vite-plus/test";
@@ -22,12 +23,18 @@ vi.mock("@clerk/electron/storage", () => ({
   storage: storageMock,
 }));
 
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { HomeMigrationRecord } from "@t3tools/shared/home";
 import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
+import * as Schema from "effect/Schema";
 import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as DesktopClerk from "./DesktopClerk.ts";
+import * as DesktopConfig from "./DesktopConfig.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
+
+const encodeHomeMigrationRecord = Schema.encodeSync(Schema.fromJsonString(HomeMigrationRecord));
 
 const makeDesktopClerkLayer = (isDevelopment = true, events: string[] = []) => {
   const environment = DesktopEnvironment.DesktopEnvironment.of({
@@ -49,7 +56,6 @@ const makeDesktopClerkLayer = (isDevelopment = true, events: string[] = []) => {
       Layer.mergeAll(
         Layer.succeed(DesktopEnvironment.DesktopEnvironment, environment),
         Layer.succeed(ElectronApp.ElectronApp, electronApp),
-        FileSystem.layerNoop({ exists: () => Effect.succeed(false) }),
       ),
     ),
   );
@@ -90,6 +96,76 @@ describe("DesktopClerk", () => {
       storageMock.mockClear();
       createClerkBridgeMock.mockClear();
     });
+  });
+
+  // The bridge registers its scheme as privileged, which Electron rejects once
+  // `ready` has fired. Any awaited read on the way to the bridge hands the main
+  // thread back to Electron, which can emit `ready` first.
+  it.effect("creates the bridge from the real environment without awaiting I/O", () => {
+    const events: string[] = [];
+    storageMock.mockReturnValue(storageAdapter);
+    createClerkBridgeMock.mockImplementation(() => {
+      events.push("createClerkBridge");
+      return { cleanup: vi.fn(), isPrimaryInstance: true };
+    });
+
+    return Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      // A moved home and profile make the resolvers read the most: symlink
+      // checks, the move record, and both profile directories.
+      const homeDirectory = yield* fs.makeTempDirectoryScoped({ prefix: "t3-clerk-home-" });
+      const appDataDirectory = `${homeDirectory}/Library/Application Support`;
+      yield* fs.makeDirectory(`${homeDirectory}/.cplane/userdata`, { recursive: true });
+      yield* fs.makeDirectory(`${appDataDirectory}/cplane`, { recursive: true });
+      yield* fs.writeFileString(
+        `${homeDirectory}/.cplane/userdata/home-migration.json`,
+        encodeHomeMigrationRecord({ state: "complete", from: `${homeDirectory}/.t3` }),
+      );
+
+      const electronApp = {
+        setPath: (name: string, value: string) =>
+          Effect.sync(() => {
+            events.push(`setPath:${name}:${value}`);
+          }),
+      } as unknown as ElectronApp.ElectronApp["Service"];
+      const layer = DesktopClerk.layer.pipe(
+        Layer.provideMerge(
+          DesktopEnvironment.layer({
+            dirname: "/repo/apps/desktop/dist-electron",
+            homeDirectory,
+            platform: "darwin",
+            processArch: "arm64",
+            appVersion: "0.0.22",
+            appPath: "/Applications/Control Plane.app/Contents/Resources/app.asar",
+            isPackaged: true,
+            resourcesPath: "/Applications/Control Plane.app/Contents/Resources",
+            runningUnderArm64Translation: false,
+          }),
+        ),
+        Layer.provide(
+          Layer.mergeAll(
+            NodeServices.layer,
+            DesktopConfig.layerTest({}),
+            Layer.succeed(ElectronApp.ElectronApp, electronApp),
+          ),
+        ),
+      );
+
+      // oxlint-disable-next-line t3code/no-manual-effect-runtime-in-tests -- runSync fails if anything on the way to the bridge suspends on I/O; it.effect would mask that.
+      const environment = Effect.runSync(
+        Effect.scoped(
+          Layer.build(layer).pipe(
+            Effect.map((context) => Context.get(context, DesktopEnvironment.DesktopEnvironment)),
+          ),
+        ),
+      );
+
+      assert.equal(environment.stateDir, `${homeDirectory}/.cplane/userdata`);
+      assert.deepEqual(events, [
+        `setPath:userData:${appDataDirectory}/cplane`,
+        "createClerkBridge",
+      ]);
+    }).pipe(Effect.provide(NodeServices.layer), Effect.scoped);
   });
 
   it.effect("preserves bridge initialization failures", () => {

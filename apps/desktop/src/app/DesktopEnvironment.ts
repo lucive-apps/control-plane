@@ -7,7 +7,6 @@ import type {
 import * as Config from "effect/Config";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
-import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
@@ -15,9 +14,10 @@ import * as Path from "effect/Path";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopConfig from "./DesktopConfig.ts";
 import { resolveLinuxDesktopEntryName } from "./DesktopEarlyElectronStartup.ts";
+import { syncHomeProbe } from "./DesktopHomeProbe.ts";
 import { resolveDesktopStateDir } from "./DesktopStatePaths.ts";
 import { isNightlyDesktopVersion } from "../updates/updateChannels.ts";
-import { resolveHome } from "@t3tools/shared/home";
+import { logHomeWarnings, resolveHomeSync } from "@t3tools/shared/home";
 import type { OtlpProtocol } from "@t3tools/shared/observability";
 
 export interface MakeDesktopEnvironmentInput {
@@ -152,11 +152,7 @@ function resolveDesktopRuntimeInfo(input: {
 
 const make = Effect.fn("desktop.environment.make")(function* (
   input: MakeDesktopEnvironmentInput,
-): Effect.fn.Return<
-  DesktopEnvironment["Service"],
-  Config.ConfigError,
-  FileSystem.FileSystem | Path.Path
-> {
+): Effect.fn.Return<DesktopEnvironment["Service"], Config.ConfigError, Path.Path> {
   const path = yield* Path.Path;
   const config = yield* DesktopConfig.DesktopConfig;
   const homeDirectory = input.homeDirectory;
@@ -170,14 +166,20 @@ const make = Effect.fn("desktop.environment.make")(function* (
       : input.platform === "darwin"
         ? path.join(homeDirectory, "Library", "Application Support")
         : Option.getOrElse(config.xdgConfigHome, () => path.join(homeDirectory, ".config"));
-  const home = yield* resolveHome({
-    homeDirectory,
-    env: {
-      CPLANE_HOME: Option.getOrUndefined(config.cplaneHome),
-      T3CODE_HOME: Option.getOrUndefined(config.t3Home),
+  // Synchronous: the Clerk bridge needs `stateDir` before Electron's `ready`.
+  const home = resolveHomeSync(
+    {
+      homeDirectory,
+      join: path.join,
+      env: {
+        CPLANE_HOME: Option.getOrUndefined(config.cplaneHome),
+        T3CODE_HOME: Option.getOrUndefined(config.t3Home),
+      },
+      variant: isDevelopment ? "dev" : "userdata",
     },
-    variant: isDevelopment ? "dev" : "userdata",
-  });
+    syncHomeProbe,
+  );
+  yield* logHomeWarnings(home.warnings);
   const baseDir = home.baseDir;
   const rootDir = path.resolve(input.dirname, "../../..");
   const appRoot = input.isPackaged ? input.appPath : rootDir;
