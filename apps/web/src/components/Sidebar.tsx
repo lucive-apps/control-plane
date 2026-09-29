@@ -4630,13 +4630,6 @@ export default function Sidebar() {
     },
     [navigateToThread],
   );
-  const handleNewAgent = useCallback(
-    (project: EnvironmentProject) => {
-      if (isMobile) setOpenMobile(false);
-      void handleNewThreadRef.current(scopeProjectRef(project.environmentId, project.id));
-    },
-    [isMobile, setOpenMobile],
-  );
   const suppressFolderToggleRef = useRef(false);
   const consumeFolderToggleSuppression = useCallback(() => {
     if (!suppressFolderToggleRef.current) return false;
@@ -5216,7 +5209,6 @@ export default function Sidebar() {
                                   routeThreadKey={routeThreadKey}
                                   routeDraft={routeDraftThread ?? null}
                                   onOpenCoordinator={openAssistantCoordinator}
-                                  onNewAgent={handleNewAgent}
                                   onRenameProject={assistantActions.rename}
                                   renderJumpHint={(coordinatorKey) => {
                                     const label = showThreadJumpHints

@@ -39,7 +39,6 @@ import { AssistantStatusDot } from "../assistants/AssistantStatusDot";
 import { useAssistantProjectMenu } from "../assistants/useAssistantActions";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { animateSidebarLayoutChanges, type SidebarSection } from "../Sidebar.logic";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   assistantExpansionKey,
   isAssistantExpanded,
@@ -227,7 +226,6 @@ export function SidebarAssistantsSection(props: {
     readonly projectId: string;
   } | null;
   readonly onOpenCoordinator: (project: EnvironmentProject) => void;
-  readonly onNewAgent: (project: EnvironmentProject) => void;
   /** `useAssistantActions().rename`, shared with the sidebar's instance. */
   readonly onRenameProject: (projectRef: ScopedProjectRef, title: string) => unknown;
   readonly renderJumpHint: (coordinatorKey: string) => ReactNode;
@@ -291,7 +289,6 @@ export function SidebarAssistantsSection(props: {
             isRenaming={renamingKey === model.key}
             jumpHint={props.renderJumpHint(model.coordinatorKey)}
             onOpen={props.onOpenCoordinator}
-            onNewAgent={props.onNewAgent}
             onContextMenu={handleContextMenu}
             onSetExpanded={setProjectExpanded}
             onRename={handleRename}
@@ -319,7 +316,6 @@ function SidebarAssistantRow(props: {
   readonly isRenaming: boolean;
   readonly jumpHint: ReactNode;
   readonly onOpen: (project: EnvironmentProject) => void;
-  readonly onNewAgent: (project: EnvironmentProject) => void;
   readonly onContextMenu: (
     model: SidebarAssistantModel,
     position: { x: number; y: number },
@@ -420,22 +416,6 @@ function SidebarAssistantRow(props: {
             {props.environmentLabel}
           </span>
         ) : null}
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                data-testid="sidebar-assistant-new-agent"
-                aria-label={`New agent in ${project.title}`}
-                className="inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground opacity-0 outline-none pointer-events-none transition-opacity hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover/assistant:pointer-events-auto group-hover/assistant:opacity-100"
-                onClick={() => props.onNewAgent(project)}
-              />
-            }
-          >
-            <PlusIcon aria-hidden className="size-3.5" />
-          </TooltipTrigger>
-          <TooltipPopup side="right">New agent in {project.title}</TooltipPopup>
-        </Tooltip>
         {running > 0 ? (
           <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
             {running} running

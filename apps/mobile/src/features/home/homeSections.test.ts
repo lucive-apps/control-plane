@@ -197,8 +197,6 @@ function trace(items: readonly HomeSectionItem[]): string[] {
         return `section:${item.section}${item.collapsed ? " (collapsed)" : ""}`;
       case "project":
         return `project:${item.project.id}${item.expanded ? " (open)" : ""}`;
-      case "new-agent":
-        return "new-agent";
       case "agent":
         return `agent:${item.item.thread.id}`;
       case "agent-pending":
@@ -223,7 +221,6 @@ describe("buildHomeSections partition", () => {
     expect(trace(items)).toEqual([
       "section:projects",
       "project:personal (open)",
-      "new-agent",
       "agent:sales",
       "agent:flights",
       "agent:later",
@@ -419,9 +416,8 @@ describe("buildHomeSections Project rows", () => {
       expandedAssistantKeys: new Set([personalKey]),
     });
     const collapsedPage = trace(buildHomeSections(base).items);
-    expect(collapsedPage.slice(1, 8)).toEqual([
+    expect(collapsedPage.slice(1, 7)).toEqual([
       "project:personal (open)",
-      "new-agent",
       "agent:sales",
       "agent:flights",
       "agent-pending:Book hotel",

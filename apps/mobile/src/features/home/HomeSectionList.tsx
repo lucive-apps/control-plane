@@ -267,46 +267,6 @@ function AgentIndent(props: { readonly grouped: boolean; readonly children: Reac
   return props.grouped ? props.children : <View className="pl-4">{props.children}</View>;
 }
 
-const NewAgentRow = memo(function NewAgentRow(props: {
-  readonly pane: "screen" | "sidebar";
-  readonly grouped: boolean;
-  readonly project: EnvironmentProject;
-  readonly onNewAgent: (project: EnvironmentProject) => void;
-}) {
-  return (
-    <AgentIndent grouped={props.grouped}>
-      <Pressable
-        accessibilityLabel={`New agent in ${props.project.title}`}
-        accessibilityRole="button"
-        className={cn(
-          "min-h-11 flex-row items-center",
-          props.grouped ? "gap-2 pr-4" : "gap-2.5",
-          props.grouped ? null : props.pane === "sidebar" ? "px-3" : "px-5",
-        )}
-        onPress={() => props.onNewAgent(props.project)}
-        style={({ pressed }) => ({
-          opacity: pressed ? 0.5 : 1,
-          ...(props.grouped ? CHILD_INSET_STYLE : null),
-        })}
-      >
-        <View
-          className={
-            props.grouped ? "items-center justify-center" : "size-4 items-center justify-center"
-          }
-        >
-          <SymbolView
-            name="plus"
-            size={13}
-            tintColorClassName="accent-icon-muted"
-            type="monochrome"
-          />
-        </View>
-        <Text className="text-base text-foreground-muted">New agent</Text>
-      </Pressable>
-    </AgentIndent>
-  );
-});
-
 const AgentSettledToggleRow = memo(function AgentSettledToggleRow(props: {
   readonly pane: "screen" | "sidebar";
   readonly grouped: boolean;
@@ -687,15 +647,6 @@ export function HomeSectionList(
               onMenuAction={handleProjectMenuAction}
             />
           );
-        case "new-agent":
-          return (
-            <NewAgentRow
-              pane={rowPane}
-              grouped={grouped}
-              project={item.project}
-              onNewAgent={onNewAgent}
-            />
-          );
         case "agent":
           return (
             <AgentIndent grouped={grouped}>
@@ -842,7 +793,6 @@ export function HomeSectionList(
       handleOpenCoordinator,
       handleProjectMenuAction,
       onAddWorkspace,
-      onNewAgent,
       onNewThreadInProject,
       openConvertToProject,
       openNewProjectHere,

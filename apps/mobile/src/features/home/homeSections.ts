@@ -98,12 +98,6 @@ export interface HomeProjectItem {
   readonly selected: boolean;
 }
 
-export interface HomeNewAgentItem {
-  readonly type: "new-agent";
-  readonly key: string;
-  readonly project: EnvironmentProject;
-}
-
 export interface HomeAgentItem {
   readonly type: "agent";
   readonly key: string;
@@ -176,7 +170,6 @@ export type HomeSectionItem =
   | HomeProjectsEmptyItem
   | HomeTasksEmptyItem
   | HomeProjectItem
-  | HomeNewAgentItem
   | HomeAgentItem
   | HomeAgentPendingItem
   | HomeAgentSettledToggleItem
@@ -487,9 +480,6 @@ export function buildHomeSections(input: HomeSectionsInput): HomeSections {
       if (entry.coordinator !== null) projectJumpThreads.push(entry.coordinator);
       if (!expanded) continue;
 
-      if (!searching) {
-        projectItems.push({ type: "new-agent", key: `new-agent:${expansionKey}`, project });
-      }
       const settledCount = searching
         ? shownSections.settled.length
         : (input.assistantSettledCounts.get(expansionKey) ?? 0);
@@ -902,8 +892,6 @@ export function homeSectionItemsAreEqual(
         previous.rollup === item.rollup &&
         previous.selected === item.selected
       );
-    case "new-agent":
-      return item.type === "new-agent" && previous.project === item.project;
     case "agent":
       return (
         item.type === "agent" &&
