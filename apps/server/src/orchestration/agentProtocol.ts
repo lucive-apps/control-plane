@@ -32,6 +32,17 @@ export const AGENT_DELIVERY_RETRY_PREFIX = "cp-retry:";
 export const AGENT_STOP_PREFIX = "cp-agent-stop:";
 
 /**
+ * Stands where a request's message id would in ids built from one, for a turn
+ * that answers a request without being its own turn: `cp-turn:<turnId>`.
+ */
+export const AGENT_CONTINUATION_PREFIX = "cp-turn:";
+
+/** The request slot of a continuation turn's result: `agentPushId(agent, agentContinuationId(turn))`. */
+export function agentContinuationId(turnId: string): string {
+  return `${AGENT_CONTINUATION_PREFIX}${turnId}`;
+}
+
+/**
  * Command id and message id of the result appended for `requestMessageId`,
  * a request made in `agentThreadId`. A receipt of any status means handled.
  */

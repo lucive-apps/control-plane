@@ -25,7 +25,13 @@ import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import * as AgentCompletionReactor from "./AgentCompletionReactor.ts";
 import { AgentLineage } from "./agentLineage.ts";
-import { AGENT_PUSH_BUDGET, agentPushId, agentSendId, agentStopId } from "./agentProtocol.ts";
+import {
+  AGENT_PUSH_BUDGET,
+  agentContinuationId,
+  agentPushId,
+  agentSendId,
+  agentStopId,
+} from "./agentProtocol.ts";
 import { OrchestrationEngineLive } from "./Layers/OrchestrationEngine.ts";
 import { OrchestrationProjectionPipelineLive } from "./Layers/ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./Layers/ProjectionSnapshotQuery.ts";
@@ -1495,6 +1501,108 @@ describe("AgentCompletionReactor with scheduled prompts", () => {
           yield* drain;
           assert.include(yield* f.receipts("cp-start:"), `accepted cp-start:${held}`);
         }),
+      );
+    }),
+  );
+  test(
+    "delivers the reply of a turn no message started when the request's own turn ended empty",
+    Effect.gen(function* () {
+      const f = yield* makeFixture;
+      yield* f.createProject;
+      const agent = A("agent-nudged");
+      yield* f.createThread(agent, "Nudged", { createdBy: COORDINATOR });
+      yield* f.request(agent, M("request-1"), COORDINATOR);
+      const emptyPush = pushIdOf(agent, M("request-1"));
+      const replyPush = pushIdOf(agent, M(agentContinuationId("turn-reply")));
+
+      yield* f.withReactor((drain) =>
+        Effect.gen(function* () {
+          // The request's turn ends with no text, then the agent carries on in a
+          // turn nothing started (a resume after a restart or a wake-up).
+          yield* f.finishTurn(agent, T("turn-1"), "");
+          yield* drain;
+          assert.deepStrictEqual(yield* f.receipts("cp-push:"), [`accepted ${emptyPush}`]);
+
+          yield* f.finishTurn(agent, T("turn-reply"), "The real report.");
+          yield* drain;
+          // Handled once: later passes add nothing.
+          yield* f.setSession(agent, "ready", null);
+          yield* drain;
+        }),
+      );
+
+      const texts = new Map(
+        (yield* f.userMessages(COORDINATOR)).map((message) => [message.id, message.text]),
+      );
+      assert.deepStrictEqual(
+        [...texts.entries()],
+        [
+          [emptyPush, resultText("Nudged", agent, "finished", "(no final message)")],
+          [replyPush, resultText("Nudged", agent, "finished", "The real report.")],
+        ],
+      );
+      // Sorted by id.
+      assert.deepStrictEqual(yield* f.receipts("cp-push:"), [
+        `accepted ${replyPush}`,
+        `accepted ${emptyPush}`,
+      ]);
+    }),
+  );
+
+  test(
+    "does not deliver a continuation twice when its reply reached the request's own result",
+    Effect.gen(function* () {
+      const f = yield* makeFixture;
+      yield* f.createProject;
+      const agent = A("agent-restarted");
+      yield* f.createThread(agent, "Restarted", { createdBy: COORDINATOR });
+      yield* f.request(agent, M("request-1"), COORDINATOR);
+      // Both turns end while no reactor runs, so the first pass sees the reply
+      // already there and appends it as the request's result.
+      yield* f.finishTurn(agent, T("turn-1"), "");
+      yield* f.finishTurn(agent, T("turn-reply"), "The real report.");
+
+      yield* f.withReactor((drain) =>
+        Effect.gen(function* () {
+          yield* drain;
+          yield* f.setSession(agent, "ready", null);
+          yield* drain;
+        }),
+      );
+
+      assert.deepStrictEqual(
+        (yield* f.userMessages(COORDINATOR)).map((message) => [message.id, message.text]),
+        [
+          [
+            pushIdOf(agent, M("request-1")),
+            resultText("Restarted", agent, "finished", "The real report."),
+          ],
+        ],
+      );
+    }),
+  );
+
+  test(
+    "does not push a later turn no message started when the request already reported",
+    Effect.gen(function* () {
+      const f = yield* makeFixture;
+      yield* f.createProject;
+      const agent = A("agent-woken");
+      yield* f.createThread(agent, "Woken", { createdBy: COORDINATOR });
+      yield* f.request(agent, M("request-1"), COORDINATOR);
+
+      yield* f.withReactor((drain) =>
+        Effect.gen(function* () {
+          yield* f.finishTurn(agent, T("turn-1"), "First report.");
+          yield* drain;
+          yield* f.finishTurn(agent, T("turn-wake"), "Background task finished.");
+          yield* drain;
+        }),
+      );
+
+      assert.deepStrictEqual(
+        (yield* f.userMessages(COORDINATOR)).map((message) => message.id),
+        [pushIdOf(agent, M("request-1"))],
       );
     }),
   );

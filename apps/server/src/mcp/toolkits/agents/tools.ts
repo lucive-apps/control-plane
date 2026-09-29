@@ -101,6 +101,24 @@ export class NotYourAgentError extends Schema.TaggedError<NotYourAgentError>()(
   }
 }
 
+export class SettleCoordinatorOnlyError extends Schema.TaggedError<SettleCoordinatorOnlyError>()(
+  "SettleCoordinatorOnlyError",
+  {},
+) {
+  override get message(): string {
+    return "Only the Project's coordinator can settle agents.";
+  }
+}
+
+export class AgentBusyError extends Schema.TaggedError<AgentBusyError>()("AgentBusyError", {
+  agent: Schema.String,
+  phase: Schema.String,
+}) {
+  override get message(): string {
+    return `'${this.agent}' is ${this.phase} and cannot be settled while it has work in flight. Wait for its report, or stop it with cp_agent_stop.`;
+  }
+}
+
 export class AgentToolFailedError extends Schema.TaggedError<AgentToolFailedError>()(
   "AgentToolFailedError",
   { detail: Schema.String, cause: Schema.optional(Schema.Defect()) },
@@ -120,6 +138,8 @@ export const AgentToolError = Schema.Union([
   AgentNotFoundError,
   AgentAmbiguousError,
   NotYourAgentError,
+  SettleCoordinatorOnlyError,
+  AgentBusyError,
   AgentToolFailedError,
 ]);
 export type AgentToolError = typeof AgentToolError.Type;
@@ -268,6 +288,21 @@ export const AgentStopResult = Schema.Struct({
 });
 export type AgentStopResult = typeof AgentStopResult.Type;
 
+export const AgentSettleInput = Schema.Struct({
+  agent: AgentRef,
+  archive: Schema.optional(
+    Schema.Boolean.annotate({ description: "Also archive the agent's thread." }),
+  ),
+});
+export type AgentSettleInput = typeof AgentSettleInput.Type;
+
+export const AgentSettleResult = Schema.Struct({
+  threadId: ThreadId,
+  settled: Schema.Literal(true),
+  archived: Schema.Boolean,
+});
+export type AgentSettleResult = typeof AgentSettleResult.Type;
+
 const ScheduleRef = TrimmedNonEmptyString.annotate({
   description: "The schedule's id, from cp_schedule_list.",
 });
@@ -395,6 +430,20 @@ const AgentStopTool = Tool.make("cp_agent_stop", {
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false);
 
+const AgentSettleTool = Tool.make("cp_agent_settle", {
+  description:
+    "Settle an idle agent you manage once its work is done, as the Settle button does. Fails while the agent is working. A settled agent stays readable, and a new message wakes it.",
+  parameters: AgentSettleInput,
+  success: AgentSettleResult,
+  failure: AgentToolError,
+  dependencies,
+})
+  .annotate(Tool.Title, "Settle an agent")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
 const ScheduleListTool = Tool.make("cp_schedule_list", {
   description: "List this Project's schedules with their prompts, cadence and last run.",
   success: ScheduleListResult,
@@ -453,6 +502,7 @@ export const AgentsToolkit = Toolkit.make(
   AgentListTool,
   AgentReadTool,
   AgentStopTool,
+  AgentSettleTool,
   ScheduleListTool,
   ScheduleCreateTool,
   ScheduleUpdateTool,

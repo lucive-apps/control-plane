@@ -31,6 +31,7 @@ import {
   type ProjectionRepositoryError,
 } from "../persistence/Errors.ts";
 import {
+  AGENT_CONTINUATION_PREFIX,
   AGENT_DELIVERY_RETRY_PREFIX,
   AGENT_DELIVERY_START_PREFIX,
   AGENT_PUSH_MESSAGE_PREFIX,
@@ -206,6 +207,112 @@ export function makeAgentPushQueries(sql: SqlClient.SqlClient) {
           )
         )
       ORDER BY m.rowid
+    `,
+  });
+
+  // A request whose own turn ended with no reply, when the agent then answered
+  // in a turn no message started: an SDK resumes after a restart or a wake-up
+  // without a user message, so the reply has no request row of its own. The
+  // request's result was appended empty and is handled; this is the one
+  // follow-up that carries the real reply. Its slot in the ids is
+  // `cp-turn:<turnId>`, and a result appended before the reply existed is what
+  // separates it from a request whose result already included the reply.
+  const findOwedContinuations = SqlSchema.findAll({
+    Request: Schema.Struct({ projectId: Schema.String }),
+    Result: OwedResultRow,
+    execute: ({ projectId }) => sql`
+      WITH continuation AS (
+        SELECT c.thread_id AS thread_id, c.turn_id AS turn_id, c.row_id AS row_id,
+               (
+                 SELECT MAX(e.rowid) FROM projection_thread_messages e
+                 WHERE e.thread_id = c.thread_id AND e.role = 'assistant'
+                   AND e.turn_id = c.turn_id
+                   AND e.is_streaming = 0 AND length(trim(e.text)) > 0
+               ) AS text_row
+        FROM projection_turns c
+        WHERE c.turn_id IS NOT NULL AND c.pending_message_id IS NULL AND c.state = 'completed'
+      )
+      SELECT c.thread_id AS "agentThreadId",
+             ${AGENT_CONTINUATION_PREFIX} || c.turn_id AS "requestId",
+             json_extract(rm.source_json, '$.replyTo') AS "replyTo"
+      FROM continuation c
+      JOIN projection_threads a ON a.thread_id = c.thread_id
+      LEFT JOIN projection_thread_sessions s ON s.thread_id = a.thread_id
+      JOIN projection_turns r ON r.row_id = (
+        SELECT p.row_id FROM projection_turns p
+        WHERE p.thread_id = c.thread_id AND p.row_id < c.row_id
+          AND p.turn_id IS NOT NULL AND p.pending_message_id IS NOT NULL
+        ORDER BY p.row_id DESC
+        LIMIT 1
+      )
+      JOIN projection_thread_messages rm
+        ON rm.message_id = r.pending_message_id AND rm.thread_id = c.thread_id
+      WHERE a.project_id = ${projectId} AND a.deleted_at IS NULL AND a.archived_at IS NULL
+        AND c.text_row IS NOT NULL
+        AND (s.status IS NULL OR s.status NOT IN ('starting', 'running'))
+        AND rm.role = 'user' AND json_extract(rm.source_json, '$.replyTo') IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM projection_thread_messages e
+          WHERE e.thread_id = c.thread_id AND e.role = 'assistant' AND e.turn_id = r.turn_id
+            AND e.is_streaming = 0 AND length(trim(e.text)) > 0
+        )
+        AND EXISTS (
+          SELECT 1 FROM projection_thread_messages pm
+          WHERE pm.message_id = ${AGENT_PUSH_MESSAGE_PREFIX} || c.thread_id || ':' || rm.message_id
+            AND pm.rowid < c.text_row
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM orchestration_command_receipts x
+          WHERE x.command_id = ${AGENT_PUSH_MESSAGE_PREFIX} || c.thread_id || ':'
+                               || ${AGENT_CONTINUATION_PREFIX} || c.turn_id
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM projection_turns c0
+          JOIN orchestration_command_receipts x
+            ON x.command_id = ${AGENT_PUSH_MESSAGE_PREFIX} || c0.thread_id || ':'
+                              || ${AGENT_CONTINUATION_PREFIX} || c0.turn_id
+          WHERE c0.thread_id = c.thread_id AND c0.row_id > r.row_id AND c0.row_id < c.row_id
+        )
+      ORDER BY c.row_id
+    `,
+  });
+
+  // The continuation's reply is read by its turn, and the agent's latest turn
+  // and session decide how it ended, as for a request.
+  const findContinuationResult = SqlSchema.findOne({
+    Request: Schema.Struct({ agentThreadId: Schema.String, turnId: Schema.String }),
+    Result: AgentResultRow,
+    execute: ({ agentThreadId, turnId }) => sql`
+      WITH reply AS (
+        SELECT am.text AS text, am.rowid AS message_row
+        FROM projection_thread_messages am
+        WHERE am.thread_id = ${agentThreadId} AND am.role = 'assistant'
+          AND am.turn_id = ${turnId}
+          AND am.is_streaming = 0 AND length(trim(am.text)) > 0
+        ORDER BY am.rowid DESC
+        LIMIT 1
+      )
+      SELECT
+        (
+          SELECT t.state FROM projection_threads a
+          JOIN projection_turns t ON t.thread_id = a.thread_id AND t.turn_id = a.latest_turn_id
+          WHERE a.thread_id = ${agentThreadId}
+        ) AS "latestTurnState",
+        1 AS "requestStarted",
+        (
+          SELECT s.status FROM projection_thread_sessions s WHERE s.thread_id = ${agentThreadId}
+        ) AS "sessionStatus",
+        (
+          SELECT s.last_error FROM projection_thread_sessions s WHERE s.thread_id = ${agentThreadId}
+        ) AS "lastError",
+        0 AS "startFailed",
+        NULL AS "startFailureDetail",
+        (SELECT text FROM reply) AS "text",
+        NOT EXISTS (
+          SELECT 1 FROM projection_thread_messages u, reply
+          WHERE u.thread_id = ${agentThreadId} AND u.role = 'user'
+            AND u.rowid > reply.message_row
+        ) AS "isLatestRequest"
     `,
   });
 
@@ -403,11 +510,25 @@ export function makeAgentPushQueries(sql: SqlClient.SqlClient) {
   ): Effect.Effect<ReadonlyArray<OwedResult>, ProjectionRepositoryError> =>
     findOwedResults({ projectId }).pipe(Effect.mapError(toRepositoryError("listOwedResults")));
 
+  /** Owed for a reply that came in a turn no message started; see `findOwedContinuations`. */
+  const listOwedContinuations = (
+    projectId: ProjectId,
+  ): Effect.Effect<ReadonlyArray<OwedResult>, ProjectionRepositoryError> =>
+    findOwedContinuations({ projectId }).pipe(
+      Effect.mapError(toRepositoryError("listOwedContinuations")),
+    );
+
   const readAgentResult = (input: {
     readonly agentThreadId: ThreadId;
     readonly requestId: MessageId;
   }): Effect.Effect<AgentResult | null, ProjectionRepositoryError> =>
-    findAgentResult(input).pipe(
+    (input.requestId.startsWith(AGENT_CONTINUATION_PREFIX)
+      ? findContinuationResult({
+          agentThreadId: input.agentThreadId,
+          turnId: input.requestId.slice(AGENT_CONTINUATION_PREFIX.length),
+        }).pipe(Effect.map(Option.some))
+      : findAgentResult(input)
+    ).pipe(
       Effect.mapError(toRepositoryError("readAgentResult")),
       Effect.map(
         Option.match({
@@ -446,6 +567,7 @@ export function makeAgentPushQueries(sql: SqlClient.SqlClient) {
 
   return {
     listOwedResults,
+    listOwedContinuations,
     readAgentResult,
     listDeliveries,
     pushBudget,

@@ -453,6 +453,7 @@ it.effect(
           "cp_agent_list",
           "cp_agent_read",
           "cp_agent_stop",
+          "cp_agent_settle",
         ]),
       );
 
