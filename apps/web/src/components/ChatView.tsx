@@ -1,3 +1,4 @@
+import { prepareImageForAttachment } from "../lib/imageCompression";
 import { useLoadBalancedEnvironment } from "../hooks/useLoadBalancedEnvironment";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 import type { UsageLimitSourceSnapshots } from "@t3tools/contracts";
@@ -40,6 +41,7 @@ import {
   type KeybindingCommand,
   OrchestrationThreadActivity,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
+  PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
   ProviderInteractionMode,
   ProviderDriverKind,
   resolveEnvironmentMachineKind,
@@ -8042,13 +8044,20 @@ export default function ChatView(props: ChatViewProps) {
         if (attachment.type !== "image") {
           throw new Error("This server does not support file attachments.");
         }
+        const prepared = await prepareImageForAttachment(
+          attachment.file,
+          PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
+        );
+        if (!prepared.ok) {
+          throw new Error(`Image '${attachment.name}' could not be prepared for sending.`);
+        }
         return {
           type: "image" as const,
           id: attachment.id,
-          name: attachment.name,
-          mimeType: attachment.mimeType,
-          sizeBytes: attachment.sizeBytes,
-          dataUrl: await readFileAsDataUrl(attachment.file),
+          name: prepared.file.name,
+          mimeType: prepared.file.type,
+          sizeBytes: prepared.file.size,
+          dataUrl: await readFileAsDataUrl(prepared.file),
           ...(attachment.source ? { source: attachment.source } : {}),
         };
       }),

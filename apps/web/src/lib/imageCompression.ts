@@ -8,15 +8,12 @@
  *   `PROVIDER_SEND_TURN_MAX_IMAGE_BYTES` wire cap and shrinks them to fit
  *   via `compressImageToByteLimit` instead of rejecting the paste.
  *
- * Supported images already within budget pass through untouched. HEIC/HEIF
- * photos are decoded to JPEG first because providers cannot consume them.
+ * Supported images within byte and dimension limits pass through untouched.
+ * HEIC/HEIF photos are decoded to JPEG first because providers cannot consume them.
  */
 
-/**
- * Longest edge kept when an image has to be re-encoded. Sized so a typical
- * retina screenshot (3024px wide) stays legible rather than being halved.
- */
-const MAX_DIMENSION = 2048;
+/** Claude's longest-edge limit for conversations containing many images. */
+const MAX_DIMENSION = 2000;
 /** Base64 budget for a single stashed image (~975KB of binary). */
 export const MAX_STASH_IMAGE_DATA_URL_CHARS = 1_300_000;
 /**
@@ -39,6 +36,7 @@ const HEIC_IMAGE_MIME_TYPE = /^image\/hei(?:c|f)$/i;
 const HEIC_IMAGE_EXTENSION = /\.(?:heic|heif)$/i;
 
 type ImageSize = { width: number; height: number };
+const knownImageSizes = new WeakMap<File, ImageSize>();
 
 export interface CompressedStashImage {
   imageSize?: ImageSize;
@@ -340,14 +338,16 @@ async function reencodeWithinBudget(
   file: File,
   budgetChars: number,
   preferredMimeType?: "image/jpeg",
+  decodedBitmap?: ImageBitmap,
 ): Promise<ReencodeResult> {
   if (!canRecompress()) {
+    decodedBitmap?.close();
     return { ok: false, reason: "too-large" };
   }
 
   let bitmap: ImageBitmap;
   try {
-    bitmap = await createImageBitmap(file);
+    bitmap = decodedBitmap ?? (await createImageBitmap(file));
   } catch {
     return { ok: false, reason: "unreadable" };
   }
@@ -440,8 +440,8 @@ export async function compressImageForStash(
 
 /**
  * Shrinks `file` until its binary size fits `maxBytes`, returning a new
- * `File` (WebP or JPEG). Files already within the limit pass through
- * untouched, preserving their exact bytes and format. Sources above
+ * `File` (WebP or JPEG). Files within both the byte and 2000 px dimension
+ * limits retain their exact bytes and format. Sources above
  * `MAX_COMPRESSIBLE_SOURCE_BYTES` are refused outright — decoding them is
  * the risk, so no amount of output budget makes them safe. An internally
  * converted image can provide its original source size when the intermediate
@@ -452,30 +452,46 @@ export async function compressImageToByteLimit(
   maxBytes: number,
   options?: { preferredMimeType?: "image/jpeg"; sourceSizeBytes?: number },
 ): Promise<CompressImageFileResult> {
-  if (file.size <= maxBytes) {
-    return { ok: true, file, recompressed: false };
-  }
   if ((options?.sourceSizeBytes ?? file.size) > MAX_COMPRESSIBLE_SOURCE_BYTES) {
     return { ok: false, reason: "too-large" };
+  }
+  let bitmap: ImageBitmap | undefined;
+  if (file.size <= maxBytes) {
+    const knownSize = knownImageSizes.get(file);
+    if (knownSize && Math.max(knownSize.width, knownSize.height) <= MAX_DIMENSION) {
+      return { ok: true, file, recompressed: false };
+    }
+    try {
+      bitmap = await createImageBitmap(file);
+    } catch {
+      return { ok: false, reason: "unreadable" };
+    }
+    knownImageSizes.set(file, { width: bitmap.width, height: bitmap.height });
+    if (Math.max(bitmap.width, bitmap.height) <= MAX_DIMENSION) {
+      bitmap.close();
+      return { ok: true, file, recompressed: false };
+    }
   }
   // The re-encode loop budgets in data-URL characters. Base64 turns 3 bytes
   // into 4 chars; flooring keeps the budget a hair conservative instead of
   // admitting an encoding right at the byte cap.
   const budgetChars = Math.floor(maxBytes / 3) * 4;
-  const reencoded = await reencodeWithinBudget(file, budgetChars, options?.preferredMimeType);
+  const reencoded = await reencodeWithinBudget(
+    file,
+    budgetChars,
+    options?.preferredMimeType,
+    bitmap,
+  );
   if (!reencoded.ok) {
     return reencoded;
   }
-  return {
-    ok: true,
-    file: dataUrlToFile(
-      reencoded.dataUrl,
-      fileNameForMimeType(file.name || "image", reencoded.mimeType),
-      reencoded.mimeType,
-    ),
-    recompressed: true,
-    imageSize: reencoded.imageSize,
-  };
+  const encodedFile = dataUrlToFile(
+    reencoded.dataUrl,
+    fileNameForMimeType(file.name || "image", reencoded.mimeType),
+    reencoded.mimeType,
+  );
+  knownImageSizes.set(encodedFile, reencoded.imageSize);
+  return { ok: true, file: encodedFile, recompressed: true, imageSize: reencoded.imageSize };
 }
 
 /**

@@ -10,6 +10,7 @@ import {
 } from "../composerDraftStore";
 
 const mocks = vi.hoisted(() => ({
+  prepareImageForAttachment: vi.fn(),
   createAssetUrl: vi.fn(),
   createUploadUrl: Symbol("create-upload-url"),
   executeAtomQuery: vi.fn(),
@@ -22,6 +23,10 @@ vi.mock("@t3tools/client-runtime/state/runtime", () => ({
   executeAtomQuery: mocks.executeAtomQuery,
   runAtomCommand: mocks.runAtomCommand,
   squashAtomCommandFailure: (result: { readonly error: unknown }) => result.error,
+}));
+
+vi.mock("./imageCompression", () => ({
+  prepareImageForAttachment: mocks.prepareImageForAttachment,
 }));
 
 vi.mock("../rpc/atomRegistry", () => ({ appAtomRegistry: {} }));
@@ -94,7 +99,11 @@ class TestXmlHttpRequest {
     this.listeners.set(event, listener);
   }
 
-  send(): void {}
+  body: File | null = null;
+
+  send(file: File): void {
+    this.body = file;
+  }
 
   abort(): void {
     this.listeners.get("abort")?.();
@@ -143,6 +152,12 @@ function makeFile(id: string): ComposerFileAttachment {
 describe("attachmentUploadQueue", () => {
   beforeEach(() => {
     TestXmlHttpRequest.requests = [];
+    mocks.prepareImageForAttachment.mockReset();
+    mocks.prepareImageForAttachment.mockImplementation(async (file: File) => ({
+      ok: true,
+      file,
+      recompressed: false,
+    }));
     mocks.createAssetUrl.mockReset();
     mocks.createAssetUrl.mockImplementation((target: unknown) => target);
     mocks.executeAtomQuery.mockReset();
@@ -194,7 +209,7 @@ describe("attachmentUploadQueue", () => {
       },
     };
     startAttachmentUpload({ environmentId: firstEnvironment, image });
-    await Promise.resolve();
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
 
     const request = TestXmlHttpRequest.requests[0]!;
     expect(request.method).toBe("POST");
@@ -237,13 +252,67 @@ describe("attachmentUploadQueue", () => {
     );
   });
 
+  it.each([firstEnvironment, secondEnvironment])(
+    "normalizes restored images before upload to %s and sends matching metadata",
+    async (environmentId) => {
+      const image = makeImage("restored-tall-image");
+      const normalized = new File([new Uint8Array([4, 5])], "restored-tall-image.webp", {
+        type: "image/webp",
+      });
+      mocks.prepareImageForAttachment.mockResolvedValueOnce({
+        ok: true,
+        file: normalized,
+        recompressed: true,
+      });
+      startAttachmentUpload({ environmentId, image });
+      await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+      const request = TestXmlHttpRequest.requests[0]!;
+      expect(request.body).toBe(normalized);
+      expect(request.headers.get("Content-Type")).toBe("image/webp");
+      expect(mocks.runAtomCommand).toHaveBeenCalledWith(
+        expect.anything(),
+        mocks.createUploadUrl,
+        {
+          environmentId,
+          input: { name: normalized.name, mimeType: normalized.type, sizeBytes: 2 },
+        },
+        expect.anything(),
+      );
+      request.complete();
+      await awaitAttachmentUploads([image.id]);
+      expect(getUploadedAttachments({ environmentId, images: [image] })).toEqual([
+        {
+          type: "image",
+          id: `pending-${environmentId}-${normalized.name}`,
+          name: normalized.name,
+          mimeType: normalized.type,
+          sizeBytes: 2,
+        },
+      ]);
+    },
+  );
+
+  it("fails unreadable restored images without uploading the original bytes", async () => {
+    const image = makeImage("unreadable-image");
+    mocks.prepareImageForAttachment.mockResolvedValueOnce({ ok: false, reason: "unreadable" });
+    startAttachmentUpload({ environmentId: firstEnvironment, image });
+    await awaitAttachmentUploads([image.id]);
+    expect(readAttachmentUpload(image.id)).toMatchObject({
+      status: "failed",
+      reason: "Image could not be decoded",
+    });
+    expect(TestXmlHttpRequest.requests).toHaveLength(0);
+    expect(mocks.runAtomCommand).not.toHaveBeenCalled();
+  });
+
   it("uploads generic files and sends file attachment references", async () => {
     const file = {
       ...makeFile("report"),
       source: { _tag: "pasted-text" as const },
     };
     startAttachmentUpload({ environmentId: firstEnvironment, image: file });
-    await Promise.resolve();
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
 
     expect(mocks.runAtomCommand).toHaveBeenCalledWith(
       expect.anything(),
@@ -288,7 +357,7 @@ describe("attachmentUploadQueue", () => {
     };
 
     startAttachmentUpload({ environmentId: firstEnvironment, image: file });
-    await Promise.resolve();
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
 
     expect(mocks.runAtomCommand).toHaveBeenCalledWith(
       expect.anything(),
@@ -324,7 +393,7 @@ describe("attachmentUploadQueue", () => {
         image: file,
         draftTarget: draftId,
       });
-      await Promise.resolve();
+      await new Promise<void>((resolve) => queueMicrotask(resolve));
 
       // No composer effect is subscribed; only the queue can stamp the draft.
       const settled = awaitAttachmentUploads([file.id]);
@@ -350,13 +419,13 @@ describe("attachmentUploadQueue", () => {
     store.addFiles(draftId, [file]);
     try {
       startAttachmentUpload({ environmentId: firstEnvironment, image: file, draftTarget: draftId });
-      await Promise.resolve();
+      await new Promise<void>((resolve) => queueMicrotask(resolve));
       let settled = awaitAttachmentUploads([file.id]);
       TestXmlHttpRequest.requests[0]!.complete(500);
       await settled;
       expect(store.getComposerDraft(draftId)?.files[0]?.uploadedAttachmentId).toBeUndefined();
       retryAttachmentUpload({ environmentId: firstEnvironment, image: file, draftTarget: draftId });
-      await Promise.resolve();
+      await new Promise<void>((resolve) => queueMicrotask(resolve));
       settled = awaitAttachmentUploads([file.id]);
       TestXmlHttpRequest.requests[1]!.complete();
       await settled;
@@ -441,7 +510,7 @@ describe("attachmentUploadQueue", () => {
         image: replacement,
         draftTarget: draftId,
       });
-      await Promise.resolve();
+      await new Promise<void>((resolve) => queueMicrotask(resolve));
       const settled = awaitAttachmentUploads([replacement.id]);
       TestXmlHttpRequest.requests[0]!.complete();
       await settled;
@@ -477,7 +546,7 @@ describe("attachmentUploadQueue", () => {
     // The verify-then-reupload path crosses several awaits before the
     // transfer starts; drain microtasks until the XHR exists.
     for (let hop = 0; hop < 20 && TestXmlHttpRequest.requests.length === 0; hop += 1) {
-      await Promise.resolve();
+      await new Promise<void>((resolve) => queueMicrotask(resolve));
     }
 
     const settled = awaitAttachmentUploads([file.id]);
@@ -641,7 +710,7 @@ describe("attachmentUploadQueue", () => {
       attachmentId: "pending-stashed-checking-pdf",
     });
     resolveVerification({ _tag: "Success", value: {} });
-    await Promise.resolve();
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
 
     expect(readAttachmentUpload(file.id)).toBeUndefined();
     expect(mocks.runAtomCommand).toHaveBeenCalledWith(
@@ -730,7 +799,7 @@ describe("attachmentUploadQueue", () => {
   it("retries rejected uploads", async () => {
     const image = makeImage("image-retry");
     startAttachmentUpload({ environmentId: firstEnvironment, image });
-    await Promise.resolve();
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
 
     let settled = awaitAttachmentUploads([image.id]);
     TestXmlHttpRequest.requests[0]!.complete(500);
@@ -741,7 +810,7 @@ describe("attachmentUploadQueue", () => {
     });
 
     retryAttachmentUpload({ environmentId: firstEnvironment, image });
-    await Promise.resolve();
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
     settled = awaitAttachmentUploads([image.id]);
     TestXmlHttpRequest.requests[1]!.complete();
     await settled;
@@ -763,12 +832,17 @@ describe("attachmentUploadQueue", () => {
     const pendingMint = new Promise<typeof minted>((resolve) => {
       resolveMint = resolve;
     });
+    let resolveMintStarted: () => void = () => {};
+    const mintStarted = new Promise<void>((resolve) => {
+      resolveMintStarted = resolve;
+    });
     let resolveDelete: () => void = () => {};
     const deleted = new Promise<void>((resolve) => {
       resolveDelete = resolve;
     });
     mocks.runAtomCommand.mockImplementation((_registry: unknown, command: unknown) => {
       if (command === mocks.createUploadUrl) {
+        resolveMintStarted();
         return pendingMint;
       }
       resolveDelete();
@@ -776,6 +850,7 @@ describe("attachmentUploadQueue", () => {
     });
 
     startAttachmentUpload({ environmentId: firstEnvironment, image });
+    await mintStarted;
     releaseAttachmentUpload(image.id);
     resolveMint(minted);
     await deleted;
@@ -796,13 +871,13 @@ describe("attachmentUploadQueue", () => {
   it("restores the previous environment after a replacement upload fails", async () => {
     const image = makeImage("image-move");
     startAttachmentUpload({ environmentId: firstEnvironment, image });
-    await Promise.resolve();
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
     let settled = awaitAttachmentUploads([image.id]);
     TestXmlHttpRequest.requests[0]!.complete();
     await settled;
 
     startAttachmentUpload({ environmentId: secondEnvironment, image });
-    await Promise.resolve();
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
     settled = awaitAttachmentUploads([image.id]);
     TestXmlHttpRequest.requests[1]!.complete(500);
     await settled;
@@ -822,7 +897,7 @@ describe("attachmentUploadQueue", () => {
     }
     const otherEnvironmentImage = makeImage("image-other");
     startAttachmentUpload({ environmentId: secondEnvironment, image: otherEnvironmentImage });
-    await Promise.resolve();
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
 
     expect(TestXmlHttpRequest.requests).toHaveLength(4);
     const otherRequest = TestXmlHttpRequest.requests.find((request) =>
@@ -837,7 +912,7 @@ describe("attachmentUploadQueue", () => {
       ...images.slice(0, 3).map((image) => awaitAttachmentUploads([image.id])),
       awaitAttachmentUploads([otherEnvironmentImage.id]),
     ]);
-    await Promise.resolve();
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
     TestXmlHttpRequest.requests[4]!.complete();
     await awaitAttachmentUploads([images[3]!.id]);
   });
