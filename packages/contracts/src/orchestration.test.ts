@@ -1779,3 +1779,63 @@ it.effect("encodes compatible icons inside snapshots and client commands", () =>
     assert.deepEqual(yield* decodeNightlyIcon(command.projectIcon), fallback);
   }),
 );
+
+it.effect("project.reorder accepts fractional order keys and rejects anything else", () =>
+  Effect.gen(function* () {
+    for (const orderKey of ["m", "nb", "abcz"]) {
+      const command = yield* decodeOrchestrationCommand({
+        type: "project.reorder",
+        commandId: "cmd-reorder",
+        projectId: "project-1",
+        orderKey,
+        ifKeyless: true,
+      });
+      assert.strictEqual(command.type, "project.reorder");
+    }
+    // A trailing minimum digit leaves no room to sort before the key; other characters and
+    // oversized keys never come from the planner.
+    for (const orderKey of ["", "a", "ma", "M", "m-1", "b".repeat(65)]) {
+      const result = yield* Effect.exit(
+        decodeOrchestrationCommand({
+          type: "project.reorder",
+          commandId: "cmd-reorder-invalid",
+          projectId: "project-1",
+          orderKey,
+        }),
+      );
+      assert.strictEqual(result._tag, "Failure", `key ${JSON.stringify(orderKey)}`);
+    }
+    const dispatchable = yield* Schema.decodeUnknownEffect(ClientOrchestrationCommand)({
+      type: "project.reorder",
+      commandId: "cmd-reorder-client",
+      projectId: "project-1",
+      orderKey: "m",
+    });
+    assert.strictEqual(dispatchable.type, "project.reorder");
+  }),
+);
+
+it.effect("project shells and meta events carry an optional order key", () =>
+  Effect.gen(function* () {
+    const shell = {
+      id: "project-1",
+      title: "Ordered",
+      workspaceRoot: "/tmp/ordered",
+      defaultModelSelection: null,
+      scripts: [],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const decodeShell = Schema.decodeUnknownEffect(OrchestrationProjectShell);
+    // Cached snapshots from older servers have no key.
+    assert.strictEqual((yield* decodeShell(shell)).orderKey, undefined);
+    assert.strictEqual((yield* decodeShell({ ...shell, orderKey: "m" })).orderKey, "m");
+    assert.strictEqual((yield* decodeShell({ ...shell, orderKey: null })).orderKey, null);
+    const payload = yield* Schema.decodeUnknownEffect(ProjectMetaUpdatedPayload)({
+      projectId: "project-1",
+      orderKey: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    assert.strictEqual(payload.orderKey, null);
+  }),
+);

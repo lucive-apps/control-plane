@@ -93,6 +93,24 @@ describe("partitionAssistants", () => {
     expect(selectWorkspaceProjects(projects)).toBe(projects);
   });
 
+  it("lists arranged Projects by synced key ahead of the default order", () => {
+    const alpha = project("alpha", { coordinator: "a" });
+    const beta = project("beta", { coordinator: "b", orderKey: "n" });
+    const gamma = project("gamma", { coordinator: "g", orderKey: "d" });
+    const remoteDelta = project("delta", {
+      coordinator: "x",
+      environmentId: remote,
+      orderKey: "h",
+    });
+    const partition = partitionAssistants([alpha, beta, gamma, remoteDelta], [], primary);
+    expect(partition.assistants.map((entry) => entry.project.id)).toEqual([
+      "gamma",
+      "delta",
+      "beta",
+      "alpha",
+    ]);
+  });
+
   it("routes Project threads to their Project and hides archived Projects", () => {
     const personal = project("personal", { coordinator: "coord" });
     const archived = project("old", { coordinator: "old-coord", archivedAt: NOW });

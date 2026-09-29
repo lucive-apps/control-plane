@@ -510,6 +510,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             autoPull: false,
             faviconPath: event.payload.faviconPath ?? null,
             projectIcon: event.payload.projectIcon ?? null,
+            orderKey: null,
             scripts: event.payload.scripts,
             createdAt: event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
@@ -543,6 +544,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             ...(event.payload.projectIcon !== undefined
               ? { projectIcon: event.payload.projectIcon }
               : {}),
+            ...(event.payload.orderKey !== undefined ? { orderKey: event.payload.orderKey } : {}),
             ...(event.payload.scripts !== undefined ? { scripts: event.payload.scripts } : {}),
             ...(event.payload.assistant !== undefined
               ? { assistant: event.payload.assistant }

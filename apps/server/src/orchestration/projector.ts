@@ -346,6 +346,7 @@ export function projectEvent(
             autoPull: false,
             faviconPath: payload.faviconPath ?? null,
             projectIcon: payload.projectIcon ?? null,
+            orderKey: null,
             scripts: payload.scripts,
             createdAt: payload.createdAt,
             updatedAt: payload.updatedAt,
@@ -388,6 +389,7 @@ export function projectEvent(
                   ...(payload.projectIcon !== undefined
                     ? { projectIcon: payload.projectIcon }
                     : {}),
+                  ...(payload.orderKey !== undefined ? { orderKey: payload.orderKey } : {}),
                   ...(payload.scripts !== undefined ? { scripts: payload.scripts } : {}),
                   ...(payload.assistant !== undefined ? { assistant: payload.assistant } : {}),
                   updatedAt: payload.updatedAt,

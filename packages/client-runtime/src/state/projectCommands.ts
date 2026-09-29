@@ -11,9 +11,11 @@ import {
 import {
   type CreateProjectInput,
   type DeleteProjectInput,
+  type ReorderProjectInput,
   type UpdateProjectInput,
   createProject,
   deleteProject,
+  reorderProject,
   updateProject,
 } from "../operations/commands.ts";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
@@ -83,6 +85,12 @@ export function createProjectEnvironmentAtoms<R, E>(
     update: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:project:update",
       execute: (input: UpdateProjectInput) => updateProject(input),
+      scheduler: projectScheduler,
+      concurrency: projectConcurrency,
+    }),
+    reorder: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:project:reorder",
+      execute: (input: ReorderProjectInput) => reorderProject(input),
       scheduler: projectScheduler,
       concurrency: projectConcurrency,
     }),

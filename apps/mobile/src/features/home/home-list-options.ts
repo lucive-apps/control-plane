@@ -1,5 +1,4 @@
 import type { EnvironmentId, SidebarProjectGroupingMode } from "@t3tools/contracts";
-import { DEFAULT_SIDEBAR_PROJECT_SORT_ORDER } from "@t3tools/contracts";
 import {
   createContext,
   createElement,
@@ -26,10 +25,9 @@ export interface ResolvedHomeListOptions extends HomeListOptions {
 function defaultHomeListOptions(): HomeListOptions {
   return {
     selectedEnvironmentId: null,
-    projectSortOrder:
-      DEFAULT_SIDEBAR_PROJECT_SORT_ORDER === "manual"
-        ? "updated_at"
-        : DEFAULT_SIDEBAR_PROJECT_SORT_ORDER,
+    // Folders arranged on another client keep that order here; unarranged ones follow
+    // activity, so a fresh install without any arrangement looks the same as before.
+    projectSortOrder: "manual",
   };
 }
 
