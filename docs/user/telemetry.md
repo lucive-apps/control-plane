@@ -1,8 +1,8 @@
 # Product usage data
 
-The T3 Code server sends product usage events to PostHog, associated with a hashed account or
-installation identifier. Events include the provider, model, reasoning effort, permission mode,
-turn result, duration, and main-agent token totals when available.
+The Control Plane server sends product usage events to Lucive's PostHog project, associated with
+a hashed account or installation identifier. Events include the provider, model, reasoning effort,
+permission mode, turn result, duration, and main-agent token totals when available.
 
 Events do not include prompts, responses, file contents, authentication tokens, conversation IDs,
 raw provider events, or child-agent output. Child-agent token use is excluded from the totals.
