@@ -131,19 +131,20 @@ describe("buildAssistantRuntimeBlock", () => {
     }
   });
 
-  it("tells the coordinator to send agents to the built-in browser, and every agent to use it", () => {
+  it("gives coordinators and agents their own thread browser instructions", () => {
     const project = makeProject();
     const build = (thread: ReturnType<typeof makeThread>) =>
       buildAssistantRuntimeBlock({ project, thread, memory: "", roleFile: "" });
     const coordinatorRule =
-      "When you delegate, tell each agent to use the built-in Control Plane browser (the preview_* tools) for browsing, testing and screenshots, and not the user's own browser.";
+      "When you delegate, tell each agent to use its own thread's built-in Control Plane browser with the preview_* tools. Each coordinator and agent has its own browser tabs; do not send browser work to another coordinator or reuse another thread's browser.";
     const agentRule =
-      "Use the built-in Control Plane browser (the preview_* tools) for browsing, testing and screenshots. If the preview_* tools are not loaded yet, load them, then call preview_status or preview_open before concluding the built-in browser is unavailable. Do not launch or drive the user's desktop browsers. Only when a task explicitly needs the user's logged-in session, open the URL in their default browser with `open <url>`.";
+      "Use your own thread's built-in Control Plane browser (the preview_* tools) for browsing, testing and screenshots. Call preview_open without tabId to initialize or reuse your thread's browser, then use preview_navigate, preview_snapshot and the other preview_* tools. If the tools are not loaded yet, load them first. Keep browser work in this thread, including sign-in: let the user log in to this thread's browser when needed. Do not use computer-use tools or launch or drive the user's desktop browsers unless the user explicitly requests that method. If preview_open reports no automation host, report the tool error; switching to another thread's browser or asking the user to open the Browser panel does not repair the host connection.";
 
     const coordinator = build(makeThread("coordinator"));
     expect(coordinator?.inline).toContain(coordinatorRule);
     expect(coordinator?.pointer).toContain(coordinatorRule);
-    expect(coordinator?.inline).not.toContain(agentRule);
+    expect(coordinator?.inline).toContain(agentRule);
+    expect(coordinator?.pointer).toContain(agentRule);
 
     for (const agent of [
       build(makeThread("agent", { title: "Research", pinnedAt: PINNED_AT })),

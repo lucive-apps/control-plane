@@ -182,6 +182,8 @@ interface SubscriptionOptions<TTag extends EnvironmentSubscriptionRpcTag> {
     cause: Cause.Cause<EnvironmentRpcStreamFailure<TTag>>,
   ) => Effect.Effect<void, never, never>;
   readonly retryExpectedFailureAfter?: Duration.Input;
+  /** Reopen a terminated subscription on the current session without replaying requests. */
+  readonly restartAfter?: Duration.Input;
   readonly resubscribe?: Stream.Stream<unknown, never, never>;
 }
 
@@ -251,6 +253,12 @@ function subscribeDynamicMapped<TTag extends EnvironmentSubscriptionRpcTag, A>(
                         : Effect.void,
                     ),
                     Stream.catchCause((cause) => {
+                      // A broker eviction interrupts just this remote stream,
+                      // while its WebSocket session remains usable. Local
+                      // cancellation still interrupts the subscription owner.
+                      if (options?.restartAfter !== undefined && Cause.hasInterruptsOnly(cause)) {
+                        return Stream.empty;
+                      }
                       const hasOnlyExpectedFailures =
                         cause.reasons.length > 0 &&
                         cause.reasons.every((reason) => reason._tag === "Fail");
@@ -262,7 +270,9 @@ function subscribeDynamicMapped<TTag extends EnvironmentSubscriptionRpcTag, A>(
                       if (isTransportFailure) {
                         return Stream.fromEffect(
                           Effect.logWarning(
-                            "Durable RPC subscription lost its transport; waiting for the next session.",
+                            options?.restartAfter === undefined
+                              ? "Durable RPC subscription lost its transport; waiting for the next session."
+                              : "Durable RPC subscription ended; reopening on the current session.",
                             {
                               cause: Cause.pretty(cause),
                               method: tag,
@@ -291,7 +301,14 @@ function subscribeDynamicMapped<TTag extends EnvironmentSubscriptionRpcTag, A>(
                     }),
                   ),
                 );
-              return subscribeToSession();
+              const restartAfter = options?.restartAfter;
+              if (restartAfter === undefined) return subscribeToSession();
+              const restartSubscription = (): Stream.Stream<A, EnvironmentRpcStreamFailure<TTag>> =>
+                subscribeToSession().pipe(
+                  Stream.concat(Stream.fromEffect(Effect.sleep(restartAfter)).pipe(Stream.drain)),
+                  Stream.concat(Stream.suspend(restartSubscription)),
+                );
+              return restartSubscription();
             },
           }),
         ),
