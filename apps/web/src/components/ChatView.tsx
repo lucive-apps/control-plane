@@ -2471,13 +2471,32 @@ export default function ChatView(props: ChatViewProps) {
         machine: resolveEnvironmentMachineKind(environment?.serverConfig ?? null),
       });
     }
+    // The label reads from the thread's own environment, so a thread running
+    // on a machine that holds no sibling project row still names its machine.
+    if (activeThreadEnvironmentId !== null && !seen.has(activeThreadEnvironmentId)) {
+      const environment = environmentById.get(activeThreadEnvironmentId) ?? null;
+      envs.push({
+        environmentId: activeThreadEnvironmentId,
+        projectId: activeProject.id,
+        label: environment?.label ?? activeThreadEnvironmentId,
+        isPrimary: activeThreadEnvironmentId === primaryEnvironmentId,
+        machine: resolveEnvironmentMachineKind(environment?.serverConfig ?? null),
+      });
+    }
     // Sort: primary first, then alphabetical
     envs.sort((a, b) => {
       if (a.isPrimary !== b.isPrimary) return a.isPrimary ? -1 : 1;
       return a.label.localeCompare(b.label);
     });
     return envs;
-  }, [activeProject, allProjects, projectGroupingSettings, primaryEnvironmentId, environmentById]);
+  }, [
+    activeProject,
+    activeThreadEnvironmentId,
+    allProjects,
+    projectGroupingSettings,
+    primaryEnvironmentId,
+    environmentById,
+  ]);
   const hasMultipleEnvironments = logicalProjectEnvironments.length > 1;
   const activeEnvironmentOption =
     logicalProjectEnvironments.find(
@@ -2486,6 +2505,7 @@ export default function ChatView(props: ChatViewProps) {
   const showComposerEnvironmentIndicator = shouldShowEnvironmentIndicator({
     activeEnvironment: activeEnvironmentOption,
     canPickEnvironment: hasMultipleEnvironments,
+    alwaysShow: assistantRole !== null,
   });
 
   const openPullRequestDialog = useCallback(
@@ -10348,6 +10368,7 @@ export default function ChatView(props: ChatViewProps) {
                                   : {})}
                                 {...(hasMultipleEnvironments ? { onEnvironmentChange } : {})}
                                 autoEnvironmentLabel={autoEnvironmentLabel}
+                                alwaysShowEnvironmentIndicator={assistantRole !== null}
                                 onAutoEnvironment={
                                   draftId &&
                                   !envLocked &&

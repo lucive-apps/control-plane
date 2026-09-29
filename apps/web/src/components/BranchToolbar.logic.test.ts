@@ -413,6 +413,16 @@ describe("shouldShowEnvironmentIndicator", () => {
     ).toBe(false);
   });
 
+  it("always shows for agent threads, even for a sole primary environment", () => {
+    expect(
+      shouldShowEnvironmentIndicator({
+        activeEnvironment: { isPrimary: true },
+        canPickEnvironment: false,
+        alwaysShow: true,
+      }),
+    ).toBe(true);
+  });
+
   it("hides the indicator when the active environment is unknown", () => {
     expect(
       shouldShowEnvironmentIndicator({

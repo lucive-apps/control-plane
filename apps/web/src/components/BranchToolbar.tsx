@@ -79,6 +79,8 @@ interface BranchToolbarProps {
   startFromOrigin: boolean;
   onStartFromOriginChange: (startFromOrigin: boolean) => void;
   autoEnvironmentLabel?: string | undefined;
+  /** Show the machine label even with a single primary machine (agent threads). */
+  alwaysShowEnvironmentIndicator?: boolean;
   onAutoEnvironment?: (() => void) | undefined;
   envLocked: boolean;
   onCheckoutPullRequestRequest?: (reference: string) => void;
@@ -494,6 +496,7 @@ export const BranchToolbar = memo(function BranchToolbar({
   startFromOrigin,
   onStartFromOriginChange,
   autoEnvironmentLabel,
+  alwaysShowEnvironmentIndicator = false,
   onAutoEnvironment,
   envLocked,
   onCheckoutPullRequestRequest,
@@ -594,6 +597,7 @@ export const BranchToolbar = memo(function BranchToolbar({
   const showEnvironmentIndicator = shouldShowEnvironmentIndicator({
     activeEnvironment: activeEnvironmentOption,
     canPickEnvironment: showEnvironmentPicker,
+    alwaysShow: alwaysShowEnvironmentIndicator,
   });
   const [stripElement, setStripElement] = useState<HTMLDivElement | null>(null);
   const labelsOverflow = useLabelsOverflow(stripElement);
