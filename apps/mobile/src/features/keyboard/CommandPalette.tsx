@@ -1,4 +1,5 @@
 import { useNavigation } from "@react-navigation/native";
+import { partitionAssistants } from "@t3tools/client-runtime/state/assistants";
 import type { EnvironmentThreadSearchMatch } from "@t3tools/client-runtime/state/thread-search";
 import { THREAD_JUMP_KEYBINDING_COMMANDS } from "@t3tools/contracts";
 import { threadPullRequestSearchTerms } from "@t3tools/shared/threadPullRequests";
@@ -17,24 +18,37 @@ import {
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { GlassSurface } from "../../components/GlassSurface";
+import { ProjectFavicon } from "../../components/ProjectFavicon";
 import { RowPressable } from "../../components/RowPressable";
 import { AppText as Text } from "../../components/AppText";
 import { SymbolView, type AppSymbolName } from "../../components/AppSymbol";
 import { scopedProjectKey, scopedThreadKey } from "../../lib/scopedEntities";
 import { T3KeyboardCommands } from "../../native/T3KeyboardCommands";
-import { useProjects, useThreadShell, useThreadShells } from "../../state/entities";
+import {
+  useProjects,
+  useServerConfigs,
+  useThreadShell,
+  useThreadShells,
+} from "../../state/entities";
 import { useMobileProjectGroupingSettings } from "../../state/project-grouping";
 import { useThreadSearch } from "../../state/queries";
+import { useThreadVisitMap } from "../../state/thread-visits";
 import { useWorkspaceState } from "../../state/workspace";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
 import { buildHomeProjectScopes } from "../home/homeThreadList";
 import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
+import { useOpenNewProject } from "../projects/useOpenNewProject";
+import { rollupDotColor, ThreadStatusDot } from "../threads/thread-status-dot";
 import { ThreadSearchMatchExcerpt } from "../threads/thread-search-match";
 import {
+  buildCommandPaletteAssistantRows,
   buildCommandPaletteProjectRows,
   filterCommandPaletteItems,
   nextPaletteIndex,
+  resolveContextualPaletteActions,
+  resolvePaletteThreadChrome,
   type CommandPaletteItem,
+  type ContextualPaletteAction,
 } from "./commandPaletteItems";
 import { parseActiveThreadPath, type HardwareKeyboardCommand } from "./hardwareKeyboardCommands";
 import { threadJumpIndex } from "./threadKeyboardShortcuts";
@@ -51,6 +65,10 @@ const ROW_HEIGHT = 50;
 const ACTION_ICONS: Record<string, AppSymbolName> = {
   newTask: "square.and.pencil",
   newThread: "square.and.pencil",
+  newProject: "folder.badge.plus",
+  projectSettings: "gearshape",
+  projectSchedules: "clock",
+  convertToProject: "folder.badge.plus",
   addProject: "folder.badge.plus",
   settings: "gearshape",
   appearance: "paintbrush",
@@ -77,6 +95,8 @@ function PaletteRow(props: {
   readonly searchQuery: string;
   readonly onSelect: () => void;
 }) {
+  const { assistant } = props.item;
+  const dotColor = assistant ? rollupDotColor(assistant.rollup) : null;
   return (
     <RowPressable
       accessibilityRole="button"
@@ -90,7 +110,18 @@ function PaletteRow(props: {
       style={{ height: ROW_HEIGHT }}
     >
       <View className="w-7 items-center">
-        <SymbolView name={itemIcon(props.item)} size={20} tintColorClassName="accent-icon" />
+        {assistant ? (
+          <ProjectFavicon
+            environmentId={assistant.project.environmentId}
+            faviconPath={assistant.project.faviconPath}
+            projectIcon={assistant.project.projectIcon}
+            projectTitle={assistant.project.title}
+            size={20}
+            workspaceRoot={assistant.project.workspaceRoot}
+          />
+        ) : (
+          <SymbolView name={itemIcon(props.item)} size={20} tintColorClassName="accent-icon" />
+        )}
       </View>
       <View className="flex-1">
         <Text numberOfLines={1} className="text-base">
@@ -104,6 +135,7 @@ function PaletteRow(props: {
           </Text>
         ) : null}
       </View>
+      {dotColor !== null ? <ThreadStatusDot color={dotColor} /> : null}
       {props.index < 9 ? (
         <NativeText className="w-8 shrink-0 text-right text-sm tabular-nums text-foreground-muted">
           ⌘{props.index + 1}
@@ -122,18 +154,27 @@ export function CommandPalette(props: {
   const navigation = useNavigation();
   const { selectThread } = useAdaptiveWorkspaceLayout();
   const runCommand = props.onCommand;
+  const { openNewProject, openConvertToProject } = useOpenNewProject();
   const projects = useProjects();
+  const threads = useThreadShells();
+  const serverConfigs = useServerConfigs();
+  const lastVisitedAtById = useThreadVisitMap();
+  // Projects get their own rows; workspace rows and "New thread in…" see
+  // plain workspaces only.
+  const partition = useMemo(
+    () => partitionAssistants(projects, threads, null),
+    [projects, threads],
+  );
   const groupingSettings = useMobileProjectGroupingSettings();
   const projectScopes = useMemo(
     () =>
       buildHomeProjectScopes({
-        projects,
+        projects: partition.workspaceProjects,
         environmentId: null,
         projectGroupingMode: groupingSettings.sidebarProjectGroupingMode,
       }),
-    [groupingSettings.sidebarProjectGroupingMode, projects],
+    [groupingSettings.sidebarProjectGroupingMode, partition.workspaceProjects],
   );
-  const threads = useThreadShells();
   const activeThreadRef = useMemo(() => parseActiveThreadPath(props.pathname), [props.pathname]);
   const activeThread = useThreadShell(activeThreadRef);
   const { environments } = useWorkspaceState();
@@ -243,42 +284,109 @@ export function CommandPalette(props: {
     const projectByKey = new Map(
       projects.map((project) => [scopedProjectKey(project.environmentId, project.id), project]),
     );
-    const activeProject = activeThread
-      ? projectByKey.get(scopedProjectKey(activeThread.environmentId, activeThread.projectId))
-      : null;
-    if (activeProject) {
-      actions.unshift({
-        key: "newThread",
-        kind: "action",
-        title: `New thread in ${activeProject.title}`,
-        searchTerms: ["new task", "chat", "create"],
-        run: () =>
-          navigation.navigate("NewTaskSheet", {
-            screen: "NewTaskDraft",
+    const activeProject =
+      (activeThread
+        ? projectByKey.get(scopedProjectKey(activeThread.environmentId, activeThread.projectId))
+        : null) ?? null;
+    const contextual = resolveContextualPaletteActions({
+      activeProject,
+      hasActiveThread: activeThreadRef !== null,
+      chrome: resolvePaletteThreadChrome({
+        project: activeProject,
+        threadId: activeThread?.id ?? null,
+        worktreePath: activeThread?.worktreePath ?? null,
+      }),
+      assistantsCapability:
+        activeProject !== null &&
+        serverConfigs.get(activeProject.environmentId)?.environment.capabilities.assistants ===
+          true,
+      schedulesCapability:
+        activeProject !== null &&
+        serverConfigs.get(activeProject.environmentId)?.environment.capabilities
+          .projectSchedules !== undefined,
+    });
+    const runContextual = (key: ContextualPaletteAction["key"]) => {
+      if (key === "newThread") {
+        if (activeProject === null) return;
+        navigation.navigate("NewTaskSheet", {
+          screen: "NewTaskDraft",
+          params: {
+            environmentId: activeProject.environmentId,
+            projectId: activeProject.id,
+            title: activeProject.title,
+          },
+        });
+      } else if (key === "projectSettings") {
+        if (activeProject === null) return;
+        navigation.navigate("SettingsSheet", {
+          screen: "SettingsContent",
+          params: {
+            screen: "SettingsProject",
             params: {
-              environmentId: activeProject.environmentId,
-              projectId: activeProject.id,
-              title: activeProject.title,
+              environmentId: String(activeProject.environmentId),
+              projectId: String(activeProject.id),
             },
-          }),
+          },
+        });
+      } else if (key === "projectSchedules") {
+        if (activeProject === null) return;
+        navigation.navigate("ProjectSheet", {
+          screen: "ProjectSchedules",
+          params: {
+            environmentId: String(activeProject.environmentId),
+            projectId: String(activeProject.id),
+          },
+        });
+      } else if (key === "convertToProject") {
+        if (activeProject !== null) openConvertToProject(activeProject);
+      } else {
+        runCommand(key);
+      }
+    };
+    const toItem = (action: ContextualPaletteAction): CommandPaletteItem => ({
+      key: action.key,
+      kind: "action",
+      title: action.title,
+      ...(action.detail === undefined ? {} : { detail: action.detail }),
+      searchTerms: action.searchTerms,
+      run: () => runContextual(action.key),
+    });
+    actions.unshift(...contextual.leading.map(toItem));
+    actions.push(...contextual.thread.map(toItem));
+    const assistantItems: CommandPaletteItem[] = buildCommandPaletteAssistantRows({
+      assistants: partition.assistants,
+      lastVisitedAtById,
+      now: new Date().toISOString(),
+    }).map((row) => ({
+      key: row.key,
+      kind: "assistant" as const,
+      title: row.title,
+      ...(row.detail === undefined ? {} : { detail: row.detail }),
+      assistant: { project: row.project, rollup: row.rollup },
+      searchTerms: row.searchTerms,
+      run: () =>
+        row.coordinator !== null
+          ? selectThread(row.coordinator)
+          : navigation.navigate("Thread", {
+              environmentId: String(row.project.environmentId),
+              threadId: String(row.coordinatorThreadId),
+            }),
+    }));
+    if (
+      environments.some(
+        (environment) =>
+          environment.connectionState === "connected" &&
+          serverConfigs.get(environment.environmentId)?.environment.capabilities.assistants ===
+            true,
+      )
+    ) {
+      assistantItems.push({
+        key: "newProject",
+        kind: "action",
+        title: "New Project…",
+        searchTerms: ["new project", "create project", "coordinator", "agents"],
+        run: () => openNewProject(),
       });
-    }
-    if (activeThreadRef) {
-      const threadActions = [
-        ["files", "Go to file", ["open", "files", "browse", "search"]],
-        ["terminal", "Open terminal", ["shell", "console"]],
-        ["review", "Review changes", ["diff", "git", "pull request"]],
-        ["copyThreadReference", "Copy PR link or thread ID", ["reference", "clipboard"]],
-      ] as const;
-      actions.push(
-        ...threadActions.map(([command, title, searchTerms]) => ({
-          key: command,
-          kind: "action" as const,
-          title,
-          searchTerms,
-          run: () => runCommand(command),
-        })),
-      );
     }
     const environmentLabelById = new Map(
       Object.entries(savedConnectionsById).map(([environmentId, connection]) => [
@@ -306,8 +414,18 @@ export function CommandPalette(props: {
           },
         }),
     }));
+    // Threads of archived Projects stay hidden until Unarchive.
+    const archivedProjectKeys = new Set(
+      partition.archivedAssistants.map(({ project }) =>
+        scopedProjectKey(project.environmentId, project.id),
+      ),
+    );
     const threadItems: CommandPaletteItem[] = threads
-      .filter((thread) => thread.archivedAt === null)
+      .filter(
+        (thread) =>
+          thread.archivedAt === null &&
+          !archivedProjectKeys.has(scopedProjectKey(thread.environmentId, thread.projectId)),
+      )
       .sort((left, right) =>
         (right.latestUserMessageAt ?? right.updatedAt).localeCompare(
           left.latestUserMessageAt ?? left.updatedAt,
@@ -331,16 +449,22 @@ export function CommandPalette(props: {
           run: () => selectThread(thread),
         };
       });
-    return [...actions, ...projectItems, ...threadItems];
+    return [...assistantItems, ...actions, ...projectItems, ...threadItems];
   }, [
     activeThread,
     activeThreadRef,
+    environments,
+    lastVisitedAtById,
     navigation,
+    openConvertToProject,
+    openNewProject,
+    partition,
     projectScopes,
     projects,
     runCommand,
     savedConnectionsById,
     selectThread,
+    serverConfigs,
     threads,
   ]);
   const results = useMemo(

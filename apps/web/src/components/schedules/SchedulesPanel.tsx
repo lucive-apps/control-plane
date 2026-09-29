@@ -1,24 +1,21 @@
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
-  formatTimeUntil,
-  resolveScheduleRowState,
-  scheduleAuthorLabel,
+  buildScheduleRows,
+  resolveScheduleHost,
+  scheduleEditorChange,
   scheduleTargetOptions,
-  type ScheduleRowState,
+  SCHEDULES_HELP_URL,
+  storedSchedulePrompt,
+  type ScheduleRowView,
 } from "@t3tools/client-runtime/state/schedules";
-import type {
-  EnvironmentProject,
-  EnvironmentThreadShell,
-} from "@t3tools/client-runtime/state/shell";
+import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import {
   PROJECT_SCHEDULE_LIMIT,
   type ProjectSchedule,
   type ProjectScheduler,
-  type ProjectScheduleRun,
   type ScopedThreadRef,
   type ThreadId,
 } from "@t3tools/contracts";
-import { describeCadence, nextScheduleRuns } from "@t3tools/shared/schedules";
 import { useNavigate } from "@tanstack/react-router";
 import { EllipsisIcon, PlayIcon, PlusIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -39,14 +36,7 @@ import { ScheduleEditorDialog } from "./ScheduleEditorDialog";
 import { ScheduleHostLine, useHostOpenAtLogin } from "./ScheduleHostLine";
 import { useScheduleActions } from "./useScheduleActions";
 
-const HOW_TO_FIX_URL =
-  "https://github.com/lucive-apps/control-plane/blob/main/docs/user/projects.md#schedules";
 const MINUTE_MS = 60_000;
-
-/** Own keys only: a schedule id such as "constructor" must not read Object.prototype. */
-function entryOf<T>(record: Readonly<Record<string, T>> | undefined, id: string): T | undefined {
-  return record !== undefined && Object.hasOwn(record, id) ? record[id] : undefined;
-}
 
 /**
  * The Schedules right-panel surface. Closes itself when the thread's Project
@@ -123,18 +113,20 @@ function SchedulesPanelContent(props: {
     return () => window.clearInterval(interval);
   }, [editorOpen, refreshStatus]);
 
-  const timeZone = status?.host.timeZone ?? props.capabilityZone;
-  const scheduler = status?.host.scheduler ?? props.scheduler;
+  const host = resolveScheduleHost({
+    capability: { scheduler: props.scheduler, timeZone: props.capabilityZone },
+    host: status?.host ?? null,
+  });
+  const { timeZone, scheduler } = host;
   const schedules = assistant.schedules ?? [];
-  const threadById = useMemo(
-    () => new Map<ThreadId, EnvironmentThreadShell>(threads.map((thread) => [thread.id, thread])),
-    [threads],
-  );
-  const coordinator = threadById.get(assistant.coordinatorThreadId) ?? null;
-  const titleOf = useCallback(
-    (threadId: ThreadId) => threadById.get(threadId)?.title ?? null,
-    [threadById],
-  );
+  const rows = buildScheduleRows({
+    assistant,
+    projectTitle: project.title,
+    threads,
+    held: status?.held,
+    now,
+    timeZone,
+  });
   const openThread = useCallback(
     (threadId: ThreadId) =>
       void navigate({
@@ -159,22 +151,12 @@ function SchedulesPanelContent(props: {
     });
   };
 
-  const unsupported = scheduler === "none";
-  const problems = status?.host.problems ?? [];
+  const unsupported = host.unsupportedText !== null;
   // A closed app on a Mac is fixed by Open at login, unless it is already on.
   const suggestOpenAtLogin =
     scheduler === "launchd" && !(openAtLogin.onThisHost && openAtLogin.state?.enabled === true);
   // The editor saves against the version it opened; say so when the stored one moved on.
-  const opened = editing?.schedule ?? null;
-  const stored = opened === null ? undefined : schedules.find(({ id }) => id === opened.id);
-  const editingChanged =
-    opened === null
-      ? null
-      : stored === undefined
-        ? "deleted"
-        : stored.updatedAt !== opened.updatedAt
-          ? "edited"
-          : null;
+  const editingChanged = scheduleEditorChange(editing?.schedule ?? null, schedules);
 
   return (
     <div className="flex h-full min-h-0 flex-col text-sm">
@@ -196,16 +178,12 @@ function SchedulesPanelContent(props: {
       <ScrollArea className="min-h-0 flex-1">
         {unsupported ? (
           <div className="flex flex-col items-start gap-2 px-3 py-4 text-muted-foreground">
-            <p>
-              {problems.includes("unsupported-platform")
-                ? "Schedules aren't available on Windows yet."
-                : "This host doesn't run schedules. They run from the Control Plane desktop app."}
-            </p>
+            <p>{host.unsupportedText}</p>
             <Button
               type="button"
               size="xs"
               variant="outline"
-              onClick={() => void readLocalApi()?.shell.openExternal(HOW_TO_FIX_URL)}
+              onClick={() => void readLocalApi()?.shell.openExternal(SCHEDULES_HELP_URL)}
             >
               How to fix
             </Button>
@@ -220,55 +198,22 @@ function SchedulesPanelContent(props: {
           </div>
         ) : (
           <ul className="flex flex-col py-1">
-            {schedules.map((schedule) => {
-              const targetThread =
-                schedule.target === "coordinator"
-                  ? coordinator
-                  : (threads.find(
-                      (thread) => thread.id === schedule.target && thread.archivedAt === null,
-                    ) ?? null);
-              const targetTitle =
-                schedule.target === "coordinator"
-                  ? (coordinator?.title ?? project.title)
-                  : (targetThread?.title ?? "its agent");
-              return (
-                <ScheduleRow
-                  key={schedule.id}
-                  schedule={schedule}
-                  targetLabel={
-                    schedule.target === "coordinator"
-                      ? "Coordinator"
-                      : (targetThread?.title ?? "Missing agent")
-                  }
-                  state={resolveScheduleRowState({
-                    schedule,
-                    run: entryOf<ProjectScheduleRun>(assistant.scheduleRuns, schedule.id),
-                    held: entryOf(status?.held, schedule.id),
-                    targetTitle,
-                    targetThread,
-                    now,
-                    timeZone,
-                  })}
-                  nextRun={
-                    schedule.enabled
-                      ? (nextScheduleRuns(schedule.cron, timeZone, now, 1)[0] ?? null)
-                      : null
-                  }
-                  now={now}
-                  writing={writing.has(schedule.id)}
-                  suggestOpenAtLogin={suggestOpenAtLogin}
-                  author={scheduleAuthorLabel(schedule, titleOf)}
-                  onOpenThread={openThread}
-                  onRunNow={async () => {
-                    await actions.runNow(projectRef, schedule.id, targetTitle);
-                    refreshStatus();
-                  }}
-                  onEdit={() => openEditor(schedule)}
-                  onSetEnabled={(enabled) => void setEnabled(schedule.id, enabled)}
-                  onDelete={() => void actions.remove(projectRef, schedule)}
-                />
-              );
-            })}
+            {rows.map((row) => (
+              <ScheduleRow
+                key={row.schedule.id}
+                row={row}
+                writing={writing.has(row.schedule.id)}
+                suggestOpenAtLogin={suggestOpenAtLogin}
+                onOpenThread={openThread}
+                onRunNow={async () => {
+                  await actions.runNow(projectRef, row.schedule.id, row.targetTitle);
+                  refreshStatus();
+                }}
+                onEdit={() => openEditor(row.schedule)}
+                onSetEnabled={(enabled) => void setEnabled(row.schedule.id, enabled)}
+                onDelete={() => void actions.remove(projectRef, row.schedule)}
+              />
+            ))}
           </ul>
         )}
       </ScrollArea>
@@ -287,7 +232,9 @@ function SchedulesPanelContent(props: {
         <ScheduleEditorDialog
           schedule={editing.schedule}
           prompt={
-            editing.schedule === null ? undefined : entryOf(status?.prompts, editing.schedule.id)
+            editing.schedule === null
+              ? undefined
+              : storedSchedulePrompt(status?.prompts, editing.schedule.id)
           }
           promptPending={statusQuery.isPending}
           promptFailed={statusQuery.error !== null}
@@ -308,36 +255,22 @@ function SchedulesPanelContent(props: {
 }
 
 function ScheduleRow(props: {
-  readonly schedule: ProjectSchedule;
-  readonly targetLabel: string;
-  readonly state: ScheduleRowState;
-  readonly nextRun: Date | null;
-  readonly now: Date;
+  readonly row: ScheduleRowView;
   readonly writing: boolean;
   readonly suggestOpenAtLogin: boolean;
-  readonly author: string | null;
   readonly onOpenThread: (threadId: ThreadId) => void;
   readonly onRunNow: () => Promise<void>;
   readonly onEdit: () => void;
   readonly onSetEnabled: (enabled: boolean) => void;
   readonly onDelete: () => void;
 }) {
-  const { schedule, state } = props;
+  const { schedule, state, detail, author } = props.row;
   const [running, setRunning] = useState(false);
   const runNow = async () => {
     setRunning(true);
     await props.onRunNow();
     setRunning(false);
   };
-  const cadence = [
-    describeCadence(schedule.cron),
-    props.targetLabel,
-    schedule.enabled
-      ? props.nextRun
-        ? formatTimeUntil(props.nextRun, props.now)
-        : null
-      : "Paused",
-  ].filter((part): part is string => part !== null);
   const linkThreadId = state.linkThreadId;
   return (
     <li className="group/schedule relative flex items-start gap-2 px-3 py-2 hover:bg-accent/30">
@@ -345,7 +278,7 @@ function ScheduleRow(props: {
         className={cn("flex min-w-0 flex-1 flex-col gap-0.5", !schedule.enabled && "opacity-60")}
       >
         <p className="truncate font-medium">{schedule.name}</p>
-        <p className="truncate text-muted-foreground text-xs">{cadence.join(" · ")}</p>
+        <p className="truncate text-muted-foreground text-xs">{detail}</p>
         <p
           className={cn(
             "flex min-w-0 items-center gap-1.5 text-xs",
@@ -374,9 +307,7 @@ function ScheduleRow(props: {
             Turn on Open at login to keep schedules running.
           </p>
         ) : null}
-        {props.author ? (
-          <p className="truncate text-muted-foreground text-xs">{props.author}</p>
-        ) : null}
+        {author ? <p className="truncate text-muted-foreground text-xs">{author}</p> : null}
       </div>
       <div className="flex shrink-0 items-center gap-1">
         <Tooltip>

@@ -4,11 +4,21 @@ import {
   type ProjectId,
   type ProjectSchedule,
   type ProjectScheduleInput,
+  type ProjectScheduler,
   type ProjectScheduleRun,
   type ProjectScheduleTarget,
+  type ScheduleHostProblem,
+  type ScheduleHostStatus,
+  type SchedulesRunResult,
   type ThreadId,
 } from "@t3tools/contracts";
-import { validateScheduleCron } from "@t3tools/shared/schedules";
+import {
+  describeCadence,
+  newScheduleId,
+  nextScheduleRuns,
+  validateScheduleCron,
+  wallClockAt,
+} from "@t3tools/shared/schedules";
 import * as Cron from "effect/Cron";
 import * as Result from "effect/Result";
 
@@ -144,6 +154,52 @@ export function schedulePresetError(preset: SchedulePreset): string | null {
   return validateScheduleCron(presetToCron(preset));
 }
 
+/** The cadence picker's choices, in order, with their labels. */
+export const SCHEDULE_PRESET_LABELS: Readonly<Record<SchedulePresetKind, string>> = {
+  daily: "Every day",
+  weekdays: "Weekdays",
+  weekly: "Weekly on",
+  hourly: "Every N hours",
+  monthly: "Monthly",
+  custom: "Custom",
+};
+
+export const SCHEDULE_PRESET_KINDS: readonly SchedulePresetKind[] = [
+  "daily",
+  "weekdays",
+  "weekly",
+  "hourly",
+  "monthly",
+  "custom",
+];
+
+/** Weekly day chips, Monday first the way people read a week. Values are cron weekdays (Sunday = 0). */
+export const SCHEDULE_WEEK_DAYS = [
+  [1, "Mon"],
+  [2, "Tue"],
+  [3, "Wed"],
+  [4, "Thu"],
+  [5, "Fri"],
+  [6, "Sat"],
+  [0, "Sun"],
+] as const;
+
+/** The preset switched to `kind`. Custom starts from the cadence on screen, not a stale cron. */
+export function switchSchedulePreset(
+  preset: SchedulePreset,
+  kind: SchedulePresetKind,
+  cronOnScreen: string,
+): SchedulePreset {
+  return kind === "custom" && preset.kind !== "custom"
+    ? { ...preset, kind, cron: cronOnScreen }
+    : { ...preset, kind };
+}
+
+/** A weekly day chip tapped: on becomes off and off becomes on. */
+export function toggleScheduleDay(days: readonly number[], day: number): number[] {
+  return days.includes(day) ? days.filter((value) => value !== day) : sortedUnique([...days, day]);
+}
+
 // ── Time in the host's zone ──────────────────────────────────────────
 
 interface ZonedParts {
@@ -153,41 +209,32 @@ interface ZonedParts {
   readonly minute: number;
 }
 
-const zonedFormats = new Map<string, Intl.DateTimeFormat>();
+const MONTH_ABBREVIATIONS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
 
-function zonedFormat(timeZone: string): Intl.DateTimeFormat {
-  const cached = zonedFormats.get(timeZone);
-  if (cached) return cached;
-  const options: Intl.DateTimeFormatOptions = {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: false,
-  };
-  let format: Intl.DateTimeFormat;
-  try {
-    format = new Intl.DateTimeFormat("en-US", { ...options, timeZone });
-  } catch {
-    // An unknown zone reads in the device's zone rather than failing the row.
-    format = new Intl.DateTimeFormat("en-US", options);
-  }
-  zonedFormats.set(timeZone, format);
-  return format;
-}
-
-function zonedParts(date: Date, timeZone: string): ZonedParts {
-  const parts = zonedFormat(timeZone).formatToParts(date);
-  const part = (type: Intl.DateTimeFormatPartTypes) =>
-    parts.find((entry) => entry.type === type)?.value ?? "";
-  const monthDay = `${part("month")} ${part("day")}`;
+/** Undefined reads in the device's zone. */
+function zonedParts(date: Date, timeZone: string | undefined): ZonedParts {
+  const at = date.getTime();
+  // An unknown zone reads in the device's zone rather than failing the row.
+  const clock = wallClockAt(at, timeZone) ?? wallClockAt(at);
+  const monthDay = `${MONTH_ABBREVIATIONS[clock.month - 1] ?? ""} ${clock.day}`;
   return {
-    dayKey: `${part("year")} ${monthDay}`,
+    dayKey: `${clock.year} ${monthDay}`,
     monthDay,
-    // Some engines write midnight as 24.
-    hour: Number(part("hour")) % 24,
-    minute: Number(part("minute")),
+    hour: clock.hour,
+    minute: clock.minute,
   };
 }
 
@@ -195,15 +242,34 @@ function pad(value: number): string {
   return value < 10 ? `0${value}` : `${value}`;
 }
 
-/** "at 7:00" today in the host's zone, else "on Sep 25 at 7:00". */
-function atTime(iso: string, now: Date, timeZone: string): string {
+/** "7:00" and whether that is today in `timeZone`, or its "Sep 25". */
+function zonedTime(
+  iso: string,
+  now: Date,
+  timeZone: string | undefined,
+): { readonly time: string; readonly monthDay: string | null } {
   // Intl formats plain dates; the caller owns the clock through `now`.
   // @effect-diagnostics-next-line globalDate:off
   const parts = zonedParts(new Date(iso), timeZone);
   const time = `${parts.hour}:${pad(parts.minute)}`;
-  return parts.dayKey === zonedParts(now, timeZone).dayKey
-    ? `at ${time}`
-    : `on ${parts.monthDay} at ${time}`;
+  const today = parts.dayKey === zonedParts(now, timeZone).dayKey;
+  return { time, monthDay: today ? null : parts.monthDay };
+}
+
+/** "at 7:00" today in the host's zone, else "on Sep 25 at 7:00". */
+function atTime(iso: string, now: Date, timeZone: string): string {
+  const { time, monthDay } = zonedTime(iso, now, timeZone);
+  return monthDay === null ? `at ${time}` : `on ${monthDay} at ${time}`;
+}
+
+/**
+ * When a scheduled prompt arrived, for its timeline label: "7:00" today,
+ * else "Sep 25 at 7:00". Reads in `timeZone`, the device's when omitted.
+ */
+export function formatScheduledMessageTime(iso: string, now: Date, timeZone?: string): string {
+  if (Number.isNaN(Date.parse(iso))) return "";
+  const { time, monthDay } = zonedTime(iso, now, timeZone);
+  return monthDay === null ? time : `${monthDay} at ${time}`;
 }
 
 const nextRunFormats = new Map<string, Intl.DateTimeFormat>();
@@ -368,6 +434,88 @@ export function resolveScheduleRowState(input: {
     case undefined:
       return row("missed", `Missed ${at(run.slot)}`, { attention });
   }
+}
+
+/** A Project thread as the Schedules list reads it. */
+export interface ScheduleListThread extends ScheduleRowTargetThread {
+  readonly id: ThreadId;
+  readonly title: string;
+  readonly archivedAt: string | null;
+}
+
+export interface ScheduleRowView {
+  readonly schedule: ProjectSchedule;
+  /** How sentences name the target: "Queued until Sales is idle". */
+  readonly targetTitle: string;
+  /** "Weekdays at 7:00 · Coordinator · in 14h", or "… · Paused". */
+  readonly detail: string;
+  readonly state: ScheduleRowState;
+  /** "Created by Personal" while an agent made the last change. */
+  readonly author: string | null;
+}
+
+const nextRuns = new Map<string, Date | null>();
+
+/**
+ * A row's next run, remembered per minute tick: the list re-renders on every
+ * thread change in its Project, and cron math is slow without a JIT (Hermes).
+ */
+function nextRunAfter(cron: string, timeZone: string, now: Date): Date | null {
+  const key = `${now.getTime()} ${timeZone} ${cron}`;
+  const cached = nextRuns.get(key);
+  if (cached !== undefined) return cached;
+  if (nextRuns.size >= 200) nextRuns.clear();
+  const next = nextScheduleRuns(cron, timeZone, now, 1)[0] ?? null;
+  nextRuns.set(key, next);
+  return next;
+}
+
+/**
+ * The Schedules list of one Project, in stored order. `threads` are the
+ * Project's thread shells; `held` comes from `schedules.status`.
+ */
+export function buildScheduleRows(input: {
+  readonly assistant: Pick<ProjectAssistant, "coordinatorThreadId" | "schedules" | "scheduleRuns">;
+  readonly projectTitle: string;
+  readonly threads: readonly ScheduleListThread[];
+  readonly held: Readonly<Record<string, { readonly since: string }>> | undefined;
+  readonly now: Date;
+  readonly timeZone: string;
+}): ScheduleRowView[] {
+  const { assistant, threads, now, timeZone } = input;
+  const threadById = new Map(threads.map((thread) => [thread.id, thread]));
+  const coordinator = threadById.get(assistant.coordinatorThreadId) ?? null;
+  const titleOf = (threadId: ThreadId) => threadById.get(threadId)?.title ?? null;
+  return (assistant.schedules ?? []).map((schedule) => {
+    const toCoordinator = schedule.target === "coordinator";
+    const targetThread = toCoordinator
+      ? coordinator
+      : (threads.find((thread) => thread.id === schedule.target && thread.archivedAt === null) ??
+        null);
+    const targetTitle = toCoordinator
+      ? (coordinator?.title ?? input.projectTitle)
+      : (targetThread?.title ?? "its agent");
+    const targetLabel = toCoordinator ? "Coordinator" : (targetThread?.title ?? "Missing agent");
+    const nextRun = schedule.enabled ? nextRunAfter(schedule.cron, timeZone, now) : null;
+    const when = schedule.enabled ? (nextRun ? formatTimeUntil(nextRun, now) : null) : "Paused";
+    return {
+      schedule,
+      targetTitle,
+      detail: [describeCadence(schedule.cron), targetLabel, when]
+        .filter((part): part is string => part !== null)
+        .join(" · "),
+      state: resolveScheduleRowState({
+        schedule,
+        run: entryOf(assistant.scheduleRuns, schedule.id),
+        held: entryOf(input.held, schedule.id),
+        targetTitle,
+        targetThread,
+        now,
+        timeZone,
+      }),
+      author: scheduleAuthorLabel(schedule, titleOf),
+    };
+  });
 }
 
 // ── Project-level helpers ────────────────────────────────────────────
@@ -605,4 +753,288 @@ export function planPauseAllSchedules(
     });
   }
   return { scheduleCount, writes };
+}
+
+// ── Editor ───────────────────────────────────────────────────────────
+
+/** How the stored schedule moved on since the editor opened it; the server refuses to overwrite either. */
+export type ScheduleEditorChange = "edited" | "deleted" | null;
+
+export function scheduleEditorChange(
+  opened: Pick<ProjectSchedule, "id" | "updatedAt"> | null,
+  schedules: readonly Pick<ProjectSchedule, "id" | "updatedAt">[],
+): ScheduleEditorChange {
+  if (opened === null) return null;
+  const stored = schedules.find((schedule) => schedule.id === opened.id);
+  if (stored === undefined) return "deleted";
+  return stored.updatedAt === opened.updatedAt ? null : "edited";
+}
+
+/** The editor's notice while `scheduleEditorChange` is set. */
+export function scheduleEditorChangeText(change: Exclude<ScheduleEditorChange, null>): string {
+  return change === "deleted"
+    ? "This schedule was deleted since you opened it."
+    : "This schedule changed since you opened it. Close and reopen it to edit the latest version.";
+}
+
+/** What the user has entered. `typedPrompt` stays null until they type, so the stored prompt is kept. */
+export interface ScheduleEditorForm {
+  readonly name: string;
+  readonly target: ProjectScheduleTarget;
+  readonly typedPrompt: string | null;
+  readonly preset: SchedulePreset;
+  /** An untouched cadence saves the stored cron as it is. */
+  readonly cadenceTouched: boolean;
+}
+
+/** A schedule's stored prompt from `schedules.status`, undefined until status loads. */
+export function storedSchedulePrompt(
+  prompts: Readonly<Record<string, string>> | undefined,
+  scheduleId: string,
+): string | undefined {
+  return entryOf(prompts, scheduleId);
+}
+
+export function initialScheduleEditorForm(schedule: ProjectSchedule | null): ScheduleEditorForm {
+  return {
+    name: schedule?.name ?? "",
+    target: schedule?.target ?? "coordinator",
+    typedPrompt: null,
+    preset: schedule ? cronToPreset(schedule.cron) : DEFAULT_SCHEDULE_PRESET,
+    cadenceTouched: schedule === null,
+  };
+}
+
+export interface ScheduleEditorView {
+  /** The prompt field's value. */
+  readonly prompt: string;
+  /** Editing, with the stored prompt not loaded and nothing typed. */
+  readonly promptUnknown: boolean;
+  /** Save sends the prompt: a new schedule, or one whose prompt was typed. */
+  readonly promptRequired: boolean;
+  readonly cron: string;
+  readonly cadenceError: string | null;
+  /** The next three runs, empty while the cadence is invalid. */
+  readonly nextRuns: readonly Date[];
+  /** The chosen "Runs in" is still offered. */
+  readonly targetKnown: boolean;
+  /** Hidden while saving, since the save itself moves the stored schedule on. */
+  readonly changed: ScheduleEditorChange;
+  readonly canSave: boolean;
+  /** Save would change something, so leaving asks first. */
+  readonly dirty: boolean;
+}
+
+/**
+ * The editor as it stands. `opened` is the schedule the editor opened with
+ * (null for a new one); `storedPrompt` comes from `schedules.status`.
+ */
+export function resolveScheduleEditor(input: {
+  readonly opened: ProjectSchedule | null;
+  readonly form: ScheduleEditorForm;
+  readonly storedPrompt: string | undefined;
+  readonly targetOptions: readonly ScheduleTargetOption[];
+  readonly changed: ScheduleEditorChange;
+  readonly saving: boolean;
+  readonly now: Date;
+  readonly timeZone: string;
+}): ScheduleEditorView {
+  const { opened, form, saving } = input;
+  const prompt = form.typedPrompt ?? input.storedPrompt ?? "";
+  const presetCadence = form.cadenceTouched || opened === null;
+  const cron = presetCadence ? presetToCron(form.preset) : opened.cron;
+  const cadenceError = presetCadence
+    ? schedulePresetError(form.preset)
+    : validateScheduleCron(cron);
+  const changed = saving ? null : input.changed;
+  const targetKnown = input.targetOptions.some((option) => option.value === form.target);
+  const promptRequired = opened === null || form.typedPrompt !== null;
+  const name = form.name.trim();
+  return {
+    prompt,
+    promptUnknown: opened !== null && form.typedPrompt === null && input.storedPrompt === undefined,
+    promptRequired,
+    cron,
+    cadenceError,
+    nextRuns: cadenceError === null ? nextScheduleRuns(cron, input.timeZone, input.now, 3) : [],
+    targetKnown,
+    changed,
+    canSave:
+      !saving &&
+      changed === null &&
+      name.length > 0 &&
+      cadenceError === null &&
+      targetKnown &&
+      (!promptRequired || prompt.trim().length > 0),
+    dirty:
+      form.name !== (opened?.name ?? "") ||
+      form.target !== (opened?.target ?? "coordinator") ||
+      (form.typedPrompt !== null && form.typedPrompt !== (input.storedPrompt ?? "")) ||
+      cron !== (opened?.cron ?? presetToCron(DEFAULT_SCHEDULE_PRESET)),
+  };
+}
+
+/**
+ * What Save sends: the opened schedule's id, switch and `updatedAt` echo, or
+ * a new id switched on. Only a new or typed prompt travels.
+ */
+export function buildScheduleEditorDraft(input: {
+  readonly opened: ProjectSchedule | null;
+  readonly form: ScheduleEditorForm;
+  readonly view: ScheduleEditorView;
+}): ScheduleDraft {
+  const { opened, form, view } = input;
+  const name = form.name.trim();
+  return {
+    id: opened?.id ?? newScheduleId(name),
+    name,
+    cron: view.cron,
+    target: form.target,
+    enabled: opened?.enabled ?? true,
+    ...(view.promptRequired ? { prompt: view.prompt } : {}),
+    updatedAt: opened?.updatedAt,
+  };
+}
+
+// ── Host and results ─────────────────────────────────────────────────
+
+/** What a host problem means for the user, in one line. */
+export function scheduleHostProblemText(
+  problem: ScheduleHostProblem,
+  host: Pick<ScheduleHostStatus, "timeZone" | "hostZone" | "entry">,
+): string {
+  switch (problem) {
+    case "no-gui-session":
+      return "Nobody is logged in to this Mac's desktop, so macOS won't run schedules until someone is.";
+    case "no-user-manager":
+      return "Schedules need systemd user services on this Linux host.";
+    case "no-linger":
+      return "Schedules run only while you are logged in to this host. Enable lingering to run them after you log out.";
+    case "entry-disabled":
+      return "The host's schedule entry is turned off (Login Items on macOS). Schedules won't run until it's back on.";
+    case "zone-mismatch":
+      return host.hostZone
+        ? `The host's time zone is ${host.hostZone}, but Control Plane is using ${host.timeZone}. Restart Control Plane to switch.`
+        : "The host's time zone changed. Restart Control Plane to switch.";
+    case "ephemeral-path":
+      return "Control Plane is running from a disk image or temporary folder. Move it to Applications so schedules can find it.";
+    case "install-failed":
+      return host.entry.detail
+        ? `Couldn't install the schedule entry: ${host.entry.detail}`
+        : "Couldn't install the schedule entry.";
+    case "unsupported-platform":
+      return "Schedules aren't available on Windows yet.";
+    case "backend-off":
+      return "Schedules are off on this host.";
+  }
+}
+
+/** The host problems worth a line under the list. A host with its backend off shows the unsupported line instead. */
+export function scheduleHostProblems(host: ScheduleHostStatus | null): ScheduleHostProblem[] {
+  return host?.problems.filter((problem) => problem !== "backend-off") ?? [];
+}
+
+/** The one line a host that runs no schedules shows instead of the list. */
+export function scheduleUnsupportedText(problems: readonly ScheduleHostProblem[]): string {
+  return problems.includes("unsupported-platform")
+    ? "Schedules aren't available on Windows yet."
+    : "This host doesn't run schedules. They run from the Control Plane desktop app.";
+}
+
+/** "How to fix" for a host that runs no schedules: the user guide's Schedules section. */
+export const SCHEDULES_HELP_URL =
+  "https://github.com/lucive-apps/control-plane/blob/main/docs/user/projects.md#schedules";
+
+export interface ScheduleHostView {
+  /** Times read in the live host zone once status loads, else the zone at startup. */
+  readonly timeZone: string;
+  readonly scheduler: ProjectScheduler;
+  /** The one line that replaces the list on a host that runs no schedules; null otherwise. */
+  readonly unsupportedText: string | null;
+  /** One line per host problem, shown under the list. */
+  readonly problems: readonly string[];
+}
+
+/**
+ * The host a Schedules list reads: `capability` is the server config's
+ * `projectSchedules`, `host` the `schedules.status` host once loaded.
+ */
+export function resolveScheduleHost(input: {
+  readonly capability: { readonly scheduler: ProjectScheduler; readonly timeZone: string };
+  readonly host: ScheduleHostStatus | null;
+}): ScheduleHostView {
+  const { host } = input;
+  const scheduler = host?.scheduler ?? input.capability.scheduler;
+  return {
+    timeZone: host?.timeZone ?? input.capability.timeZone,
+    scheduler,
+    unsupportedText: scheduler === "none" ? scheduleUnsupportedText(host?.problems ?? []) : null,
+    problems:
+      host === null
+        ? []
+        : scheduleHostProblems(host).map((problem) => scheduleHostProblemText(problem, host)),
+  };
+}
+
+/** A preset's time as the editor shows it: "7:00", "16:30". */
+export function formatScheduleClock(hour: number, minute: number): string {
+  return `${clampInt(hour, 0, 23)}:${pad(clampInt(minute, 0, 59))}`;
+}
+
+const SCHEDULER_NAMES: Readonly<Record<Exclude<ProjectScheduler, "none">, string>> = {
+  launchd: "launchd",
+  systemd: "systemd",
+  "task-scheduler": "Task Scheduler",
+};
+
+/**
+ * A remote client's read-only host line: which host runs the schedules and
+ * with what. Null when the host runs none (the unsupported line says so).
+ */
+export function scheduleHostSummary(input: {
+  readonly scheduler: ProjectScheduler;
+  readonly backend: ScheduleHostStatus["backend"] | null;
+  readonly hostLabel: string;
+}): string | null {
+  if (input.scheduler === "none") return null;
+  const name = SCHEDULER_NAMES[input.scheduler];
+  return input.backend === "dry-run"
+    ? `Dry run on ${input.hostLabel}: its ${name} entry is written but never installed.`
+    : `Runs on ${input.hostLabel} with ${name} while Control Plane is running there.`;
+}
+
+export interface ScheduleNotice {
+  readonly tone: "info" | "warning";
+  readonly title: string;
+  readonly description?: string;
+}
+
+/** What Run now tells the user beyond the row: null when the run was sent. */
+export function scheduleRunNotice(
+  result: Pick<SchedulesRunResult, "outcome" | "reason">,
+  targetTitle: string,
+): ScheduleNotice | null {
+  switch (result.outcome) {
+    case "sent":
+      return null;
+    case "held":
+      return { tone: "info", title: `Queued until ${targetTitle} is idle` };
+    case "missed":
+      return {
+        tone: "warning",
+        title: "Schedule missed",
+        description:
+          result.reason === "target-missing"
+            ? "The thread it runs in is gone. Edit the schedule to pick another."
+            : "It could not start.",
+      };
+  }
+}
+
+/** Move to Tasks deletes a Project's schedules; its confirmation says how many. */
+export function scheduleDeletionWarning(
+  assistant: Pick<ProjectAssistant, "schedules"> | null | undefined,
+): string | null {
+  const count = assistant?.schedules?.length ?? 0;
+  return count === 0 ? null : `${count} ${count === 1 ? "schedule" : "schedules"} will be deleted.`;
 }

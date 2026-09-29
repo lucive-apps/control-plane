@@ -1,9 +1,11 @@
+import { ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
   resolveNewTaskBranchWorktreePath,
   resolveNewTaskBranchLabel,
   resolveNewTaskLocalWorkspaceSelection,
+  resolveProjectDraftWorkspaceSelection,
 } from "./new-task-context-presentation";
 
 describe("resolveNewTaskLocalWorkspaceSelection", () => {
@@ -124,5 +126,43 @@ describe("resolveNewTaskBranchLabel", () => {
         workspaceMode: "worktree",
       }),
     ).toBe("Choose branch");
+  });
+});
+
+describe("resolveProjectDraftWorkspaceSelection", () => {
+  const worktreeDraft = {
+    mode: "worktree",
+    branch: "feature/split",
+    worktreePath: "/repo/.t3/worktrees/split",
+  } as const;
+
+  it("always starts a Project's agent Local in the Project folder", () => {
+    expect(
+      resolveProjectDraftWorkspaceSelection({
+        project: { assistant: { coordinatorThreadId: ThreadId.make("coordinator") } },
+        selection: worktreeDraft,
+        defaultMode: "worktree",
+      }),
+    ).toEqual({ mode: "local", branch: null, worktreePath: null });
+  });
+
+  it("keeps a plain workspace's draft choice", () => {
+    expect(
+      resolveProjectDraftWorkspaceSelection({
+        project: { assistant: null },
+        selection: worktreeDraft,
+        defaultMode: "local",
+      }),
+    ).toEqual(worktreeDraft);
+  });
+
+  it("falls back to the default mode when a plain draft has no choice yet", () => {
+    expect(
+      resolveProjectDraftWorkspaceSelection({
+        project: {},
+        selection: undefined,
+        defaultMode: "worktree",
+      }),
+    ).toEqual({ mode: "worktree", branch: null, worktreePath: null });
   });
 });

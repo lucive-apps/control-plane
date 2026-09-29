@@ -35,7 +35,13 @@ export { snoozeWakeLabel };
  * unlabeled resting state.
  */
 export type { SidebarThreadStatus as ThreadListV2Status } from "@t3tools/client-runtime/state/thread-status";
-export type ThreadListV2SwipeAction = "archive" | "settle" | "unsettle" | "snooze" | "unsnooze";
+export type ThreadListV2SwipeAction =
+  | "archive"
+  | "settle"
+  | "unsettle"
+  | "snooze"
+  | "unsnooze"
+  | "unpin";
 
 export function resolveThreadListV2SnoozeMenuSelection(input: {
   readonly event: string;
@@ -68,6 +74,8 @@ export function resolveThreadListV2SwipeActions(input: {
   readonly snoozable: boolean;
   /** Row is on the snoozed shelf. */
   readonly snoozed?: boolean;
+  /** A standing agent (pinned in a Project) never settles; a full swipe unpins it. */
+  readonly standing?: boolean;
 }): {
   readonly primary: Exclude<ThreadListV2SwipeAction, "snooze">;
   readonly secondary: "snooze" | null;
@@ -75,11 +83,14 @@ export function resolveThreadListV2SwipeActions(input: {
   if (input.snoozed === true) {
     return { primary: "unsnooze", secondary: null };
   }
-  const primary = input.settlementSupported
-    ? input.variant === "slim"
-      ? "unsettle"
-      : "settle"
-    : "archive";
+  const primary =
+    input.standing === true
+      ? "unpin"
+      : input.settlementSupported
+        ? input.variant === "slim"
+          ? "unsettle"
+          : "settle"
+        : "archive";
   return {
     primary,
     secondary: input.snoozeSupported && input.snoozable ? "snooze" : null,
@@ -111,26 +122,6 @@ export function resolveThreadListV2SnoozeGateExpiryMs(
 // the iPad sidebar so both page identically.
 export const THREAD_LIST_V2_SETTLED_INITIAL_COUNT = 10;
 export const THREAD_LIST_V2_SETTLED_PAGE_COUNT = 25;
-
-/**
- * The flat Thread List v2 is the default on every app variant; the Settings →
- * Legacy toggle opts a device back into the grouped legacy list. Preferences
- * persist as sparse patches, so `undefined` genuinely means "never chosen".
- *
- * `preferencesLoaded` guards the startup window: preferences load
- * asynchronously, and rendering one list before the stored choice arrives would
- * remount the whole thing a tick later. While loading, hold the default — that
- * is where every device without an explicit legacy opt-in lands anyway.
- */
-export function resolveThreadListV2Enabled(input: {
-  readonly legacyPreference: boolean | undefined;
-  readonly preferencesLoaded: boolean;
-}): boolean {
-  if (!input.preferencesLoaded) {
-    return true;
-  }
-  return input.legacyPreference !== true;
-}
 
 export { resolveSidebarThreadStatus as resolveThreadListV2Status } from "@t3tools/client-runtime/state/thread-status";
 
@@ -191,6 +182,28 @@ export function getThreadListV2OrderedSection(input: {
       ? reconcilePendingThreadOrder(input.pendingOrder, ordered)
       : null;
   return applyPendingThreadOrder(ordered, input.section, pending);
+}
+
+/**
+ * The list search predicate: title, pull request terms, or a message-content
+ * hit from the server search. `query` is already trimmed and lowercased.
+ */
+export function threadMatchesListSearch(
+  thread: EnvironmentThreadShell,
+  query: string,
+  matchedThreadKeys: ReadonlySet<string> | undefined,
+): boolean {
+  return (
+    query.length === 0 ||
+    thread.title.toLocaleLowerCase().includes(query) ||
+    threadPullRequestSearchTerms(thread).some((term) => term.toLocaleLowerCase().includes(query)) ||
+    matchedThreadKeys?.has(
+      threadSearchMatchKey({
+        environmentId: thread.environmentId,
+        threadId: thread.id,
+      }),
+    ) === true
+  );
 }
 
 export interface ThreadListV2Item {
@@ -324,6 +337,9 @@ export function buildThreadListV2ListItems(input: {
 export function buildThreadListV2Items(input: {
   readonly pendingOrder?: PendingThreadOrder | null;
   readonly threads: ReadonlyArray<EnvironmentThreadShell>;
+  /** The full shell list a pending move was planned against, when `threads`
+      is a subset of it (Tasks without Project threads). Defaults to `threads`. */
+  readonly sectionThreads?: ReadonlyArray<EnvironmentThreadShell>;
   readonly environmentId: EnvironmentId | null;
   readonly projectRefs?: ReadonlyArray<{
     readonly environmentId: EnvironmentId;
@@ -362,6 +378,7 @@ export function buildThreadListV2Items(input: {
           input.pendingOrder,
           getThreadListV2OrderedSection({
             ...input,
+            threads: input.sectionThreads ?? input.threads,
             section: input.pendingOrder.section,
             pendingOrder: null,
           }),
@@ -382,21 +399,7 @@ export function buildThreadListV2Items(input: {
     if (projectKeys !== null && !projectKeys.has(`${thread.environmentId}:${thread.projectId}`)) {
       continue;
     }
-    if (
-      query.length > 0 &&
-      !thread.title.toLocaleLowerCase().includes(query) &&
-      !threadPullRequestSearchTerms(thread).some((term) =>
-        term.toLocaleLowerCase().includes(query),
-      ) &&
-      input.matchedThreadKeys?.has(
-        threadSearchMatchKey({
-          environmentId: thread.environmentId,
-          threadId: thread.id,
-        }),
-      ) !== true
-    ) {
-      continue;
-    }
+    if (!threadMatchesListSearch(thread, query, input.matchedThreadKeys)) continue;
     const supportsSettlement = input.settlementEnvironmentIds?.has(thread.environmentId) ?? true;
     const supportsSnooze = input.snoozeEnvironmentIds?.has(thread.environmentId) ?? true;
     // Snooze outranks settlement and pinning until the thread wakes.

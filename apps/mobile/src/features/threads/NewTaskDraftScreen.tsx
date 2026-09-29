@@ -122,6 +122,7 @@ import { resolveDraftProjectSelection } from "./new-task-project-selection";
 import {
   resolveNewTaskBranchLabel,
   resolveNewTaskWorkspaceLabel,
+  resolveProjectDraftWorkspaceSelection,
 } from "./new-task-context-presentation";
 import { useIncomingShare } from "../sharing/IncomingShareProvider";
 import { selectIncomingShareAttachmentsForServer } from "../sharing/incoming-share-model";
@@ -989,6 +990,7 @@ export function NewTaskDraftScreen(props: {
     worktreePath: flow.selectedWorktreePath,
   });
   const showBranchLoading = flow.branchesLoading && flow.availableBranches.length === 0;
+  const isProjectDraft = flow.selectedProject?.assistant != null;
 
   async function handlePickMedia(): Promise<void> {
     if (isComposerInteractionLocked || voiceInput.isBusy) {
@@ -1187,7 +1189,11 @@ export function NewTaskDraftScreen(props: {
         selectedEnvironmentServerConfig,
         draft.modelSelection ?? null,
       ) ?? flow.selectedModel;
-    const workspaceMode = draft.workspaceSelection?.mode ?? flow.workspaceMode;
+    const workspaceMode = resolveProjectDraftWorkspaceSelection({
+      project: selectedProject,
+      selection: draft.workspaceSelection,
+      defaultMode: flow.workspaceMode,
+    }).mode;
     const selectedBranchName = draft.workspaceSelection?.branch ?? flow.selectedBranchName;
     const initialMessageText = draft.text.trim();
 
@@ -1458,7 +1464,9 @@ export function NewTaskDraftScreen(props: {
         maxWidth={190}
         onPress={chooseProject}
       />
-      {flow.environments.length > 1 ? (
+      {/* An agent is Local in its Project folder, on the Project's
+          environment: no environment, checkout or branch choice. */}
+      {flow.environments.length > 1 && !isProjectDraft ? (
         <ComposerInlineControl
           accessibilityLabel={`Environment: ${selectedEnvironmentLabel}`}
           chevronDirection="down"
@@ -1475,31 +1483,37 @@ export function NewTaskDraftScreen(props: {
           onPress={() => openContextPicker("NewTaskEnvironment")}
         />
       ) : null}
-      <ComposerInlineControl
-        accessibilityHint={`Switches to ${flow.workspaceMode === "local" ? "a new worktree" : "the current checkout"}`}
-        accessibilityLabel={workspaceLabel}
-        disabled={isComposerInteractionLocked || voiceInput.isBusy}
-        iconNode={
-          <NewTaskWorkspaceIcon
-            workspaceMode={flow.workspaceMode}
-            worktreePath={flow.selectedWorktreePath}
+      {isProjectDraft ? null : (
+        <>
+          <ComposerInlineControl
+            accessibilityHint={`Switches to ${flow.workspaceMode === "local" ? "a new worktree" : "the current checkout"}`}
+            accessibilityLabel={workspaceLabel}
+            disabled={isComposerInteractionLocked || voiceInput.isBusy}
+            iconNode={
+              <NewTaskWorkspaceIcon
+                workspaceMode={flow.workspaceMode}
+                worktreePath={flow.selectedWorktreePath}
+              />
+            }
+            label={workspaceLabel}
+            maxWidth={flow.workspaceMode === "local" ? 220 : 148}
+            onPress={() =>
+              flow.setWorkspaceMode(flow.workspaceMode === "local" ? "worktree" : "local")
+            }
+            showChevron={false}
           />
-        }
-        label={workspaceLabel}
-        maxWidth={flow.workspaceMode === "local" ? 220 : 148}
-        onPress={() => flow.setWorkspaceMode(flow.workspaceMode === "local" ? "worktree" : "local")}
-        showChevron={false}
-      />
 
-      <ComposerInlineControl
-        accessibilityLabel={`${flow.workspaceMode === "worktree" ? "Base branch" : "Branch"}: ${selectedBranchLabel}`}
-        chevronDirection="right"
-        disabled={isComposerInteractionLocked}
-        icon="arrow.triangle.branch"
-        label={showBranchLoading ? "Loading branches…" : selectedBranchLabel}
-        maxWidth={190}
-        onPress={() => openContextPicker("NewTaskBranch")}
-      />
+          <ComposerInlineControl
+            accessibilityLabel={`${flow.workspaceMode === "worktree" ? "Base branch" : "Branch"}: ${selectedBranchLabel}`}
+            chevronDirection="right"
+            disabled={isComposerInteractionLocked}
+            icon="arrow.triangle.branch"
+            label={showBranchLoading ? "Loading branches…" : selectedBranchLabel}
+            maxWidth={190}
+            onPress={() => openContextPicker("NewTaskBranch")}
+          />
+        </>
+      )}
     </View>
   );
 

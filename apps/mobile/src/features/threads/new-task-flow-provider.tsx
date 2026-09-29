@@ -82,6 +82,7 @@ import {
   setPendingConnectionError,
   useSavedRemoteConnections,
 } from "../../state/use-remote-environment-registry";
+import { selectWorkspaceProjects } from "@t3tools/client-runtime/state/assistants";
 import { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { type VcsRef } from "@t3tools/client-runtime/state/vcs";
 import {
@@ -98,6 +99,7 @@ import { useLegacyPlanModeState } from "./use-legacy-plan-mode-enabled";
 import {
   resolveNewTaskBranchWorktreePath,
   resolveNewTaskLocalWorkspaceSelection,
+  resolveProjectDraftWorkspaceSelection,
 } from "./new-task-context-presentation";
 import { resolveEnvironmentProjectMatch } from "./new-task-project-selection";
 import { resolveProjectThreadCreationBranch } from "./projectThreadCreationValidation";
@@ -231,11 +233,14 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   const groupingSettings = useMobileProjectGroupingSettings();
   const { enabled: legacyPlanModeEnabled, loaded: planModePreferenceLoaded } =
     useLegacyPlanModeState();
+  // The composer's workspace list leaves out Project folders; New agent
+  // reaches one through the route's projectId instead.
+  const workspaceProjects = useMemo(() => selectWorkspaceProjects(projects), [projects]);
   const projectScopes = useMemo(
     () =>
       sortHomeProjectScopes({
         scopes: buildHomeProjectScopes({
-          projects,
+          projects: workspaceProjects,
           environmentId: null,
           projectGroupingMode: groupingSettings.sidebarProjectGroupingMode,
         }),
@@ -243,17 +248,19 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
         pendingTasks: [],
         projectSortOrder: "updated_at",
       }),
-    [groupingSettings.sidebarProjectGroupingMode, projects, threads],
+    [groupingSettings.sidebarProjectGroupingMode, workspaceProjects, threads],
   );
 
   const [selectedEnvironmentIdOverride, setSelectedEnvironmentId] = useState<EnvironmentId | null>(
     null,
   );
+  // Default to an environment that has a workspace, not one holding only Projects.
+  const defaultEnvironmentId = (workspaceProjects[0] ?? projects[0])?.environmentId ?? null;
   const selectedEnvironmentId =
     selectedEnvironmentIdOverride !== null &&
     projects.some((project) => project.environmentId === selectedEnvironmentIdOverride)
       ? selectedEnvironmentIdOverride
-      : (projects[0]?.environmentId ?? null);
+      : defaultEnvironmentId;
   const [selectedProjectKey, setSelectedProjectKey] = useState<string | null>(null);
   // The new-task draft the composer is bound to. Null until a project is
   // chosen; each New Task entry mints its own, so a project can hold several.
@@ -333,7 +340,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     selectedProjectKey ===
       scopedProjectKey(editingPendingProject.environmentId, editingPendingProject.id)
       ? editingPendingProject
-      : (projectsForEnvironment[0] ?? null));
+      : (projectsForEnvironment.find((project) => project.assistant == null) ?? null));
 
   // Only offer machines that actually host the currently selected repository, so
   // switching computers moves the same repo across machines instead of jumping to
@@ -463,9 +470,14 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     projectSetting: projectThreadEnvMode,
     projectFilePending: t3ProjectFileQuery.isPending,
   });
-  const workspaceMode = selectedProjectDraft.workspaceSelection?.mode ?? defaultWorkspaceMode;
-  const selectedBranchName = selectedProjectDraft.workspaceSelection?.branch ?? null;
-  const selectedWorktreePath = selectedProjectDraft.workspaceSelection?.worktreePath ?? null;
+  const displayedWorkspaceSelection = resolveProjectDraftWorkspaceSelection({
+    project: selectedProject,
+    selection: selectedProjectDraft.workspaceSelection,
+    defaultMode: defaultWorkspaceMode,
+  });
+  const workspaceMode = displayedWorkspaceSelection.mode;
+  const selectedBranchName = displayedWorkspaceSelection.branch;
+  const selectedWorktreePath = displayedWorkspaceSelection.worktreePath;
   // Keep the user's explicit choice separate from the resolved display value:
   // only the explicit flag is ever written back to the draft, so the resolved
   // value keeps tracking the server setting when the config loads late.
@@ -739,6 +751,10 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
 
   const selectEnvironment = useCallback(
     (environmentId: EnvironmentId) => {
+      // A Project lives in one environment.
+      if (selectedProject?.assistant != null) {
+        return;
+      }
       const match = resolveEnvironmentProjectMatch(
         projects.filter((project) => project.environmentId === environmentId),
         selectedProject,
@@ -757,7 +773,8 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       if (!selectedProjectDraftKey) {
         return;
       }
-      if (!selectedProject) {
+      // Agents always start Local in the Project folder.
+      if (!selectedProject || selectedProject.assistant != null) {
         return;
       }
       const localSelection = resolveNewTaskLocalWorkspaceSelection({
@@ -970,10 +987,15 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       if (text.length === 0 || !draftModelSelection) {
         return null;
       }
-      const workspaceSelection = draft.workspaceSelection;
       // Fall back to the resolved mode (server default) so queued tasks drain
-      // with the same mode the composer displayed.
-      const mode = workspaceSelection?.mode ?? workspaceMode;
+      // with the same mode the composer displayed. A Project's agent is
+      // always Local in its folder, whatever the draft carried.
+      const workspaceSelection = resolveProjectDraftWorkspaceSelection({
+        project: selectedProject,
+        selection: draft.workspaceSelection,
+        defaultMode: workspaceMode,
+      });
+      const mode = workspaceSelection.mode;
       // When the selection is the stand-in built from the queued snapshot,
       // persist the original (possibly absent) snapshot values — the
       // stand-in's placeholder title/workspaceRoot must never be written back
@@ -1015,14 +1037,14 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
           // guess would pin a stale label to a thread that ran somewhere else.
           branch: resolveProjectThreadCreationBranch({
             workspaceMode: mode,
-            selectedBranch: workspaceSelection?.branch ?? null,
+            selectedBranch: workspaceSelection.branch,
             currentCheckoutBranch: options?.currentCheckoutBranch ?? null,
           }),
-          worktreePath: mode === "worktree" ? null : (workspaceSelection?.worktreePath ?? null),
+          worktreePath: mode === "worktree" ? null : workspaceSelection.worktreePath,
           // The draft only carries the flag when the user touched it; fall
           // back to the resolved default (server settings) so queued tasks
           // drain with the same origin mode the composer displayed.
-          ...((workspaceSelection?.startFromOrigin ?? startFromOrigin)
+          ...((draft.workspaceSelection?.startFromOrigin ?? startFromOrigin)
             ? { startFromOrigin: true }
             : {}),
         },

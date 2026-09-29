@@ -133,3 +133,20 @@ composer, like any thread.
   stay as ordinary threads, and its schedules are deleted.
 - **Delete** removes the Project, its coordinator and its agent threads after you type the
   Project name. The folder and its files stay on disk.
+
+## On phone and iPad
+
+Home lists Projects above Tasks. Tap a Project to open its coordinator, or tap its chevron to
+show its agents and start a **New agent**. The **+** in the Projects header creates a Project.
+
+- Long-press a Project, an agent or a Tasks folder for its actions. A Tasks folder's menu has
+  **Convert to Project…**.
+- Swipe an agent left to pin or unpin it, or tap **Stop** to stop its turn. A full swipe only
+  pins or unpins; it never stops the agent.
+- In the coordinator, **Memory** opens `MEMORY.md` in a sheet; choose **Edit** to change it. The
+  Project menu next to it opens **Project settings** and has Rename, Archive, Move to Tasks
+  and Delete. From an agent, the header takes you back to its coordinator.
+- **Schedules**, the clock next to Memory, opens the Project's schedules in a sheet, as do
+  **Schedules** in the Project's long-press menu on Home and **Project settings → Schedules**.
+  Flip a switch to pause or resume, tap **Run now**, or tap a schedule to edit it. **Open at
+  login** and **Remove from this host** are in the desktop app.

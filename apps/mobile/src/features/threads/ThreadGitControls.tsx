@@ -13,7 +13,7 @@ import {
 import { useNavigation } from "@react-navigation/native";
 import { NativeHeaderToolbar } from "../../native/StackHeader";
 import { withNativeGlassHeaderItem } from "../layout/native-glass-header-items";
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, type ReactNode } from "react";
 import { Alert } from "react-native";
 import { tryOpenExternalUrl } from "../../lib/openExternalUrl";
 import {
@@ -102,6 +102,10 @@ type ThreadGitControlsProps = ThreadGitMenuProps & {
   readonly terminalSessions: ReadonlyArray<TerminalMenuSession>;
   readonly showActionControls?: boolean;
   readonly showDirectFileControl?: boolean;
+  /** False hides git and pull request actions (a Project's coordinator and Local agents). */
+  readonly showGitControls?: boolean;
+  /** Toolbar items placed before the thread actions, such as a coordinator's Memory. */
+  readonly leadingToolbarItems?: ReactNode;
   readonly onOpenTerminal: (terminalId?: string | null) => void;
   readonly onOpenNewTerminal: () => void;
   readonly onRunProjectScript: (script: ProjectScript) => Promise<void>;
@@ -401,6 +405,7 @@ function headerMenuItems(item: HeaderItem): unknown[] {
 
 export function useThreadGitRightHeaderItems(props: ThreadGitControlsProps): HeaderItems {
   const actionItems = useThreadGitHeaderActionItems(props);
+  const showGitControls = props.showGitControls ?? true;
   return useMemo(
     () => [
       withNativeGlassHeaderItem({
@@ -422,26 +427,34 @@ export function useThreadGitRightHeaderItems(props: ThreadGitControlsProps): Hea
               label: "Terminal",
               type: "submenu" as const,
             },
-            {
-              items: headerMenuItems(actionItems.git),
-              label: "Git",
-              type: "submenu" as const,
-            },
+            ...(showGitControls
+              ? [
+                  {
+                    items: headerMenuItems(actionItems.git),
+                    label: "Git",
+                    type: "submenu" as const,
+                  },
+                ]
+              : []),
           ],
           title: "",
         },
         type: "menu",
       }),
     ],
-    [actionItems, props.canOpenFiles],
+    [actionItems, props.canOpenFiles, showGitControls],
   );
 }
 
 export function useThreadGitCenterHeaderItems(props: ThreadGitControlsProps): HeaderItems {
   const actionItems = useThreadGitHeaderActionItems(props);
+  const showGitControls = props.showGitControls ?? true;
   return useMemo(
-    () => [actionItems.files, actionItems.git, actionItems.terminal] as HeaderItems,
-    [actionItems],
+    () =>
+      (showGitControls
+        ? [actionItems.files, actionItems.git, actionItems.terminal]
+        : [actionItems.files, actionItems.terminal]) as HeaderItems,
+    [actionItems, showGitControls],
   );
 }
 
@@ -455,6 +468,7 @@ export function ThreadGitControls(props: ThreadGitControlsProps) {
 
   return (
     <NativeHeaderToolbar placement="right">
+      {props.leadingToolbarItems}
       {showActionControls && props.auxiliaryPaneControl ? (
         <NativeHeaderToolbar.Button
           accessibilityLabel={props.auxiliaryPaneControl.accessibilityLabel}
@@ -528,7 +542,7 @@ export function ThreadGitControls(props: ThreadGitControlsProps) {
           separateBackground
         />
       ) : null}
-      {showActionControls ? <ThreadGitMenu {...props} /> : null}
+      {showActionControls && (props.showGitControls ?? true) ? <ThreadGitMenu {...props} /> : null}
     </NativeHeaderToolbar>
   );
 }

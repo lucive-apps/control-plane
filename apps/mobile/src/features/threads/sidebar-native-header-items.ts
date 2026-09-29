@@ -45,7 +45,7 @@ export function createSidebarHeaderItems(input: {
     withNativeGlassHeaderItem({
       type: "menu",
       label: "",
-      accessibilityLabel: "Filter and sort threads",
+      accessibilityLabel: "Filter threads",
       icon: sfSymbolIcon(input.filterIcon),
       menu: {
         title: input.filterMenu.title,
@@ -62,14 +62,14 @@ export function createSidebarHeaderItems(input: {
   ];
 }
 
-/** Top-left Inbox back control for Working, Needs Attention, and project lists. */
-export function createHomeInboxBackHeaderItem(input: {
+/** Top-left control that clears the Environment and Workspace filters. */
+export function createClearFilterHeaderItem(input: {
   readonly onPress: () => void;
 }): NativeStackHeaderItem {
   return withNativeGlassHeaderItem({
     type: "button",
     label: "",
-    accessibilityLabel: "Back to Inbox",
+    accessibilityLabel: "Clear filter",
     icon: sfSymbolIcon("chevron.left"),
     onPress: input.onPress,
   });

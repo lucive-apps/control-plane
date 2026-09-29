@@ -56,6 +56,7 @@ import {
 } from "../keyboard/hardwareKeyboardCommands";
 import { AndroidHomeFabLayout } from "../home/AndroidHomeFab";
 import { HomeListOptionsProvider } from "../home/home-list-options";
+import { setAddProjectClosesSheet } from "../projects/AddProjectScreen.logic";
 import { ThreadNavigationSidebar } from "../threads/ThreadNavigationSidebar";
 import { WORKSPACE_PANE_TIMING } from "./workspace-pane-animation";
 import { WorkspaceInspectorPane } from "./workspace-inspector-pane";
@@ -449,6 +450,11 @@ function AdaptiveWorkspaceLayoutContent(
     [navigation],
   );
 
+  const handleAddWorkspace = useCallback(() => {
+    setAddProjectClosesSheet(true);
+    navigation.navigate("NewTaskSheet", { screen: "AddProject", initial: true });
+  }, [navigation]);
+
   const handleNewThreadInProject = useCallback(
     (project: EnvironmentProject) => {
       navigation.navigate("NewTaskSheet", {
@@ -494,7 +500,8 @@ function AdaptiveWorkspaceLayoutContent(
   );
 
   const handleSelectThread = useCallback(
-    (thread: EnvironmentThreadShell) => {
+    // Only the ids are read, so a Project's coordinator opens before its shell arrives.
+    (thread: Pick<EnvironmentThreadShell, "environmentId" | "id">) => {
       const params = {
         environmentId: String(thread.environmentId),
         threadId: String(thread.id),
@@ -589,6 +596,7 @@ function AdaptiveWorkspaceLayoutContent(
                     onOpenSettings={handleOpenSettings}
                     onOpenEnvironmentSettings={handleOpenEnvironmentSettings}
                     onNewThreadInProject={handleNewThreadInProject}
+                    onAddWorkspace={handleAddWorkspace}
                     onNewThreadOnBranch={handleNewThreadOnBranch}
                     onSelectThread={handleSelectThread}
                     onSearchQueryChange={setPrimarySidebarSearchQuery}

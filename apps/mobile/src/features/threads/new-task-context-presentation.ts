@@ -1,3 +1,5 @@
+import type { ProjectAssistant } from "@t3tools/contracts";
+
 type WorkspaceMode = "local" | "worktree";
 
 export function resolveNewTaskWorkspaceLabel(input: {
@@ -80,4 +82,33 @@ export function shouldCheckoutNewTaskBranch(input: {
   readonly workspaceMode: WorkspaceMode;
 }): boolean {
   return input.workspaceMode === "local" && !input.branchIsCurrent && !input.branchWorktreePath;
+}
+
+/**
+ * The workspace a draft sends to. Agents always start Local in their Project
+ * folder, whatever the draft carried over from a workspace or a route param.
+ */
+export function resolveProjectDraftWorkspaceSelection(input: {
+  readonly project: { readonly assistant?: ProjectAssistant | null | undefined } | null;
+  readonly selection:
+    | {
+        readonly mode: WorkspaceMode;
+        readonly branch: string | null;
+        readonly worktreePath: string | null;
+      }
+    | undefined;
+  readonly defaultMode: WorkspaceMode;
+}): {
+  readonly mode: WorkspaceMode;
+  readonly branch: string | null;
+  readonly worktreePath: string | null;
+} {
+  if (input.project?.assistant != null) {
+    return { mode: "local", branch: null, worktreePath: null };
+  }
+  return {
+    mode: input.selection?.mode ?? input.defaultMode,
+    branch: input.selection?.branch ?? null,
+    worktreePath: input.selection?.worktreePath ?? null,
+  };
 }

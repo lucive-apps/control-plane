@@ -1,4 +1,5 @@
 import { StackActions, useNavigation } from "@react-navigation/native";
+import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { resolveThreadReferenceCopyTarget } from "@t3tools/shared/threadReference";
 import {
   createContext,
@@ -15,10 +16,11 @@ import {
 
 import { tryCopyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import { T3KeyboardCommands } from "../../native/T3KeyboardCommands";
-import { useThreadShell } from "../../state/entities";
+import { useProject, useThreadShell } from "../../state/entities";
 import type { GitActionProgress } from "../../state/use-vcs-action-state";
 import { GitActionProgressOverlay } from "../threads/GitActionProgressOverlay";
 import { CommandPalette } from "./CommandPalette";
+import { resolvePaletteThreadChrome } from "./commandPaletteItems";
 import {
   dispatchHardwareKeyboardCommand,
   getHardwareKeyboardCommandRegistrationVersion,
@@ -51,6 +53,20 @@ export function HardwareKeyboardCommandProvider({
   const closePalette = useCallback(() => setPaletteOpen(false), []);
   const activeThreadRef = useMemo(() => parseActiveThreadPath(pathname), [pathname]);
   const activeThread = useThreadShell(activeThreadRef);
+  const activeProjectRef = useMemo(
+    () =>
+      activeThread === null
+        ? null
+        : scopeProjectRef(activeThread.environmentId, activeThread.projectId),
+    [activeThread],
+  );
+  const activeProject = useProject(activeProjectRef);
+  // A Project's coordinator and Local agents hide review, like their PR controls.
+  const reviewAvailable = resolvePaletteThreadChrome({
+    project: activeProject,
+    threadId: activeThread?.id ?? null,
+    worktreePath: activeThread?.worktreePath ?? null,
+  }).showPullRequestControls;
   const copyTarget = useMemo(
     () =>
       activeThreadRef === null
@@ -109,11 +125,11 @@ export function HardwareKeyboardCommandProvider({
     if (activeThreadRef !== null) {
       commands.add("files");
       commands.add("terminal");
-      commands.add("review");
+      if (reviewAvailable) commands.add("review");
       if (pathname.split("/")[4] !== "terminal") commands.add("copyThreadReference");
     }
     return [...commands];
-  }, [activeThreadRef, pathname, registrationVersion, navigation]);
+  }, [activeThreadRef, pathname, registrationVersion, navigation, reviewAvailable]);
 
   const onCommand = useCallback(
     (command: HardwareKeyboardCommand) => {
@@ -168,11 +184,11 @@ export function HardwareKeyboardCommandProvider({
       if (command === "terminal" && !/\/terminal(?:\/|$)/.test(pathname)) {
         navigation.navigate("ThreadTerminal", thread);
       }
-      if (command === "review" && !/\/review(?:\/|$)/.test(pathname)) {
+      if (command === "review" && reviewAvailable && !/\/review(?:\/|$)/.test(pathname)) {
         navigation.navigate("ThreadReview", thread);
       }
     },
-    [copyTarget, navigation, pathname, showCopyFeedback],
+    [copyTarget, navigation, pathname, reviewAvailable, showCopyFeedback],
   );
 
   const palette = useMemo(

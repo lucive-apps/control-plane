@@ -141,7 +141,7 @@ function SectionTitle(props: { readonly children: string }) {
   );
 }
 
-function AddProjectShell(props: { readonly children: ReactNode; readonly title: string }) {
+export function AddProjectShell(props: { readonly children: ReactNode; readonly title: string }) {
   const insets = useSafeAreaInsets();
 
   return (
@@ -248,7 +248,7 @@ function ListRow(props: {
   );
 }
 
-function PrimaryActionButton(props: {
+export function PrimaryActionButton(props: {
   readonly label: string;
   readonly disabled?: boolean;
   readonly loading?: boolean;
@@ -270,7 +270,7 @@ function PrimaryActionButton(props: {
   );
 }
 
-function ProjectPathInput(props: {
+export function ProjectPathInput(props: {
   readonly value: string;
   readonly onChangeText: (value: string) => void;
   readonly onSubmit: () => void;
@@ -292,7 +292,10 @@ function ProjectPathInput(props: {
 // `pinnedDirectoryName` is the repository folder the clone destination keeps
 // appended to whatever folder the user browses to. The plain add-project flow
 // passes nothing, so it keeps proposing the browsed folder itself.
-function useBrowsePathInput(environment: EnvironmentOption | null, pinnedDirectoryName = "") {
+export function useBrowsePathInput(
+  environment: EnvironmentOption | null,
+  pinnedDirectoryName = "",
+) {
   const environmentId = environment?.environmentId ?? null;
   const environmentBaseDirectory = environment?.baseDirectory ?? null;
   const clonePathCaseSensitive = !isWindowsPlatform(environment?.platform ?? "");
@@ -690,7 +693,7 @@ function useCreateProject(environment: EnvironmentOption | null) {
   );
 }
 
-function useEnvironmentFromParam(
+export function useEnvironmentFromParam(
   environmentIdParam: string | string[] | undefined,
 ): EnvironmentOption | null {
   const environmentOptions = useEnvironmentOptions();
@@ -789,7 +792,7 @@ export function AddProjectRepositoryScreen(props: {
   );
 }
 
-function FolderBrowser(props: {
+export function FolderBrowser(props: {
   readonly environment: EnvironmentOption;
   readonly pathInput: string;
   readonly setPathInput: (path: string) => void;

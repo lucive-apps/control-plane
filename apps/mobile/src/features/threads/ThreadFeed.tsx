@@ -40,6 +40,10 @@ import {
 } from "@t3tools/client-runtime/markdown-images";
 import { resolveViewedImageAsset } from "@t3tools/client-runtime/work-log/presentation";
 import {
+  resolveAgentMessagePresentation,
+  type AgentMessagePresentation,
+} from "@t3tools/client-runtime/state/assistant-thread-view";
+import {
   renderCodexFileCitationsAsMarkdown,
   splitCodexArtifactTemplateMarkdown,
 } from "@t3tools/client-runtime/codex-markdown-directives";
@@ -121,6 +125,12 @@ import {
   type MediaVideoPreviewSource,
 } from "../../lib/videoPreviewSource";
 import { CopyTextButton } from "../../components/CopyTextButton";
+import {
+  AgentRepliedLabel,
+  AssistantAttributionLabel,
+  ScheduledRunLabel,
+} from "../projects/AssistantHandoffLabels";
+import type { AssistantFeedTimeline } from "../projects/useAssistantThreadView";
 import { parseReviewCommentMessageSegments } from "../review/reviewCommentSelection";
 import type { ReviewDiffTheme } from "../review/shikiReviewHighlighter";
 import {
@@ -267,6 +277,8 @@ export interface ThreadFeedProps {
     readonly loading: boolean;
     readonly onLoadEarlier: () => void;
   } | null;
+  /** The Project this thread belongs to, for handoff rows. Null outside a Project. */
+  readonly assistantTimeline?: AssistantFeedTimeline | null;
 }
 
 function MessageAttachmentImage(props: {
@@ -1344,15 +1356,33 @@ function ThreadAgentMessageRow(props: {
   readonly label: string;
   readonly text: string;
   readonly iconSubtleColor: ColorValue;
+  /** "<Agent> replied" in a Project, with the agent's name opening its thread. */
+  readonly replied?: {
+    readonly presentation: Extract<AgentMessagePresentation, { kind: "replied" }>;
+    readonly onOpenThread: (threadId: ThreadId) => void;
+  } | null;
 }) {
   const [expanded, setExpanded] = useState(false);
   const body = props.text.trim();
+  const replied = props.replied ?? null;
+  const openReplier = replied
+    ? () => replied.onOpenThread(replied.presentation.linkThreadId)
+    : undefined;
+  const label = replied ? `${replied.presentation.displayName} replied` : props.label;
   return (
     <View className="mb-1 px-1">
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={props.label}
+        accessibilityLabel={label}
         accessibilityState={{ expanded }}
+        accessibilityActions={
+          replied
+            ? [{ name: "open", label: `Open ${replied.presentation.displayName}` }]
+            : undefined
+        }
+        onAccessibilityAction={(event) => {
+          if (event.nativeEvent.actionName === "open") openReplier?.();
+        }}
         onPress={() => {
           if (body.length > 0) setExpanded((value) => !value);
         }}
@@ -1363,7 +1393,14 @@ function ThreadAgentMessageRow(props: {
           className="min-w-0 flex-1 font-t3-medium text-sm text-foreground-muted"
           numberOfLines={1}
         >
-          {props.label}
+          {replied && openReplier ? (
+            <AgentRepliedLabel
+              displayName={replied.presentation.displayName}
+              onOpen={openReplier}
+            />
+          ) : (
+            props.label
+          )}
         </Text>
         {body.length > 0 ? (
           <ThreadDisclosureChevron
@@ -1424,6 +1461,7 @@ function renderFeedEntry(
     readonly userBubbleMaxWidth: number;
     /** Width assistant markdown lays out in, so images can size their frame before layout. */
     readonly markdownContentWidth: number;
+    readonly assistantTimeline: AssistantFeedTimeline | null;
   },
 ) {
   const entry = info.item;
@@ -1556,12 +1594,25 @@ function renderFeedEntry(
       );
     }
     const isUser = message.role === "user";
-    if (isAgentOriginatedUserMessage(message)) {
+    const { assistantTimeline } = props;
+    // In a Project, a manager's request reads as an attributed prompt, a
+    // schedule's prompt as "Scheduled · <name>", and an agent's message to the
+    // thread that asked as "<Agent> replied".
+    const presentation = resolveAgentMessagePresentation({ message, assistantTimeline });
+    const attribution =
+      presentation.kind === "attributed-user" && assistantTimeline ? presentation : null;
+    const scheduled = presentation.kind === "scheduled" ? presentation : null;
+    if (attribution === null && scheduled === null && isAgentOriginatedUserMessage(message)) {
       return (
         <ThreadAgentMessageRow
           label={agentMessageToolLabel(message.source)}
           text={message.text}
           iconSubtleColor={iconSubtleColor}
+          replied={
+            presentation.kind === "replied" && assistantTimeline
+              ? { presentation, onOpenThread: assistantTimeline.onOpenThread }
+              : null
+          }
         />
       );
     }
@@ -1613,6 +1664,15 @@ function renderFeedEntry(
       };
       return (
         <View className="mb-5 items-end">
+          {attribution && assistantTimeline ? (
+            <AssistantAttributionLabel timeline={assistantTimeline} attribution={attribution} />
+          ) : scheduled ? (
+            <ScheduledRunLabel
+              name={scheduled.name}
+              at={message.createdAt}
+              iconColor={iconSubtleColor}
+            />
+          ) : null}
           <Pressable
             accessibilityHint="Long press to copy"
             delayLongPress={350}
@@ -1807,6 +1867,7 @@ function renderFeedEntry(
       onCopyRow={props.onCopyWorkRow}
       onToggleRow={props.onToggleWorkRow}
       renderImage={props.renderViewedImage}
+      assistantTimeline={props.assistantTimeline}
     />
   );
 }
@@ -2824,6 +2885,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             markdownContentWidth,
             skills: props.skills,
             onUseArtifactTemplate: props.onUseArtifactTemplate,
+            assistantTimeline: props.assistantTimeline ?? null,
           })}
           {props.worktreeSetup && info.index === setupAnchorIndex ? (
             <WorktreeSetupCard key={props.threadId} {...props.worktreeSetup} />
@@ -2869,6 +2931,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       props.environmentId,
       props.onUseArtifactTemplate,
       props.skills,
+      props.assistantTimeline,
       renderMarkdownImage,
       renderViewedImage,
     ],

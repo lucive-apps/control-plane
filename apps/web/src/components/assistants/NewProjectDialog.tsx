@@ -3,7 +3,6 @@ import {
   convertSummary,
   defaultProjectFolder,
   localCoordinatorCandidates,
-  planAssistantScaffold,
 } from "@t3tools/client-runtime/state/assistants";
 import {
   isAtomCommandInterrupted,
@@ -33,7 +32,7 @@ import {
 } from "react";
 
 import { mergeEnvironmentSettings, useClientSettings } from "../../hooks/useSettings";
-import { ensureBrowseDirectoryPath, findProjectByPath } from "../../lib/projectPaths";
+import { findProjectByPath } from "../../lib/projectPaths";
 import { cn, newProjectId, newThreadId } from "../../lib/utils";
 import { readLocalApi } from "../../localApi";
 import { getCustomModelOptionsByInstance } from "../../modelSelection";
@@ -74,13 +73,15 @@ import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import type { AssistantDialogRequest } from "./assistantDialogStore";
 import {
-  expandHomePath,
-  isAbsoluteOrHomePath,
-  planDefaultModelOverridePatch,
   planNewProjectCommands,
   readShowsFilePresent,
-  writeMissingScaffoldFiles,
-} from "./newProject.logic";
+  resolveNewProjectFolderBase,
+  resolveTypedProjectFolder,
+  runNewProjectPlan,
+  typedProjectFolderError,
+  type FolderResolution,
+  type NewFolderBase,
+} from "@t3tools/client-runtime/state/assistant-flows";
 
 const ProjectIconPickerDialog = lazy(() =>
   import("../settings/ProjectIconPickerDialog").then((module) => ({
@@ -88,29 +89,9 @@ const ProjectIconPickerDialog = lazy(() =>
   })),
 );
 
-const DEFAULT_PROJECTS_DIRECTORY = "~/Projects";
 const RESOLVE_DEBOUNCE_MS = 250;
 
 type FolderMode = "new" | "existing";
-
-type FolderResolution =
-  | { readonly kind: "pending" }
-  | { readonly kind: "error"; readonly message: string }
-  | {
-      readonly kind: "ok";
-      /** Absolute on the host. */
-      readonly path: string;
-      readonly hasAgentsFile: boolean;
-    };
-
-type NewFolderBase =
-  | {
-      readonly kind: "ok";
-      readonly environmentId: EnvironmentId;
-      readonly parentPath: string;
-      readonly existingNames: readonly string[];
-    }
-  | { readonly kind: "error"; readonly environmentId: EnvironmentId };
 
 function describeFailure(result: Parameters<typeof squashAtomCommandFailure>[0]): string {
   const error = squashAtomCommandFailure(result);
@@ -228,53 +209,18 @@ export default function NewProjectDialog(props: {
   useEffect(() => {
     if (environmentId === null || !environmentReady) return;
     let cancelled = false;
-    const resolveHome = async (): Promise<string | null> => {
-      const result = await browse({ environmentId, input: { partialPath: "~/" } });
-      return result._tag === "Success" ? result.value.parentPath : null;
-    };
-    void (async () => {
-      const directory = addProjectBaseDirectory || DEFAULT_PROJECTS_DIRECTORY;
-      const listed = await browse({
-        environmentId,
-        input: { partialPath: ensureBrowseDirectoryPath(directory) },
-      });
-      // Without a resolvable parent the user has to type a folder.
-      let next: NewFolderBase = { kind: "error", environmentId };
-      if (listed._tag === "Success") {
-        next = {
-          kind: "ok",
-          environmentId,
-          parentPath: listed.value.parentPath,
-          existingNames: listed.value.entries.map((entry) => entry.name),
-        };
-      } else if (isAbsoluteOrHomePath(directory)) {
-        // Not created yet: project.create makes it along with the Project folder.
-        const home = directory.startsWith("~") ? await resolveHome() : "";
-        if (home !== null) {
-          next = {
-            kind: "ok",
-            environmentId,
-            parentPath: expandHomePath(directory, home).replace(/(?<=.)[\\/]+$/, ""),
-            existingNames: [],
-          };
-        }
-      }
-      if (!cancelled) setBase(next);
-    })();
+    void resolveNewProjectFolderBase({ environmentId, addProjectBaseDirectory, browse }).then(
+      (next) => {
+        if (!cancelled) setBase(next);
+      },
+    );
     return () => {
       cancelled = true;
     };
   }, [addProjectBaseDirectory, browse, environmentId, environmentReady]);
 
   const typedInput = (folderMode === "new" ? typedNewPath : existingPath)?.trim() ?? null;
-  const typedInputError =
-    typedInput === null
-      ? null
-      : typedInput.length === 0
-        ? "Choose a folder."
-        : isAbsoluteOrHomePath(typedInput)
-          ? null
-          : "Enter an absolute path or one starting with ~/.";
+  const typedInputError = typedInput === null ? null : typedProjectFolderError(typedInput);
   const typedKey =
     typedInput === null || typedInputError !== null
       ? null
@@ -285,46 +231,17 @@ export default function NewProjectDialog(props: {
       return;
     }
     const input = typedInput;
-    const settle = (value: FolderResolution) => setTypedResolution({ key: typedKey, value });
     let cancelled = false;
     const timer = setTimeout(() => {
-      void (async () => {
-        const listed = await browse({
-          environmentId,
-          input: { partialPath: ensureBrowseDirectoryPath(input) },
-        });
-        let value: FolderResolution;
-        if (folderMode === "existing") {
-          if (listed._tag !== "Success") {
-            value = { kind: "error", message: "Folder not found." };
-          } else {
-            const path = listed.value.parentPath;
-            value = {
-              kind: "ok",
-              path,
-              hasAgentsFile: await fileExists(environmentId, path, "AGENTS.md"),
-            };
-          }
-        } else if (listed._tag === "Success") {
-          value = { kind: "error", message: "Folder exists. Choose Existing folder." };
-        } else {
-          const homeResult = input.startsWith("~")
-            ? await browse({ environmentId, input: { partialPath: "~/" } })
-            : null;
-          value =
-            homeResult !== null && homeResult._tag !== "Success"
-              ? { kind: "error", message: "Could not resolve ~ on this host." }
-              : {
-                  kind: "ok",
-                  path: expandHomePath(
-                    input,
-                    homeResult?._tag === "Success" ? homeResult.value.parentPath : "",
-                  ).replace(/(?<=.)[\\/]+$/, ""),
-                  hasAgentsFile: false,
-                };
-        }
-        if (!cancelled) settle(value);
-      })();
+      void resolveTypedProjectFolder({
+        environmentId,
+        mode: folderMode,
+        input,
+        browse,
+        fileExists,
+      }).then((value) => {
+        if (!cancelled) setTypedResolution({ key: typedKey, value });
+      });
     }, RESOLVE_DEBOUNCE_MS);
     return () => {
       cancelled = true;
@@ -455,66 +372,33 @@ export default function NewProjectDialog(props: {
       existingWorkspace,
       existingCoordinatorThreadId: existingCoordinator?.id ?? null,
     });
-    const failureTitle =
-      existingWorkspace !== null ? "Failed to convert to a Project" : "Failed to create Project";
-    for (const command of plan.commands) {
-      const result =
-        command.type === "project.create"
-          ? await createProject({ environmentId, input: command.input })
-          : command.type === "thread.create"
-            ? await createThread({ environmentId, input: command.input })
-            : await updateProject({ environmentId, input: command.input });
-      if (result._tag === "Failure") {
-        if (!isAtomCommandInterrupted(result)) reportError(failureTitle, describeFailure(result));
-        setIsSubmitting(false);
-        return;
-      }
-    }
-
-    if (serverConfig?.environment.capabilities.projectSettingsOverrides === true) {
-      const saved = await updateSettings({
-        environmentId,
-        input: {
-          patch: planDefaultModelOverridePatch({
-            overrides: serverConfig.settings.projectSettingsOverrides,
-            projectId: plan.projectId,
-            modelSelection,
-          }),
-        },
-      });
-      if (saved._tag === "Failure") {
-        reportError("Default model for new agents not saved", describeFailure(saved));
-      }
-    }
-
-    // Re-list right before writing so a file created since the dialog opened is kept.
-    const listed = await listEntries({
+    const outcome = await runNewProjectPlan({
       environmentId,
-      input: { cwd: folder.path, directoryPath: "" },
+      plan,
+      folderPath: folder.path,
+      instructions,
+      modelSelection,
+      supportsOverrides: serverConfig?.environment.capabilities.projectSettingsOverrides === true,
+      overrides: serverConfig?.settings.projectSettingsOverrides ?? {},
+      run: {
+        createProject,
+        createThread,
+        updateProject,
+        updateSettings,
+        listEntries,
+        readFile,
+        writeFile,
+      },
     });
-    if (listed._tag === "Failure") {
-      reportError("Project files not added", describeFailure(listed));
-    } else {
-      const files = planAssistantScaffold({
-        existingNames: listed.value.entries.map(
-          (entry) => entry.path.split(/[\\/]/).pop() ?? entry.path,
-        ),
-        instructions,
-      });
-      const scaffold = await writeMissingScaffoldFiles({
-        files,
-        read: (relativePath) =>
-          readFile({ environmentId, input: { cwd: folder.path, relativePath } }),
-        write: (relativePath, contents) =>
-          writeFile({ environmentId, input: { cwd: folder.path, relativePath, contents } }),
-      });
-      for (const { relativePath, result } of scaffold.failed) {
-        reportError(`${relativePath} not written`, describeFailure(result));
+    if (!outcome.ok) {
+      if (!isAtomCommandInterrupted(outcome.failure)) {
+        reportError(outcome.title, describeFailure(outcome.failure));
       }
-      // The listing above is cached too, and the file view's root crumb reads it.
-      if (scaffold.written.length > 0) {
-        await listEntries({ environmentId, input: { cwd: folder.path, directoryPath: "" } });
-      }
+      setIsSubmitting(false);
+      return;
+    }
+    for (const warning of outcome.warnings) {
+      reportError(warning.title, describeFailure(warning.failure));
     }
 
     props.onClose();
@@ -735,7 +619,10 @@ export default function NewProjectDialog(props: {
                 <p className="text-muted-foreground">
                   {summary.agents} {summary.agents === 1 ? "thread" : "threads"} in this folder
                   {summary.agents === 1 ? " becomes an agent" : " become agents"}
-                  {summary.standing > 0 ? ` (${summary.standing} pinned stay standing)` : ""}.
+                  {summary.standing > 0
+                    ? ` (${summary.standing} pinned ${summary.standing === 1 ? "stays" : "stay"} standing)`
+                    : ""}
+                  .
                 </p>
               </div>
             ) : null}

@@ -148,6 +148,51 @@ describe("nextScheduleRuns", () => {
     );
   });
 
+  it("lists the same runs on an engine without longOffset or formatToParts, as Hermes", () => {
+    // Zones no other test reads: Effect caches every named zone it builds.
+    const cases = [
+      ["30 2 * * *", "America/St_Johns", "2026-03-07T12:00:00.000Z"],
+      ["30 1 * * *", "America/St_Johns", "2026-10-31T12:00:00.000Z"],
+      ["0 * * * *", "America/St_Johns", "2026-11-01T02:30:00.000Z"],
+      ["0 */2 * * *", "Australia/Lord_Howe", "2026-10-03T12:00:00.000Z"],
+      ["0 7 * * 1-5", "Pacific/Chatham", "2026-04-02T00:00:00.000Z"],
+      ["15 9 1 * *", "Europe/Dublin", "2026-01-15T00:00:00.000Z"],
+    ] as const;
+    const runsOf = () =>
+      cases.map(([cron, zone, from]) => nextScheduleRuns(cron, zone, new Date(from), 5).map(iso));
+
+    const realFormat = Intl.DateTimeFormat;
+    class HermesDateTimeFormat extends realFormat {
+      constructor(locales?: string | string[], options?: Intl.DateTimeFormatOptions) {
+        if (options?.timeZoneName === "longOffset") throw new RangeError("Invalid timeZoneName");
+        super(locales, options);
+      }
+      override formatToParts(date?: Date | number): Intl.DateTimeFormatPart[] {
+        return [{ type: "literal", value: this.format(date) }];
+      }
+    }
+    Intl.DateTimeFormat = HermesDateTimeFormat as typeof Intl.DateTimeFormat;
+    let hermes: ReturnType<typeof runsOf>;
+    try {
+      hermes = runsOf();
+    } finally {
+      Intl.DateTimeFormat = realFormat;
+    }
+
+    expect(hermes.every((runs) => runs.length === 5)).toBe(true);
+    expect(hermes).toEqual(runsOf());
+    // 02:30 moves to 03:30 as the clocks spring forward, and 01:30 runs once as they fall back.
+    expect(hermes[0]!.slice(0, 2)).toEqual([
+      "2026-03-08T06:00:00.000Z",
+      "2026-03-09T05:00:00.000Z",
+    ]);
+    expect(hermes[1]!.slice(0, 2)).toEqual([
+      "2026-11-01T04:00:00.000Z",
+      "2026-11-02T05:00:00.000Z",
+    ]);
+    expect(nextScheduleRuns("0 7 * * *", "Not/AZone", new Date(), 3)).toEqual([]);
+  });
+
   it("lists the next weekday runs in order", () => {
     const runs = nextScheduleRuns("0 7 * * 1-5", "UTC", new Date("2026-06-05T08:00:00.000Z"), 3);
     // Friday after 07:00, so Monday through Wednesday.

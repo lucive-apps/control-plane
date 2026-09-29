@@ -5,6 +5,7 @@
  */
 import { assistantSlug } from "@t3tools/contracts";
 import * as Cron from "effect/Cron";
+import * as DateTime from "effect/DateTime";
 import * as Result from "effect/Result";
 
 /** A fire over 2h after its slot records `missed: late` instead of running. */
@@ -24,7 +25,7 @@ const HOUR_MS = 60 * 60 * 1000;
 const MAX_LOOKBACK_MS = 2 ** 17 * HOUR_MS;
 const NEVER_RUNS_PROBE_FROM = Date.UTC(2000, 0, 1);
 
-function parseFiveFields(cron: string, timeZone?: string): Cron.Cron | null {
+function parseFiveFields(cron: string, timeZone?: DateTime.TimeZone | string): Cron.Cron | null {
   if (cron.trim().split(/\s+/).length !== 5) return null;
   const parsed = Cron.parse(cron.trim(), timeZone);
   return Result.isSuccess(parsed) ? parsed.success : null;
@@ -109,7 +110,11 @@ export function scheduleSlotAt(cron: string, timeZone: string, now: Date): Date 
   return null;
 }
 
-/** The next `count` slots after `from`. Empty when the cron or zone is invalid or never runs. */
+/**
+ * The next `count` slots after `from`. Empty when the cron or zone is invalid
+ * or never runs. Engines that cannot build Effect's named zones (Hermes has no
+ * `longOffset`) get the same runs from `wallClockRuns`.
+ */
 export function nextScheduleRuns(
   cron: string,
   timeZone: string,
@@ -117,11 +122,144 @@ export function nextScheduleRuns(
   count: number,
 ): Date[] {
   const parsed = safeParse(cron, timeZone);
+  if (parsed !== null) {
+    try {
+      const sequence = Cron.sequence(parsed, from);
+      const runs = Array.from({ length: count }, () => sequence.next().value);
+      if (runs.every((run) => Number.isFinite(run.getTime()))) return runs;
+    } catch {
+      // Never runs, or the engine's Intl broke Effect's zone math.
+    }
+  }
+  return wallClockRuns(cron, timeZone, from.getTime(), count);
+}
+
+/** The wall clock at an instant, month 1-12 and hour 0-23. */
+export interface WallClock {
+  readonly year: number;
+  readonly month: number;
+  readonly day: number;
+  readonly hour: number;
+  readonly minute: number;
+  readonly second: number;
+}
+
+const wallClockFormats = new Map<string, Intl.DateTimeFormat>();
+
+/**
+ * The wall clock at `at` in `timeZone`, the device's when omitted. Null for
+ * an unknown zone. It parses plain en-US `format` output ("9/29/2026,
+ * 07:00:00"), since Hermes has no `longOffset` and its iOS `formatToParts`
+ * returns one literal.
+ */
+export function wallClockAt(at: number): WallClock;
+export function wallClockAt(at: number, timeZone: string | undefined): WallClock | null;
+export function wallClockAt(at: number, timeZone?: string): WallClock | null {
+  if (timeZone === undefined) {
+    // Date's own getters read the device zone on every engine.
+    // @effect-diagnostics-next-line globalDate:off
+    const date = new Date(at);
+    return {
+      year: date.getFullYear(),
+      month: date.getMonth() + 1,
+      day: date.getDate(),
+      hour: date.getHours(),
+      minute: date.getMinutes(),
+      second: date.getSeconds(),
+    };
+  }
+  let format = wallClockFormats.get(timeZone);
+  if (format === undefined) {
+    try {
+      format = new Intl.DateTimeFormat("en-US", {
+        timeZone,
+        year: "numeric",
+        month: "numeric",
+        day: "numeric",
+        hour: "numeric",
+        minute: "numeric",
+        second: "numeric",
+        hour12: false,
+      });
+    } catch {
+      return null;
+    }
+    wallClockFormats.set(timeZone, format);
+  }
+  const numbers = (format.format(at).match(/\d+/g) ?? []).map(Number);
+  if (numbers.length < 6) return null;
+  const [month, day, year, hour, minute, second] = numbers as [
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+  ];
+  // Some engines write midnight as 24.
+  return { year, month, day, hour: hour % 24, minute, second };
+}
+
+const DAY_MS = 24 * HOUR_MS;
+const UTC_WALL_CLOCK = DateTime.zoneMakeOffset(0);
+
+/** How far `timeZone`'s wall clock is ahead of UTC at `at`, or null for an unknown zone. */
+function zoneOffsetMs(timeZone: string, at: number): number | null {
+  const clock = wallClockAt(at, timeZone);
+  if (clock === null) return null;
+  const wall = Date.UTC(
+    clock.year,
+    clock.month - 1,
+    clock.day,
+    clock.hour,
+    clock.minute,
+    clock.second,
+  );
+  return wall - (at - (((at % 1000) + 1000) % 1000));
+}
+
+/**
+ * `nextScheduleRuns` without Effect's named zones: walk the cron on the
+ * zone's wall clock, then map each slot to an instant as Effect does. A time
+ * the clock skips moves forward by the gap, a repeated time runs once at its
+ * first occurrence, and a slot that maps onto an earlier run is dropped.
+ */
+function wallClockRuns(cron: string, timeZone: string, from: number, count: number): Date[] {
+  const parsed = parseFiveFields(cron, UTC_WALL_CLOCK);
   if (parsed === null) return [];
+  const offsetAt = (at: number) => {
+    const offset = zoneOffsetMs(timeZone, at);
+    if (offset === null) throw new RangeError(`Unknown time zone: ${timeZone}`);
+    return offset;
+  };
+  const instantOf = (wall: number) => {
+    const before = offsetAt(wall - DAY_MS);
+    const after = offsetAt(wall + DAY_MS);
+    const early = wall - before;
+    if (before === after) return early;
+    const late = wall - after;
+    const earlyExists = offsetAt(early) === before;
+    const lateExists = offsetAt(late) === after;
+    if (earlyExists && lateExists) return Math.min(early, late);
+    // In a skipped hour neither exists; `early` is the time moved past the gap.
+    return lateExists ? late : early;
+  };
   try {
-    const runs = Cron.sequence(parsed, from);
-    return Array.from({ length: count }, () => runs.next().value);
+    const runs: Date[] = [];
+    let wall = from + offsetAt(from);
+    let last = from;
+    for (let step = 0; runs.length < count && step < count * 4; step += 1) {
+      wall = Cron.next(parsed, wall).getTime();
+      const at = instantOf(wall);
+      if (at <= last) continue;
+      // The same plain Dates Effect's `Cron.sequence` lists.
+      // @effect-diagnostics-next-line globalDate:off
+      runs.push(new Date(at));
+      last = at;
+    }
+    return runs;
   } catch {
+    // An unknown zone, or a cron that never runs.
     return [];
   }
 }

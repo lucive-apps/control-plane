@@ -1,9 +1,8 @@
-import type {
-  EnvironmentId,
-  ProjectScheduler,
-  ScheduleHostProblem,
-  ScheduleHostStatus,
-} from "@t3tools/contracts";
+import {
+  scheduleHostProblems,
+  scheduleHostProblemText,
+} from "@t3tools/client-runtime/state/schedules";
+import type { EnvironmentId, ProjectScheduler, ScheduleHostStatus } from "@t3tools/contracts";
 import { CopyIcon, EllipsisIcon } from "lucide-react";
 
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
@@ -13,34 +12,6 @@ import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Switch } from "../ui/switch";
 import { useScheduleActions } from "./useScheduleActions";
-
-/** What a host problem means for the user, in one line. */
-function problemText(problem: ScheduleHostProblem, host: ScheduleHostStatus): string {
-  switch (problem) {
-    case "no-gui-session":
-      return "Nobody is logged in to this Mac's desktop, so macOS won't run schedules until someone is.";
-    case "no-user-manager":
-      return "Schedules need systemd user services on this Linux host.";
-    case "no-linger":
-      return "Schedules run only while you are logged in to this host. Enable lingering to run them after you log out.";
-    case "entry-disabled":
-      return "The host's schedule entry is turned off (Login Items on macOS). Schedules won't run until it's back on.";
-    case "zone-mismatch":
-      return host.hostZone
-        ? `The host's time zone is ${host.hostZone}, but Control Plane is using ${host.timeZone}. Restart Control Plane to switch.`
-        : "The host's time zone changed. Restart Control Plane to switch.";
-    case "ephemeral-path":
-      return "Control Plane is running from a disk image or temporary folder. Move it to Applications so schedules can find it.";
-    case "install-failed":
-      return host.entry.detail
-        ? `Couldn't install the schedule entry: ${host.entry.detail}`
-        : "Couldn't install the schedule entry.";
-    case "unsupported-platform":
-      return "Schedules aren't available on Windows yet.";
-    case "backend-off":
-      return "Schedules are off on this host.";
-  }
-}
 
 /**
  * Open at login as a host's panel sees it. The switch lives only in the
@@ -71,7 +42,7 @@ export function ScheduleHostLine(props: {
 }) {
   const { host } = props;
   const actions = useScheduleActions();
-  const problems = host?.problems.filter((problem) => problem !== "backend-off") ?? [];
+  const problems = scheduleHostProblems(host);
   const dryRun = host?.backend === "dry-run" ? host.entry : null;
   return (
     <div className="flex flex-col gap-1.5">
@@ -103,7 +74,7 @@ export function ScheduleHostLine(props: {
       </div>
       {problems.map((problem) => (
         <p key={problem} role="alert" className="text-warning-foreground">
-          {problemText(problem, host!)}
+          {scheduleHostProblemText(problem, host!)}
         </p>
       ))}
       {props.scheduler === "launchd" ? <OpenAtLoginLine {...props.openAtLogin} /> : null}

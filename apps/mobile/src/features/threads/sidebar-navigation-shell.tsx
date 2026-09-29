@@ -1,9 +1,15 @@
-import { NavigationContainer, NavigationIndependentTree } from "@react-navigation/native";
+import {
+  NavigationContainer,
+  NavigationIndependentTree,
+  useNavigation,
+  type NavigationProp,
+  type NavigationState,
+} from "@react-navigation/native";
 import {
   createNativeStackNavigator,
   type NativeStackNavigationOptions,
 } from "@react-navigation/native-stack";
-import type { ReactNode } from "react";
+import { createContext, use, type ReactNode } from "react";
 import { Platform } from "react-native";
 
 import { getCompactBrandHeaderOptions } from "../../components/CompactBrandTitle";
@@ -40,6 +46,24 @@ const SIDEBAR_SCREEN_OPTIONS: SidebarScreenOptions = {
 
 const SidebarStack = createNativeStackNavigator();
 
+// `useNavigation()`'s default type: the root container's getState can be undefined.
+type AppNavigation = Omit<NavigationProp<ReactNavigation.RootParamList>, "getState"> & {
+  getState(): NavigationState | undefined;
+};
+
+const AppNavigationContext = createContext<AppNavigation | null>(null);
+
+/**
+ * `useNavigation()` for hooks that navigate from rows the sidebar pane also
+ * renders (e.g. useProjectActions). Inside the shell's independent tree
+ * `useNavigation()` is the inert sidebar stack, which handles no app routes;
+ * this returns the app navigation the shell was mounted under instead.
+ */
+export function useAppNavigation(): AppNavigation {
+  const navigation = useNavigation<AppNavigation>();
+  return use(AppNavigationContext) ?? navigation;
+}
+
 /**
  * Hosts the iPad sidebar pane inside its own single-screen native stack.
  *
@@ -47,12 +71,15 @@ const SidebarStack = createNativeStackNavigator();
  * the sidebar column owns a real UINavigationBar (large title, native bar
  * button items, UISearchController), mirroring how each column of a
  * UISplitViewController has its own UINavigationController. All real
- * navigation still flows through the root stack via callbacks minted in
- * AdaptiveWorkspaceLayout; NavigationIndependentTree only isolates the
- * navigation hooks used for header configuration inside the pane.
+ * navigation still flows through the root stack, via callbacks minted in
+ * AdaptiveWorkspaceLayout or `useAppNavigation`; NavigationIndependentTree
+ * only isolates the navigation hooks used for header configuration inside
+ * the pane.
  */
 export function SidebarNavigationShell(props: { readonly children: ReactNode }) {
   const navigationTheme = useMobileNavigationTheme();
+  // Read outside the independent tree: the root stack's navigation.
+  const appNavigation = useNavigation<AppNavigation>();
 
   return (
     <NavigationIndependentTree>
@@ -61,7 +88,11 @@ export function SidebarNavigationShell(props: { readonly children: ReactNode }) 
           screenOptions={SIDEBAR_SCREEN_OPTIONS}
           initialRouteName="SidebarThreads"
         >
-          <SidebarStack.Screen name="SidebarThreads">{() => props.children}</SidebarStack.Screen>
+          <SidebarStack.Screen name="SidebarThreads">
+            {() => (
+              <AppNavigationContext value={appNavigation}>{props.children}</AppNavigationContext>
+            )}
+          </SidebarStack.Screen>
         </SidebarStack.Navigator>
       </NavigationContainer>
     </NavigationIndependentTree>

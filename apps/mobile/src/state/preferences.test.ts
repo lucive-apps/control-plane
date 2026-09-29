@@ -23,7 +23,10 @@ vi.mock("../lib/runtime", async () => {
   };
 });
 
+import * as MobileDatabase from "../persistence/mobile-database";
+import * as MobilePreferences from "../persistence/mobile-preferences";
 import type { Preferences } from "../persistence/mobile-preferences";
+import * as MobileSecureStorage from "../persistence/mobile-secure-storage";
 import {
   createMobilePreferencesState,
   MobilePreferencesLoadError,
@@ -308,5 +311,68 @@ describe("mobile preferences state", () => {
       unmountPreferences();
       registry.dispose();
     }),
+  );
+});
+
+describe("persisted mobile preferences", () => {
+  /** The real store over an in-memory database row, so load and save run their encoding. */
+  function memoryStoreLayer(storedPayload: string) {
+    let stored: MobileDatabase.StoredPreferencesJson | null = {
+      payload: storedPayload,
+      updatedAt: 1,
+    };
+    const unused = Effect.die("unused in preferences tests");
+    const database = MobileDatabase.MobileDatabase.of({
+      loadCache: () => unused,
+      listCache: () => unused,
+      saveCache: () => unused,
+      removeCache: () => unused,
+      clearCacheKind: () => unused,
+      clearEnvironmentCache: () => unused,
+      clearAllCaches: unused,
+      inspectCaches: unused,
+      loadPreferencesJson: Effect.sync(() => Option.fromNullishOr(stored)),
+      savePreferencesJson: (payload, updatedAt) =>
+        Effect.sync(() => {
+          stored = { payload, updatedAt };
+        }),
+    });
+    const secureStorage = MobileSecureStorage.MobileSecureStorage.of({
+      getItem: () => Effect.succeed(null),
+      setItem: () => Effect.void,
+      removeItem: () => Effect.void,
+    });
+    return MobilePreferences.layer.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          Layer.succeed(MobileDatabase.MobileDatabase, database),
+          Layer.succeed(MobileSecureStorage.MobileSecureStorage, secureStorage),
+        ),
+      ),
+    );
+  }
+
+  it.effect("drops non-string expanded Project keys and keeps them across a save", () =>
+    Effect.gen(function* () {
+      const store = yield* MobilePreferences.MobilePreferencesStore;
+      expect((yield* store.load).expandedAssistantKeys).toEqual(["sidebar-assistant:env:a"]);
+
+      yield* store.savePatch({
+        expandedAssistantKeys: ["sidebar-assistant:env:a", "sidebar-assistant:env:b"],
+      });
+      expect(yield* store.load).toEqual({
+        expandedAssistantKeys: ["sidebar-assistant:env:a", "sidebar-assistant:env:b"],
+        collapsedProjectGroups: ["home-section:tasks"],
+      });
+    }).pipe(
+      Effect.provide(
+        memoryStoreLayer(
+          JSON.stringify({
+            expandedAssistantKeys: ["sidebar-assistant:env:a", 7, null],
+            collapsedProjectGroups: ["home-section:tasks", false],
+          }),
+        ),
+      ),
+    ),
   );
 });
