@@ -14,7 +14,7 @@ import { AGENT_PUSH_MESSAGE_PREFIX } from "@t3tools/contracts";
 export { AGENT_PUSH_MESSAGE_PREFIX, isAgentPushMessageId } from "@t3tools/contracts";
 
 /** Running agents per Project, shared by every creator. The coordinator is not counted. */
-export const AGENT_RUNNING_CAP = 4;
+export const AGENT_RUNNING_CAP = 10;
 /** Pushed turns a recipient runs in a row before results pause until a release. */
 export const AGENT_PUSH_BUDGET = 6;
 /** Largest result text appended into a recipient. */

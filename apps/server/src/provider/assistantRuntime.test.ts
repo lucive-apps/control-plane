@@ -6,6 +6,7 @@ import { it as effectIt } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import { describe, expect, it } from "vite-plus/test";
 
+import { AGENT_RUNNING_CAP } from "../orchestration/agentProtocol.ts";
 import {
   ASSISTANT_INLINE_CAP_BYTES,
   assistantRoleKey,
@@ -74,7 +75,9 @@ describe("buildAssistantRuntimeBlock", () => {
     expect(coordinator?.inline).toContain(
       `first write its role to \`${NodePath.join(project.workspaceRoot, "<slug>", "AGENTS.md")}\``,
     );
-    expect(coordinator?.inline).toContain("At most 4 agents run at once in this Project.");
+    expect(coordinator?.inline).toContain(
+      `At most ${AGENT_RUNNING_CAP} agents run at once in this Project.`,
+    );
     expect(coordinator?.pointer).toContain(
       "Delegate with cp_agent_create; results arrive as messages, so end your turn after delegating.",
     );
@@ -92,7 +95,7 @@ describe("buildAssistantRuntimeBlock", () => {
     expect(standing?.inline).toContain(`After your agents report back, ${sendCombined}`);
     expect(standing?.inline).not.toMatch(/cp_agent_(list|read|stop)/);
     expect(standing?.pointer).toContain(
-      "You may start one-off agents with cp_agent_create; you count toward the Project's 4 running agents.",
+      `You may start one-off agents with cp_agent_create; you count toward the Project's ${AGENT_RUNNING_CAP} running agents.`,
     );
     expect(standing?.pointer).toContain(
       `Only turns the coordinator asked for report back automatically; after your agents report, ${sendCombined}`,
