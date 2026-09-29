@@ -79,10 +79,14 @@ const SEPARATOR_STYLE = {
   marginRight: GROUPED_INSET,
 } as const;
 
-/** Section headers and shelf labels sit between rows; every other row draws a hairline under it. */
+/**
+ * Section headers, shelf labels, and a section's closing action sit between rows;
+ * every other row draws a hairline under it.
+ */
 function drawsSeparator(item: HomeSectionItem) {
   return (
     item.type !== "section" &&
+    item.type !== "section-action" &&
     item.type !== "v2-snoozed-shelf" &&
     item.type !== "v2-settled-shelf" &&
     item.type !== "v2-show-more"
