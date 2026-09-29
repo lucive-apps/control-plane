@@ -1944,6 +1944,9 @@ function UserVideoAttachment({ file }: { readonly file: ChatFileAttachment }) {
   );
 }
 
+// Fixed box so a thumbnail never shifts the timeline while its preview URL resolves.
+const USER_IMAGE_THUMBNAIL_CLASS = "h-24 w-32 overflow-hidden rounded-lg border border-border/80";
+
 // Screen readers skim a transcript by heading, so every message announces its
 // author as one. The thread title in ChatHeader is an <h2>; headings written
 // inside a message are exposed below this level. Visually hidden and excluded
@@ -2038,8 +2041,31 @@ function UserTimelineRow({
       return record?.kind === "file" || record?.kind === "image" ? [record.attachmentId] : [];
     }),
   );
-  const regularImages = userImages.filter((image) => !image.name.startsWith("preview-annotation-"));
+  const regularImages = useMemo(
+    () => userImages.filter((image) => !image.name.startsWith("preview-annotation-")),
+    [userImages],
+  );
+  // Regular images show as thumbnails above the bubble, so their inline chips stay out of the
+  // prose. The references remain in the text (and in the DOM as copy markers) for copying.
+  const imageIdsAbove = useMemo(
+    () => new Set(regularImages.map((image) => image.id)),
+    [regularImages],
+  );
+  const hasVisibleText = useMemo(
+    () =>
+      replaceComposerContextReferences(resolvedContext.text, (occurrence) => {
+        const record = asKnownContextRecord(resolvedContext.recordsById.get(occurrence.contextId));
+        return record?.kind === "image" && imageIdsAbove.has(record.attachmentId)
+          ? ""
+          : occurrence.source;
+      }).trim().length > 0,
+    [imageIdsAbove, resolvedContext],
+  );
   const unchippedFiles = otherUserFiles.filter((file) => !chippedAttachmentIds.has(file.id));
+  // A message of only images is just its thumbnails, with no empty bubble under them.
+  const hasMedia = regularImages.length > 0 || userVideos.length > 0;
+  const showBubble =
+    hasVisibleText || unchippedFiles.length > 0 || unknownAttachments.length > 0 || !hasMedia;
   const annotationRecordIds = useMemo(
     () =>
       resolvedContext.records
@@ -2121,6 +2147,7 @@ function UserTimelineRow({
         <UserMessageContextReferenceChip
           reference={reference}
           record={record}
+          shownAbove={record?.kind === "image" && imageIdsAbove.has(record.attachmentId)}
           annotationImage={annotationImage}
           attachment={attachment}
           onExpandImage={(image) => {
@@ -2137,6 +2164,7 @@ function UserTimelineRow({
     },
     [
       resolvedContext.recordsById,
+      imageIdsAbove,
       userImages,
       userFiles,
       previewImages,
@@ -2168,131 +2196,136 @@ function UserTimelineRow({
           </span>
         </p>
       ) : null}
-      <div
-        className={
-          scheduledLabel === null
-            ? "relative max-w-[80%] rounded-2xl bg-message p-3 text-message-foreground"
-            : "relative max-w-[80%] rounded-2xl border border-border p-3 text-foreground"
-        }
-      >
-        <MessageAuthorHeading>
-          {attribution
-            ? attribution.displayName
-            : scheduledLabel !== null
-              ? `Scheduled: ${scheduledLabel}`
-              : "You"}
-        </MessageAuthorHeading>
-        {(regularImages.length > 0 || userVideos.length > 0) && (
-          <div className="mb-2 grid max-w-[210px] grid-cols-2 gap-2">
-            {regularImages.map((image) => (
-              <div
-                key={image.id}
-                className={cn(
-                  "bg-background/70",
-                  image.source?.kind === "snap-shot" && image.previewUrl
-                    ? cn(SNAP_SHOT_ATTACHMENT_FRAME_CLASS, "col-span-2")
-                    : "aspect-[4/3] overflow-hidden rounded-lg border border-border/80",
-                )}
-              >
-                {image.previewUrl ? (
-                  <button
-                    type="button"
-                    className="block h-full w-full cursor-zoom-in"
-                    aria-label={`Preview ${image.name}`}
-                    onClick={() => {
-                      const preview = buildExpandedImagePreview(regularImages, image.id);
-                      if (!preview) return;
-                      ctx.onImageExpand(preview);
-                    }}
-                  >
-                    <img
-                      src={image.previewUrl}
-                      alt={image.name}
-                      className="block size-full object-cover"
-                    />
-                  </button>
-                ) : (
-                  <div className="flex min-h-[72px] items-center justify-center px-2 py-3 text-center text-secondary-label text-[11px]">
-                    {image.name}
-                  </div>
-                )}
-                {image.previewUrl && image.source?.kind === "snap-shot" ? (
-                  <SnapShotAttachmentDetails source={image.source} />
-                ) : null}
-              </div>
-            ))}
-            {userVideos.map((file) => (
-              <UserVideoAttachment key={file.id} file={file} />
-            ))}
-          </div>
-        )}
-        {unchippedFiles.length > 0 || unknownAttachments.length > 0 ? (
-          <div className="mb-2 flex flex-col gap-1">
-            {unchippedFiles.map((file) => {
-              const fileIdentity = (
-                <>
-                  <PierreEntryIcon pathValue={file.name} kind="file" theme={ctx.resolvedTheme} />
-                  <span className="min-w-0 flex-1 truncate">{file.name}</span>
-                </>
-              );
-              if (file.downloadable !== false) {
-                return (
-                  <div key={file.id} className="flex min-w-0 items-center gap-1">
-                    <button
-                      type="button"
-                      aria-label={`Preview ${file.name}`}
-                      onClick={() => ctx.onFileOpen(file)}
-                      className="focus-visible:ring-ring/70 flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md py-1 text-left text-sm hover:underline focus-visible:ring-2 focus-visible:outline-none focus-visible:ring-inset"
-                    >
-                      {fileIdentity}
-                      <EyeIcon className="size-4 shrink-0" />
-                    </button>
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <Button
-                            size="icon-xs"
-                            variant="ghost-muted"
-                            aria-label={`Download ${file.name}`}
-                            onClick={() => ctx.onFileDownload(file)}
-                          />
-                        }
+      <MessageAuthorHeading>
+        {attribution
+          ? attribution.displayName
+          : scheduledLabel !== null
+            ? `Scheduled: ${scheduledLabel}`
+            : "You"}
+      </MessageAuthorHeading>
+      {regularImages.length > 0 || userVideos.length > 0 ? (
+        <div className="flex max-w-[80%] flex-wrap justify-end gap-2">
+          {regularImages.map((image) => (
+            <div
+              key={image.id}
+              className={cn(
+                "shrink-0 bg-muted",
+                image.source?.kind === "snap-shot" && image.previewUrl
+                  ? SNAP_SHOT_ATTACHMENT_FRAME_CLASS
+                  : USER_IMAGE_THUMBNAIL_CLASS,
+              )}
+            >
+              {image.previewUrl ? (
+                <button
+                  type="button"
+                  className="block h-full w-full cursor-zoom-in"
+                  aria-label={`Preview ${image.name}`}
+                  onClick={() => {
+                    const preview = buildExpandedImagePreview(regularImages, image.id);
+                    if (!preview) return;
+                    ctx.onImageExpand(preview);
+                  }}
+                >
+                  <img
+                    src={image.previewUrl}
+                    alt={image.name}
+                    decoding="async"
+                    className="block size-full object-cover"
+                  />
+                </button>
+              ) : (
+                <div className="flex size-full items-center justify-center overflow-hidden px-2 py-3 text-center text-secondary-label text-[11px] break-all">
+                  {image.name}
+                </div>
+              )}
+              {image.previewUrl && image.source?.kind === "snap-shot" ? (
+                <SnapShotAttachmentDetails source={image.source} />
+              ) : null}
+            </div>
+          ))}
+          {userVideos.map((file) => (
+            <div key={file.id} className="w-32 shrink-0">
+              <UserVideoAttachment file={file} />
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {showBubble ? (
+        <div
+          className={
+            scheduledLabel === null
+              ? "relative max-w-[80%] rounded-2xl bg-message p-3 text-message-foreground"
+              : "relative max-w-[80%] rounded-2xl border border-border p-3 text-foreground"
+          }
+        >
+          {unchippedFiles.length > 0 || unknownAttachments.length > 0 ? (
+            <div className="mb-2 flex flex-col gap-1">
+              {unchippedFiles.map((file) => {
+                const fileIdentity = (
+                  <>
+                    <PierreEntryIcon pathValue={file.name} kind="file" theme={ctx.resolvedTheme} />
+                    <span className="min-w-0 flex-1 truncate">{file.name}</span>
+                  </>
+                );
+                if (file.downloadable !== false) {
+                  return (
+                    <div key={file.id} className="flex min-w-0 items-center gap-1">
+                      <button
+                        type="button"
+                        aria-label={`Preview ${file.name}`}
+                        onClick={() => ctx.onFileOpen(file)}
+                        className="focus-visible:ring-ring/70 flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md py-1 text-left text-sm hover:underline focus-visible:ring-2 focus-visible:outline-none focus-visible:ring-inset"
                       >
-                        <DownloadIcon />
-                      </TooltipTrigger>
-                      <TooltipPopup side="top">Download {file.name}</TooltipPopup>
-                    </Tooltip>
+                        {fileIdentity}
+                        <EyeIcon className="size-4 shrink-0" />
+                      </button>
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <Button
+                              size="icon-xs"
+                              variant="ghost-muted"
+                              aria-label={`Download ${file.name}`}
+                              onClick={() => ctx.onFileDownload(file)}
+                            />
+                          }
+                        >
+                          <DownloadIcon />
+                        </TooltipTrigger>
+                        <TooltipPopup side="top">Download {file.name}</TooltipPopup>
+                      </Tooltip>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div key={file.id} className="flex min-w-0 items-center gap-2 py-1 text-sm">
+                    {fileIdentity}
                   </div>
                 );
-              }
-
-              return (
-                <div key={file.id} className="flex min-w-0 items-center gap-2 py-1 text-sm">
-                  {fileIdentity}
+              })}
+              {unknownAttachments.map((attachment) => (
+                <div key={attachment.id} className="flex min-w-0 items-center gap-2 py-1 text-sm">
+                  <PierreEntryIcon
+                    pathValue={attachment.name}
+                    kind="file"
+                    theme={ctx.resolvedTheme}
+                  />
+                  <span className="min-w-0 flex-1 truncate">{attachment.name}</span>
                 </div>
-              );
-            })}
-            {unknownAttachments.map((attachment) => (
-              <div key={attachment.id} className="flex min-w-0 items-center gap-2 py-1 text-sm">
-                <PierreEntryIcon
-                  pathValue={attachment.name}
-                  kind="file"
-                  theme={ctx.resolvedTheme}
-                />
-                <span className="min-w-0 flex-1 truncate">{attachment.name}</span>
-              </div>
-            ))}
+              ))}
+            </div>
+          ) : null}
+          <div onCopyCapture={onBodyCopyCapture}>
+            <CollapsibleUserMessageBody
+              text={resolvedContext.text}
+              renderContextReference={renderContextReference}
+              skills={ctx.skills}
+              markdownCwd={ctx.markdownCwd}
+            />
           </div>
-        ) : null}
-        <div onCopyCapture={onBodyCopyCapture}>
-          <CollapsibleUserMessageBody
-            text={resolvedContext.text}
-            renderContextReference={renderContextReference}
-            skills={ctx.skills}
-            markdownCwd={ctx.markdownCwd}
-          />
         </div>
-      </div>
+      ) : null}
       <div className="flex w-full max-w-[80%] items-center justify-end pe-1 text-xs tabular-nums opacity-0 transition-opacity duration-200 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover:opacity-100">
         <div className="flex shrink-0 items-center gap-2">
           <Tooltip>
@@ -4020,6 +4053,8 @@ const userMessageContextPresentationRegistry = createContextPresentationRegistry
 function UserMessageContextReferenceChip(props: {
   reference: ChatMarkdownContextReference;
   record: KnownComposerContextRecord | undefined;
+  /** The image already shows as a thumbnail above the bubble; keep only its copy marker. */
+  shownAbove: boolean;
   annotationImage: ChatImageAttachment | null;
   attachment: ChatImageAttachment | ChatFileAttachment | null;
   onExpandImage: (image: ChatImageAttachment) => void;
@@ -4032,6 +4067,7 @@ function UserMessageContextReferenceChip(props: {
     contextId: props.reference.contextId as ComposerContextId,
     label: props.reference.label,
   });
+  if (props.shownAbove) return <span hidden data-markdown-copy={copyMarkdown} />;
   return userMessageContextPresentationRegistry.render(props.reference.kind, props.record, {
     reference: props.reference,
     annotationImage: props.annotationImage,

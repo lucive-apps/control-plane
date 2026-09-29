@@ -15,6 +15,7 @@ import {
   COMPOSER_INLINE_CHIP_ICON_CLASS_NAME,
   CONTEXT_INLINE_CHIP_FOCUS_CLASS_NAME,
   CONTEXT_INLINE_CHIP_ICON_TONE_CLASS_NAMES,
+  CONTEXT_INLINE_CHIP_NEUTRAL_TEXT_CLASS_NAME,
   CONTEXT_INLINE_CHIP_INTERACTIVE_CLASS_NAME,
   CONTEXT_INLINE_CHIP_TONE_CLASS_NAMES,
   middleTruncateAttachmentName,
@@ -50,7 +51,7 @@ export function ContextChipShell({
         className,
         interactive && CONTEXT_INLINE_CHIP_INTERACTIVE_CLASS_NAME,
         tooltip && CONTEXT_INLINE_CHIP_FOCUS_CLASS_NAME,
-        unresolved && "border-dashed text-foreground",
+        unresolved && `border-dashed ${CONTEXT_INLINE_CHIP_NEUTRAL_TEXT_CLASS_NAME}`,
       )}
       data-context-unresolved={unresolved ? "true" : undefined}
       tabIndex={tooltip ? 0 : undefined}
@@ -261,7 +262,7 @@ export function FileChip(props: {
       : CONTEXT_INLINE_CHIP_TONE_CLASS_NAMES.file,
     props.onOpen && !props.disabled && CONTEXT_INLINE_CHIP_INTERACTIVE_CLASS_NAME,
     props.onOpen && !props.disabled && (props.isVideo ? "cursor-zoom-in" : "cursor-pointer"),
-    props.unresolved && "border-dashed text-foreground",
+    props.unresolved && `border-dashed ${CONTEXT_INLINE_CHIP_NEUTRAL_TEXT_CLASS_NAME}`,
     props.error && "border-destructive/35 bg-destructive/8 text-destructive",
   );
   const content = <FileChipContent {...props} />;

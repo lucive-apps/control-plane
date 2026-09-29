@@ -4,10 +4,17 @@
 const INLINE_CHIP_GEOMETRY_CLASS_NAME =
   "inline-flex h-[1.41em] max-w-full items-center gap-[0.33em] rounded-[0.5em] px-[0.5em] font-medium leading-none align-middle";
 
-const INLINE_CHIP_CLASS_NAME = `${INLINE_CHIP_GEOMETRY_CLASS_NAME} border border-border/70 bg-accent/40 text-foreground`;
+// Chips take their ink from `--context-chip-foreground` and `--context-chip-border` when a
+// surface sets them (the user message bubble does, see index.css), else the page tokens.
+// Class strings stay literal so Tailwind's scanner can see them.
+/** Text color for chips with no tone of their own (plain and unresolved chips). */
+export const CONTEXT_INLINE_CHIP_NEUTRAL_TEXT_CLASS_NAME =
+  "text-[color:var(--context-chip-foreground,var(--contrast-foreground))]";
+
+const INLINE_CHIP_CLASS_NAME = `${INLINE_CHIP_GEOMETRY_CLASS_NAME} border border-border/70 bg-accent/40 ${CONTEXT_INLINE_CHIP_NEUTRAL_TEXT_CLASS_NAME}`;
 
 const CONTEXT_INLINE_CHIP_TONE_CLASS_NAME =
-  "border-[color-mix(in_oklab,var(--context-chip-accent)_34%,var(--contrast-border))] bg-[color-mix(in_oklab,var(--context-chip-accent)_11%,transparent)] text-[color-mix(in_oklab,var(--context-chip-accent)_22%,var(--contrast-foreground))]";
+  "border-[color-mix(in_oklab,var(--context-chip-accent)_34%,var(--context-chip-border,var(--contrast-border)))] bg-[color-mix(in_oklab,var(--context-chip-accent)_11%,transparent)] text-[color-mix(in_oklab,var(--context-chip-accent)_22%,var(--context-chip-foreground,var(--contrast-foreground)))]";
 
 export const CHAT_INLINE_CHIP_CLASS_NAME = `${INLINE_CHIP_CLASS_NAME} text-[12px]`;
 
@@ -20,9 +27,9 @@ export const COMPOSER_INLINE_CHIP_ICON_CLASS_NAME =
   "block size-[1.17em] shrink-0 self-center [&>svg]:block";
 
 export const CONTEXT_INLINE_CHIP_FOCUS_CLASS_NAME =
-  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--contrast-foreground)]";
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--context-chip-foreground,var(--contrast-foreground))]";
 
-export const CONTEXT_INLINE_CHIP_INTERACTIVE_CLASS_NAME = `transition-colors hover:border-[color-mix(in_oklab,var(--context-chip-accent)_48%,var(--contrast-border))] hover:bg-[color-mix(in_oklab,var(--context-chip-accent)_17%,transparent)] motion-reduce:transition-none ${CONTEXT_INLINE_CHIP_FOCUS_CLASS_NAME}`;
+export const CONTEXT_INLINE_CHIP_INTERACTIVE_CLASS_NAME = `transition-colors hover:border-[color-mix(in_oklab,var(--context-chip-accent)_48%,var(--context-chip-border,var(--contrast-border)))] hover:bg-[color-mix(in_oklab,var(--context-chip-accent)_17%,transparent)] motion-reduce:transition-none ${CONTEXT_INLINE_CHIP_FOCUS_CLASS_NAME}`;
 
 export const CONTEXT_INLINE_CHIP_ICON_TONE_CLASS_NAMES = {
   image: "text-current",

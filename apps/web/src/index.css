@@ -1848,6 +1848,12 @@ html
   color: var(--contrast-message-foreground);
 }
 
+/* Inline context chips sit on the bubble, not the page, so they ink with its foreground. */
+html [data-user-message-body] {
+  --context-chip-foreground: var(--contrast-message-foreground);
+  --context-chip-border: color-mix(in srgb, var(--contrast-message-foreground) 24%, transparent);
+}
+
 html [data-user-message-body] .chat-markdown blockquote {
   border-color: color-mix(in srgb, var(--contrast-message-foreground) 40%, transparent);
   color: color-mix(in srgb, var(--contrast-message-foreground) 80%, transparent);
