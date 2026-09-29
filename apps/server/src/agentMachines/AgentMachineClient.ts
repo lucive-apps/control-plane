@@ -100,9 +100,11 @@ const noRedirects = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
 
 const bearer = (token: string) => ({ authorization: `Bearer ${token}` });
 
+const isPeerError = Schema.is(PeerError);
+
 /** Maps any transport or HTTP failure to a `PeerError`. Peer dispatch errors are opaque 500s. */
 export function classifyPeerFailure(error: unknown): PeerError {
-  if (Schema.is(PeerError)(error)) return error;
+  if (isPeerError(error)) return error;
   const tag = (error as { readonly _tag?: string } | null)?._tag ?? "";
   const status = (error as { readonly response?: { readonly status?: number } } | null)?.response
     ?.status;

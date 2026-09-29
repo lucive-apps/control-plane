@@ -24,7 +24,8 @@ import {
   peerProject,
 } from "./testFixtures.ts";
 
-const encodeJson = Schema.encodeSync(Schema.UnknownFromJsonString);
+const JsonString = Schema.fromJsonString(Schema.Unknown);
+const encodeJson = Schema.encodeSync(JsonString);
 
 const MINI_URL = "http://100.101.102.103:4000";
 const HOME_PROJECT_ID = ProjectId.make("home-project");
@@ -172,7 +173,7 @@ const storeToken = (machineId = "env-mini", expiresAt = "2026-10-29T00:00:00.000
     const secrets = yield* ServerSecretStore.ServerSecretStore;
     yield* secrets.set(
       agentMachineSecretName(machineId),
-      new TextEncoder().encode(JSON.stringify({ token: "peer-token", expiresAt })),
+      new TextEncoder().encode(encodeJson({ token: "peer-token", expiresAt })),
     );
   });
 
@@ -212,8 +213,9 @@ describe("AgentMachines.manage link", () => {
         expect(Option.isSome(stored)).toBe(true);
         expect(new TextDecoder().decode(Option.getOrThrow(stored))).toContain("peer-token");
         // The credential never reaches settings.
-        expect(JSON.stringify(yield* settings.getSettings)).not.toContain("peer-token");
-        expect(JSON.stringify(yield* settings.getSettings)).not.toContain("ABC123");
+        const persisted = encodeJson(yield* settings.getSettings);
+        expect(persisted).not.toContain("peer-token");
+        expect(persisted).not.toContain("ABC123");
       }),
     );
   });

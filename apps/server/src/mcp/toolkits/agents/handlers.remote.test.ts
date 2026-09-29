@@ -132,7 +132,7 @@ const makeHarness = Effect.fn("makeRemoteAgentsHarness")(function* (input: Harne
   );
   const commands: Array<OrchestrationCommand> = [];
   const creators = new Map<string, ThreadId>();
-  const peer = makeFakePeer({ ...(input.failPeerOn ? { failOn: input.failPeerOn } : {}) });
+  const peer = makeFakePeer(input.failPeerOn ? { failOn: input.failPeerOn } : {});
   const machines = Layer.succeed(AgentMachines, {
     ...peer.service,
     placementInputs: () => Effect.succeed(input.placement),
