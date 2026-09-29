@@ -327,6 +327,7 @@ const EMPTY_PROVIDER_ENTRIES: ReadonlyMap<string, ProviderInstanceEntry> = new M
 // Collapsed shelves share one empty list so a route change alone does not
 // give the sidebar list a new identity.
 const EMPTY_THREADS: readonly EnvironmentThreadShell[] = [];
+const EMPTY_ASSISTANT_IDS: string[] = [];
 
 function terminalProcessLabel(count: number): string {
   return `${count} terminal ${count === 1 ? "process" : "processes"} running`;
@@ -2379,6 +2380,7 @@ export default function Sidebar() {
   const projects = useProjects();
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const reorderProjects = useUiStateStore((store) => store.reorderProjects);
+  const reorderAssistants = useUiStateStore((store) => store.reorderAssistants);
   const setProjectExpanded = useUiStateStore((store) => store.setProjectExpanded);
   const updateSettings = useUpdateClientSettings();
   const [folderOrderLocked, setFolderOrderLocked] = useState(false);
@@ -3106,6 +3108,16 @@ export default function Sidebar() {
             .filter((folder) => folder.project !== null)
             .map((folder) => folder.projectKey),
     [projectFolders, settledViewOpen, tasksSectionExpanded],
+  );
+  // Projects reorder among themselves. Two or more, or there is nothing to move.
+  const assistantSortableIds = useMemo(
+    () =>
+      settledViewOpen || !showAssistantsSection || !assistantsSectionExpanded
+        ? EMPTY_ASSISTANT_IDS
+        : assistantModels.length < 2
+          ? EMPTY_ASSISTANT_IDS
+          : assistantModels.map((model) => model.key),
+    [assistantModels, assistantsSectionExpanded, settledViewOpen, showAssistantsSection],
   );
   const projectThreadRows = useMemo(
     () =>
@@ -4744,6 +4756,16 @@ export default function Sidebar() {
   const folderCollisionDetection = useCallback<CollisionDetection>(
     (args) => {
       const activeKey = String(args.active.id);
+      if (assistantSortableIds.includes(activeKey)) {
+        const scoped = {
+          ...args,
+          droppableContainers: args.droppableContainers.filter((container) =>
+            assistantSortableIds.includes(String(container.id)),
+          ),
+        };
+        const within = pointerWithin(scoped);
+        return within.length > 0 ? within : closestCorners(scoped);
+      }
       const source = projectThreadRowByKey.get(activeKey);
       const droppableContainers = args.droppableContainers.filter((container) => {
         const key = String(container.id);
@@ -4779,6 +4801,7 @@ export default function Sidebar() {
       activeKeys,
       activeKeysById,
       activeReorderableThreadKeys,
+      assistantSortableIds,
       draggableThreadKeys,
       pinnedKeys,
       pinnedKeysById,
@@ -4827,6 +4850,28 @@ export default function Sidebar() {
       sidebarProjectSortOrder,
       updateSettings,
     ],
+  );
+
+  const handleAssistantDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      setFolderDragActive(false);
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
+      reorderAssistants(
+        assistantModels.map((model) => model.key),
+        String(active.id),
+        String(over.id),
+      );
+    },
+    [assistantModels, reorderAssistants],
+  );
+  const handleAssistantMove = useCallback(
+    (key: string, direction: -1 | 1) => {
+      const order = assistantModels.map((model) => model.key);
+      const neighbor = order[order.indexOf(key) + direction];
+      if (neighbor !== undefined) reorderAssistants(order, key, neighbor);
+    },
+    [assistantModels, reorderAssistants],
   );
 
   const newThreadShortcutLabel =
@@ -4939,14 +4984,15 @@ export default function Sidebar() {
                 ]}
                 onDragStart={(event) => {
                   const id = String(event.active.id);
-                  if (sortableFolderIds.includes(id)) {
+                  if (sortableFolderIds.includes(id) || assistantSortableIds.includes(id)) {
                     handleFolderDragStart();
                     return;
                   }
                   handleThreadDragStart(event);
                 }}
                 onDragOver={(event) => {
-                  if (sortableFolderIds.includes(String(event.active.id))) return;
+                  const id = String(event.active.id);
+                  if (sortableFolderIds.includes(id) || assistantSortableIds.includes(id)) return;
                   handleThreadDragOver(event);
                 }}
                 onDragCancel={() => setFolderDragActive(false)}
@@ -4954,6 +5000,10 @@ export default function Sidebar() {
                   const id = String(event.active.id);
                   if (sortableFolderIds.includes(id)) {
                     handleFolderDragEnd(event);
+                    return;
+                  }
+                  if (assistantSortableIds.includes(id)) {
+                    handleAssistantDragEnd(event);
                     return;
                   }
                   handleThreadDragEnd(event);
@@ -5131,37 +5181,45 @@ export default function Sidebar() {
                             );
                           } else if (assistantsSectionExpanded) {
                             items.push(
-                              <SidebarAssistantsSection
+                              <SortableContext
                                 key="assistants"
-                                models={assistantModels}
-                                snapshotByKey={assistantGroupByKey}
-                                expandedKeys={expandedAssistantKeys}
-                                settledCounts={assistantSettledCounts}
-                                onSettledCountChange={setAssistantSettledCount}
-                                primaryEnvironmentId={primaryEnvironmentId}
-                                routeThreadKey={routeThreadKey}
-                                routeDraft={routeDraftThread ?? null}
-                                onOpenCoordinator={openAssistantCoordinator}
-                                onNewAgent={handleNewAgent}
-                                onRenameProject={assistantActions.rename}
-                                renderJumpHint={(coordinatorKey) => {
-                                  const label = showThreadJumpHints
-                                    ? jumpLabelByKey.get(coordinatorKey)
-                                    : undefined;
-                                  return label ? <JumpHintBadge label={label} /> : null;
-                                }}
-                                renderDrafts={(snapshot) => (
-                                  <SidebarDraftBlock
-                                    project={snapshot}
-                                    routeDraftId={routeDraftIdForRows}
-                                    onNavigateToDraft={navigateToDraft}
-                                  />
-                                )}
-                                // Agents are never draggable: no sortable bag.
-                                renderThreadRow={(thread, section) =>
-                                  renderThreadRowInner(thread, section)
-                                }
-                              />,
+                                items={assistantSortableIds}
+                                strategy={verticalListSortingStrategy}
+                              >
+                                <SidebarAssistantsSection
+                                  models={assistantModels}
+                                  snapshotByKey={assistantGroupByKey}
+                                  expandedKeys={expandedAssistantKeys}
+                                  settledCounts={assistantSettledCounts}
+                                  onSettledCountChange={setAssistantSettledCount}
+                                  primaryEnvironmentId={primaryEnvironmentId}
+                                  routeThreadKey={routeThreadKey}
+                                  routeDraft={routeDraftThread ?? null}
+                                  onOpenCoordinator={openAssistantCoordinator}
+                                  onNewAgent={handleNewAgent}
+                                  onRenameProject={assistantActions.rename}
+                                  renderJumpHint={(coordinatorKey) => {
+                                    const label = showThreadJumpHints
+                                      ? jumpLabelByKey.get(coordinatorKey)
+                                      : undefined;
+                                    return label ? <JumpHintBadge label={label} /> : null;
+                                  }}
+                                  renderDrafts={(snapshot) => (
+                                    <SidebarDraftBlock
+                                      project={snapshot}
+                                      routeDraftId={routeDraftIdForRows}
+                                      onNavigateToDraft={navigateToDraft}
+                                    />
+                                  )}
+                                  // Agents are never draggable: no sortable bag.
+                                  renderThreadRow={(thread, section) =>
+                                    renderThreadRowInner(thread, section)
+                                  }
+                                  sortable={!settledViewOpen}
+                                  consumeDragSuppression={consumeFolderToggleSuppression}
+                                  onMove={handleAssistantMove}
+                                />
+                              </SortableContext>,
                             );
                           }
                         }

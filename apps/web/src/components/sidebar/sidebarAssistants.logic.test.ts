@@ -6,6 +6,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   assistantExpansionKey,
   flattenAssistantJumpOrder,
+  orderAssistantsByPreference,
   selectableThreadKeys,
   settleableSelection,
 } from "./sidebarAssistants.logic";
@@ -140,5 +141,26 @@ describe("settleableSelection", () => {
       "pinned-task",
       "task",
     ]);
+  });
+});
+
+describe("orderAssistantsByPreference", () => {
+  const rows = ["a", "b", "c"].map((key) => ({ key }));
+  const keys = (list: readonly { key: string }[]) => list.map((row) => row.key);
+
+  it("keeps the default order without a saved order", () => {
+    expect(orderAssistantsByPreference(rows, [])).toBe(rows);
+  });
+
+  it("follows the saved order and drops stale keys", () => {
+    expect(keys(orderAssistantsByPreference(rows, ["c", "gone", "a", "b"]))).toEqual([
+      "c",
+      "a",
+      "b",
+    ]);
+  });
+
+  it("puts Projects without a saved place after the ordered ones", () => {
+    expect(keys(orderAssistantsByPreference(rows, ["c", "b"]))).toEqual(["c", "b", "a"]);
   });
 });

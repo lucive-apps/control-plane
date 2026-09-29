@@ -22,6 +22,7 @@ const LEGACY_PERSISTED_STATE_KEYS = [
 export interface PersistedUiState {
   projectExpandedById?: Record<string, boolean>;
   projectOrder?: string[];
+  assistantOrder?: string[];
   threadLastVisitedAtById?: Record<string, string>;
   collapsedProjectCwds?: string[];
   expandedProjectCwds?: string[];
@@ -36,6 +37,9 @@ export interface PersistedUiState {
 export interface UiProjectState {
   projectExpandedById: Record<string, boolean>;
   projectOrder: string[];
+  // Manual order of the Projects section (`assistantExpansionKey`s). Kept apart
+  // from `projectOrder`: a Tasks reorder rewrites that whole list.
+  assistantOrder: string[];
   // Logical project key the sidebar list is scoped to, or null for "all
   // projects". Lives here so routes that unmount the sidebar (Settings)
   // cannot reset the filter.
@@ -61,6 +65,7 @@ export interface UiState
 const initialState: UiState = {
   projectExpandedById: {},
   projectOrder: [],
+  assistantOrder: [],
   sidebarProjectScopeKey: null,
   threadLastVisitedAtById: {},
   threadChangedFilesExpandedById: {},
@@ -157,6 +162,7 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
   return {
     projectExpandedById,
     projectOrder,
+    assistantOrder: sanitizeStringArray(parsed.assistantOrder),
     threadLastVisitedAtById: sanitizeTimestampRecord(parsed.threadLastVisitedAtById),
     threadChangedFilesExpandedById:
       parsed.threadChangedFilesExpansionVersion === THREAD_CHANGED_FILES_EXPANSION_VERSION
@@ -235,6 +241,7 @@ export function persistState(state: UiState): void {
       JSON.stringify({
         projectExpandedById,
         projectOrder: state.projectOrder,
+        assistantOrder: state.assistantOrder,
         threadLastVisitedAtById: state.threadLastVisitedAtById,
         defaultAdvertisedEndpointKey: state.defaultAdvertisedEndpointKey,
         sidebarProjectScopeKey: state.sidebarProjectScopeKey,
@@ -447,6 +454,22 @@ export function reorderProjects(
   };
 }
 
+export function reorderAssistants(
+  state: UiState,
+  currentOrder: readonly string[],
+  draggedKey: string,
+  targetKey: string,
+): UiState {
+  const from = currentOrder.indexOf(draggedKey);
+  const to = currentOrder.indexOf(targetKey);
+  if (from < 0 || to < 0 || from === to) {
+    return state;
+  }
+  const assistantOrder = [...currentOrder];
+  assistantOrder.splice(to, 0, ...assistantOrder.splice(from, 1));
+  return { ...state, assistantOrder };
+}
+
 interface UiStateStore extends UiState {
   markThreadVisited: (threadId: string, visitedAt: string) => void;
   markThreadUnread: (threadId: string, latestTurnCompletedAt: string | null | undefined) => void;
@@ -459,6 +482,11 @@ interface UiStateStore extends UiState {
     currentProjectOrder: readonly string[],
     draggedProjectIds: readonly string[],
     targetProjectIds: readonly string[],
+  ) => void;
+  reorderAssistants: (
+    currentOrder: readonly string[],
+    draggedKey: string,
+    targetKey: string,
   ) => void;
 }
 
@@ -481,6 +509,8 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) =>
       reorderProjects(state, currentProjectOrder, draggedProjectIds, targetProjectIds),
     ),
+  reorderAssistants: (currentOrder, draggedKey, targetKey) =>
+    set((state) => reorderAssistants(state, currentOrder, draggedKey, targetKey)),
 }));
 
 useUiStateStore.subscribe((state) => debouncedPersistState.maybeExecute(state));
