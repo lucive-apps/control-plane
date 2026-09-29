@@ -14,7 +14,7 @@ The macOS PNGs keep their classic pre-Tahoe tile: the rounded 824×824 body inse
 
 Do not edit the generated PNG or ICO files directly. Change a master and export.
 
-## Android launcher and splash artwork
+## Android launcher and mobile splash artwork
 
 Android masks the central 72dp of a 108dp adaptive canvas, and the Android 12+ splash screen masks
 the central two thirds of a 288dp canvas, so the square master tiles cannot be used directly. The
@@ -24,6 +24,9 @@ Android artwork is instead rendered from the variant mark SVGs by `vp run icons:
   the safe zone over the white adaptive background color.
 - `apps/mobile/assets/android-splash-icon-*.png`: the same foreground at the full splash canvas,
   so the splash mask frames the jet like the launcher does.
+- `apps/mobile/assets/ios-splash-icon-*.png`: the transparent jet for the iOS splash screen,
+  which draws its image unmasked over the light or dark splash background. Never point the iOS
+  splash at the square app icon tiles: they show as a white box in dark mode.
 - `apps/mobile/assets/android-icon-mark.png` and `android-notification-icon.png`: flat white
   silhouettes for Android's monochrome themed icon and the status bar.
 

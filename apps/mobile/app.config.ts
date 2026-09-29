@@ -35,7 +35,7 @@ if (
 const DEVELOPMENT_ASSETS = {
   appIcon: fromRepoRoot(BRAND_ASSET_PATHS.developmentIosIconPng),
   iosIcon: fromRepoRoot(BRAND_ASSET_PATHS.developmentIosIconPng),
-  splashIcon: fromRepoRoot(BRAND_ASSET_PATHS.developmentIosIconPng),
+  splashIcon: "./assets/ios-splash-icon-dev.png",
   androidAdaptiveForeground: "./assets/android-icon-foreground-dev.png",
   androidSplashIcon: "./assets/android-splash-icon-dev.png",
   androidMonochromeIcon: "./assets/android-icon-mark.png",
@@ -46,7 +46,7 @@ const DEVELOPMENT_ASSETS = {
 const PREVIEW_ASSETS = {
   appIcon: fromRepoRoot(BRAND_ASSET_PATHS.nightlyIosIconPng),
   iosIcon: fromRepoRoot(BRAND_ASSET_PATHS.nightlyIosIconPng),
-  splashIcon: fromRepoRoot(BRAND_ASSET_PATHS.nightlyIosIconPng),
+  splashIcon: "./assets/ios-splash-icon-nightly.png",
   androidAdaptiveForeground: "./assets/android-icon-foreground-nightly.png",
   androidSplashIcon: "./assets/android-splash-icon-nightly.png",
   androidMonochromeIcon: "./assets/android-icon-mark.png",
@@ -57,7 +57,7 @@ const PREVIEW_ASSETS = {
 const RELEASE_ASSETS = {
   appIcon: fromRepoRoot(BRAND_ASSET_PATHS.productionIosIconPng),
   iosIcon: fromRepoRoot(BRAND_ASSET_PATHS.productionIosIconPng),
-  splashIcon: fromRepoRoot(BRAND_ASSET_PATHS.productionIosIconPng),
+  splashIcon: "./assets/ios-splash-icon-prod.png",
   androidAdaptiveForeground: "./assets/android-icon-foreground-prod.png",
   androidSplashIcon: "./assets/android-splash-icon-prod.png",
   androidMonochromeIcon: "./assets/android-icon-mark.png",
@@ -366,6 +366,8 @@ const config: ExpoConfig = {
     [
       "expo-splash-screen",
       {
+        // iOS draws the splash image unmasked over backgroundColor, so it must be the
+        // transparent jet. The square app icon tile shows as a white box on the dark splash.
         image: variant.assets.splashIcon,
         resizeMode: "contain",
         backgroundColor: "#ffffff",
