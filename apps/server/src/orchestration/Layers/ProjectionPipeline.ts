@@ -567,6 +567,28 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           return;
         }
 
+        case "project.schedule-run-recorded": {
+          const existingRow = yield* projectionProjectRepository.getById({
+            projectId: event.payload.projectId,
+          });
+          const assistant = Option.isSome(existingRow) ? existingRow.value.assistant : null;
+          if (Option.isNone(existingRow) || assistant == null) {
+            return;
+          }
+          // Keeps updated_at, so a run never reorders the sidebar.
+          yield* projectionProjectRepository.upsert({
+            ...existingRow.value,
+            assistant: {
+              ...assistant,
+              scheduleRuns: {
+                ...assistant.scheduleRuns,
+                [event.payload.scheduleId]: event.payload.run,
+              },
+            },
+          });
+          return;
+        }
+
         default:
           return;
       }

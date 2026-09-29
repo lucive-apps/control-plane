@@ -1968,6 +1968,9 @@ function UserRoleTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "messa
   if (presentation.kind === "attributed-user") {
     return <UserTimelineRow row={row} attribution={presentation} />;
   }
+  if (presentation.kind === "scheduled") {
+    return <UserTimelineRow row={row} scheduledLabel={presentation.name} />;
+  }
   if (isAgentOriginatedUserMessage(row.message)) {
     return (
       <AgentMessageTimelineRow
@@ -1982,9 +1985,12 @@ function UserRoleTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "messa
 function UserTimelineRow({
   row,
   attribution = null,
+  scheduledLabel = null,
 }: {
   row: Extract<TimelineRow, { kind: "message" }>;
   attribution?: Extract<AgentMessagePresentation, { kind: "attributed-user" }> | null;
+  /** A schedule's name: a quiet "Scheduled" row above an outlined bubble. */
+  scheduledLabel?: string | null;
 }) {
   const ctx = use(TimelineRowCtx);
   const { onImageExpand, onFileOpen } = ctx;
@@ -2153,8 +2159,29 @@ function UserTimelineRow({
           <span className="min-w-0 truncate">{attribution.displayName}</span>
         </button>
       ) : null}
-      <div className="relative max-w-[80%] rounded-2xl bg-message p-3 text-message-foreground">
-        <MessageAuthorHeading>{attribution ? attribution.displayName : "You"}</MessageAuthorHeading>
+      {scheduledLabel !== null ? (
+        <p className="flex max-w-[80%] items-center gap-1.5 pe-1 text-muted-foreground text-xs">
+          <ClockIcon aria-hidden="true" className="size-3 shrink-0" />
+          <span className="min-w-0 truncate">
+            Scheduled · {scheduledLabel} ·{" "}
+            {formatDayAwareTimestamp(row.message.createdAt, ctx.timestampFormat)}
+          </span>
+        </p>
+      ) : null}
+      <div
+        className={
+          scheduledLabel === null
+            ? "relative max-w-[80%] rounded-2xl bg-message p-3 text-message-foreground"
+            : "relative max-w-[80%] rounded-2xl border border-border p-3 text-foreground"
+        }
+      >
+        <MessageAuthorHeading>
+          {attribution
+            ? attribution.displayName
+            : scheduledLabel !== null
+              ? `Scheduled: ${scheduledLabel}`
+              : "You"}
+        </MessageAuthorHeading>
         {(regularImages.length > 0 || userVideos.length > 0) && (
           <div className="mb-2 grid max-w-[210px] grid-cols-2 gap-2">
             {regularImages.map((image) => (

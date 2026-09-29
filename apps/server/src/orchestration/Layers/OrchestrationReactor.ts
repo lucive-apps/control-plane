@@ -14,6 +14,8 @@ import * as AgentCompletionReactor from "../AgentCompletionReactor.ts";
 import * as PullRequestSyncReactor from "../PullRequestSyncReactor.ts";
 import * as ThreadPullRequestReactor from "../ThreadPullRequestReactor.ts";
 import * as AgentAwarenessRelay from "../../relay/AgentAwarenessRelay.ts";
+import { ScheduleHost } from "../../schedules/ScheduleHost.ts";
+import { ScheduleRunner } from "../../schedules/ScheduleRunner.ts";
 import * as StorageCleanup from "../../storageCleanup.ts";
 
 export const makeOrchestrationReactor = Effect.gen(function* () {
@@ -23,6 +25,8 @@ export const makeOrchestrationReactor = Effect.gen(function* () {
   const threadDeletionReactor = yield* ThreadDeletionReactor;
   const threadSettlementReactor = yield* ThreadSettlementReactor.ThreadSettlementReactor;
   const agentCompletionReactor = yield* AgentCompletionReactor.AgentCompletionReactor;
+  const scheduleRunner = yield* ScheduleRunner;
+  const scheduleHost = yield* ScheduleHost;
   const pullRequestSyncReactor = yield* PullRequestSyncReactor.PullRequestSyncReactor;
   const threadPullRequestReactor = yield* ThreadPullRequestReactor.ThreadPullRequestReactor;
   const agentAwarenessRelay = yield* AgentAwarenessRelay.AgentAwarenessRelay;
@@ -36,6 +40,8 @@ export const makeOrchestrationReactor = Effect.gen(function* () {
     yield* threadPullRequestReactor.start();
     yield* threadSettlementReactor.start();
     yield* agentCompletionReactor.start();
+    yield* scheduleRunner.start();
+    yield* scheduleHost.start();
     yield* pullRequestSyncReactor.start();
     yield* agentAwarenessRelay.start();
     yield* storageCleanup.start();

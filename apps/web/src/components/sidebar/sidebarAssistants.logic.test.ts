@@ -335,4 +335,15 @@ describe("collapsed rollups", () => {
       ),
     ).toBeNull();
   });
+
+  it("reads a Project's missed or failed schedule as failed unless a thread needs more", () => {
+    const quiet = { coordinator: thread("c"), sections: sections({}), scheduleAttention: true };
+    expect(rollupAssistantsStatus([quiet], {})).toBe("failed");
+    expect(
+      rollupAssistantsStatus(
+        [{ ...quiet, coordinator: thread("c", { hasPendingApprovals: true }) }],
+        {},
+      ),
+    ).toBe("approval");
+  });
 });

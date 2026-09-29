@@ -218,6 +218,7 @@ import { PullRequestDetailGhost } from "./pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "./pullRequest/PullRequestsUnavailableState";
 import { RightPanelTabs } from "./RightPanelTabs";
 import { AgentsPanel } from "./AgentsPanel";
+import { SchedulesPanel } from "./schedules/SchedulesPanel";
 import { LinkPullRequestDialogHost } from "./pullRequest/LinkPullRequestDialog";
 import { ThreadPullRequestsPanel } from "./pullRequest/ThreadPullRequestsPanel";
 import { useDeviceState } from "~/state/device";
@@ -4704,6 +4705,11 @@ export default function ChatView(props: ChatViewProps) {
       input: { cwd: activeWorkspaceRoot, relativePath: "MEMORY.md" },
     });
   }, [activeThreadRef, activeWorkspaceRoot, openFileSurface, rereadProjectFile]);
+  const supportsProjectSchedules =
+    serverConfig?.environment.capabilities.projectSchedules !== undefined;
+  const openSchedulesSurface = useCallback(() => {
+    if (activeThreadRef) useRightPanelStore.getState().open(activeThreadRef, "schedules");
+  }, [activeThreadRef]);
   // Handoff links can outlive their thread, since rows re-read the shell only
   // when they render.
   const openLinkedThread = useCallback(
@@ -9789,6 +9795,8 @@ export default function ChatView(props: ChatViewProps) {
       />
     ) : renderedRightPanelSurface?.kind === "pull-requests" && activeThreadRef ? (
       <ThreadPullRequestsPanel threadRef={activeThreadRef} />
+    ) : renderedRightPanelSurface?.kind === "schedules" && activeThreadRef ? (
+      <SchedulesPanel threadRef={activeThreadRef} project={activeProject} />
     ) : renderedRightPanelSurface?.kind === "agents" ? (
       <AgentsPanel
         model={agentPanelModel}
@@ -9919,6 +9927,9 @@ export default function ChatView(props: ChatViewProps) {
             assistantRole={assistantRole}
             showGitActions={assistantChrome.showPullRequestControls}
             {...(assistantRole === "coordinator" ? { onOpenMemory: openMemorySurface } : {})}
+            {...(assistantRole === "coordinator" && supportsProjectSchedules
+              ? { onOpenSchedules: openSchedulesSurface }
+              : {})}
             {...(assistantRole === "agent" ? { onOpenCoordinator: openActiveCoordinator } : {})}
             activeThreadEnvironmentId={activeThread.environmentId}
             activeThreadId={activeThread.id}

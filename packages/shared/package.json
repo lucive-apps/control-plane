@@ -354,6 +354,10 @@
     "./gitPatchPath": {
       "types": "./src/gitPatchPath.ts",
       "import": "./src/gitPatchPath.ts"
+    },
+    "./schedules": {
+      "types": "./src/schedules.ts",
+      "import": "./src/schedules.ts"
     }
   },
   "scripts": {

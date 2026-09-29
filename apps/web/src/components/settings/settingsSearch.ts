@@ -58,6 +58,8 @@ export interface SettingsSearchItem {
   readonly localBackendManagementOnly?: boolean;
   readonly localEnvironmentOnly?: boolean;
   readonly wslAvailableOnly?: boolean;
+  // Its row renders only when the installed desktop app can register itself.
+  readonly openAtLoginOnly?: boolean;
   /**
    * Sorts after every other match. Keybinding commands mirror rows on other
    * surfaces, so "model" must still lead with Default model, not Model Picker.
@@ -74,6 +76,7 @@ export interface SettingsSearchAvailability {
   readonly canManageLocalBackend: boolean;
   readonly isWslSettingsRowVisible: boolean;
   readonly hasThreadAutoSettlement: boolean;
+  readonly hasOpenAtLogin?: boolean;
 }
 
 /**
@@ -717,6 +720,15 @@ export const SETTINGS_SEARCH_ITEMS = [
     desktopOnly: true,
   },
   {
+    id: "open-at-login",
+    title: "Open at login",
+    to: "/settings/connections",
+    targetId: "connections-environment",
+    searchTerms: ["launch start login items startup schedules background"],
+    desktopOnly: true,
+    openAtLoginOnly: true,
+  },
+  {
     id: "network-access",
     title: "Network access",
     to: "/settings/connections",
@@ -935,6 +947,7 @@ export function filterAvailableSettingsSearchItems(
       (!item.localBackendManagementOnly || availability.canManageLocalBackend) &&
       (!item.localEnvironmentOnly || !availability.localEnvironmentDisabled) &&
       (!item.wslAvailableOnly || availability.isWslSettingsRowVisible) &&
+      (!item.openAtLoginOnly || availability.hasOpenAtLogin === true) &&
       (!item.requiresThreadAutoSettlement || availability.hasThreadAutoSettlement),
   );
 }

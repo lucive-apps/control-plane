@@ -1,10 +1,16 @@
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigate, useParams } from "@tanstack/react-router";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import {
+  diffScheduleRunAlerts,
+  type ScheduleRunsSeen,
+} from "@t3tools/client-runtime/state/schedules";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { useCallback, useEffect, useRef } from "react";
 
 import { getClientSettings, useClientSettings } from "../hooks/useSettings";
+import { useRightPanelStore } from "../rightPanelStore";
 import { useEnvironments } from "../state/environments";
 import { environmentShell } from "../state/shell";
 import {
@@ -207,6 +213,87 @@ function EnvironmentNotifications({
     onNotification,
     shell,
   ]);
+
+  // Missed schedules. A failed run already alerts as "Thread failed" above.
+  const scheduleRuns = useRef<{
+    readonly projects: readonly unknown[];
+    readonly seen: ScheduleRunsSeen;
+  } | null>(null);
+  useEffect(() => {
+    if (shell.status !== "live" || Option.isNone(shell.snapshot)) {
+      scheduleRuns.current = null;
+      return;
+    }
+    const { projects } = shell.snapshot.value;
+    // Thread updates leave the project list as it was.
+    if (scheduleRuns.current?.projects === projects) return;
+    const { seen, alerts } = diffScheduleRunAlerts(scheduleRuns.current?.seen ?? null, projects);
+    scheduleRuns.current = { projects, seen };
+    for (const alert of alerts) {
+      const coordinatorThreadId = projects.find((project) => project.id === alert.projectId)
+        ?.assistant?.coordinatorThreadId;
+      if (coordinatorThreadId === undefined) continue;
+      const title = "Schedule missed";
+      const body = `${alert.projectTitle} · ${alert.scheduleName}`;
+      const openSchedules = () => {
+        void navigate({
+          to: "/$environmentId/$threadId",
+          params: { environmentId, threadId: coordinatorThreadId },
+        }).then(() =>
+          useRightPanelStore
+            .getState()
+            .open(scopeThreadRef(environmentId, coordinatorThreadId), "schedules"),
+        );
+      };
+      if (hasNotificationSound(mode)) {
+        void playNotificationSound("input", () =>
+          hasNotificationSound(getClientSettings().notificationMode),
+        );
+      }
+      if (
+        inAppNotificationsEnabled &&
+        document.visibilityState === "visible" &&
+        document.hasFocus()
+      ) {
+        const toastId = toastManager.add({
+          type: "warning",
+          title,
+          description: body,
+          data: { hideCopyButton: true },
+          actionProps: {
+            children: "Open schedules",
+            onClick: () => {
+              toastManager.close(toastId);
+              openSchedules();
+            },
+          },
+        });
+        continue;
+      }
+      if (
+        !hasDesktopNotifications(mode) ||
+        (document.visibilityState === "visible" && document.hasFocus()) ||
+        typeof Notification === "undefined" ||
+        Notification.permission !== "granted"
+      )
+        continue;
+      try {
+        const notification = new Notification(title, {
+          body,
+          tag: `${environmentId}:schedule:${alert.projectId}:${alert.scheduleId}`,
+          silent: true,
+        });
+        onNotification(environmentId, notification);
+        notification.addEventListener("click", () => {
+          notification.close();
+          window.focus();
+          openSchedules();
+        });
+      } catch {
+        // Some browsers expose Notification but reject desktop presentation.
+      }
+    }
+  }, [environmentId, inAppNotificationsEnabled, mode, navigate, onNotification, shell]);
 
   return null;
 }

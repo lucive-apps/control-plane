@@ -321,6 +321,10 @@ describe("resolveWorkEntryToolPresentation", () => {
     ["cp_thread_send", "messaging agent", "messaged agent"],
     ["cp_agent_list", "Listing agents", "Listed agents"],
     ["cp_agent_read", "Reading an agent", "Read an agent"],
+    ["cp_schedule_list", "Listing schedules", "Listed schedules"],
+    ["cp_schedule_create", "Creating a schedule", "Created a schedule"],
+    ["cp_schedule_update", "Updating a schedule", "Updated a schedule"],
+    ["cp_schedule_delete", "Deleting a schedule", "Deleted a schedule"],
     [
       "t3_worktree_handoff",
       "Handing off thread to a git worktree",

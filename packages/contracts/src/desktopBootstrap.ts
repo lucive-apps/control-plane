@@ -19,6 +19,10 @@ export const DesktopBackendBootstrap = Schema.Struct({
   desktopTelemetryFd: Schema.optionalKey(PositiveInt),
   desktopTelemetryControlFd: Schema.optionalKey(PositiveInt),
   resourceMonitorPath: Schema.optionalKey(TrimmedNonEmptyString),
+  // Fork: the schedule backend and app id the desktop picks for its server.
+  // Carried here, not in env, so terminals and agents never inherit them.
+  schedulesBackend: Schema.optionalKey(Schema.Literals(["os", "dry-run"])),
+  appId: Schema.optionalKey(Schema.String),
 });
 
 export type DesktopBackendBootstrap = typeof DesktopBackendBootstrap.Type;

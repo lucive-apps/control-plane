@@ -843,6 +843,53 @@ describe("DesktopBackendConfiguration", () => {
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
+  it.effect("only the packaged app asks its backend for a real schedule entry", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const baseDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-desktop-backend-config-test-",
+      });
+      const primary = (options: Parameters<typeof makeEnvironmentLayer>[1]) =>
+        Effect.gen(function* () {
+          const configuration = yield* DesktopBackendConfiguration.DesktopBackendConfiguration;
+          return yield* configuration.resolvePrimary;
+        }).pipe(
+          Effect.provide(
+            DesktopBackendConfiguration.layer.pipe(
+              Layer.provideMerge(serverExposureLayer),
+              Layer.provideMerge(DesktopAppSettings.layerTest()),
+              Layer.provideMerge(DesktopWslServerTree.layerTest()),
+              Layer.provideMerge(DesktopWslEnvironment.layerTest()),
+              Layer.provideMerge(makeEnvironmentLayer(baseDir, options)),
+            ),
+          ),
+        );
+      const inherited = process.env.CPLANE_SCHEDULES_BACKEND;
+      // A shell that asked for `os` must not make a dev build install one.
+      process.env.CPLANE_SCHEDULES_BACKEND = "os";
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => restoreEnv("CPLANE_SCHEDULES_BACKEND", inherited)),
+      );
+
+      const packaged = yield* primary({ isPackaged: true });
+      assert.equal(packaged.bootstrap.schedulesBackend, "os");
+      assert.equal(packaged.bootstrap.appId, "com.lucive.controlplane");
+
+      const dev = yield* primary({ isPackaged: false, devServerUrl: "http://127.0.0.1:5733" });
+      assert.equal(dev.bootstrap.schedulesBackend, "dry-run");
+      assert.equal(dev.bootstrap.appId, "com.lucive.controlplane.dev");
+
+      // The choice rides the bootstrap only. The backend's env (process.env
+      // under the patch), which every terminal and agent inherits, carries
+      // neither it nor the shell's `os`.
+      for (const config of [packaged, dev]) {
+        const childEnv = { ...process.env, ...config.env };
+        assert.isUndefined(childEnv.CPLANE_SCHEDULES_BACKEND);
+        assert.isUndefined(childEnv.CPLANE_APP_ID);
+      }
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("resolveWsl preserves existing WSLENV entries when forwarding backend secrets", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;

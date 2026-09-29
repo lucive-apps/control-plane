@@ -1,5 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ORCHESTRATION_PROTOCOL_VERSION } from "@t3tools/contracts";
+import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { expect, it } from "@effect/vitest";
 import * as Crypto from "effect/Crypto";
 import * as Deferred from "effect/Deferred";
@@ -17,6 +18,7 @@ import {
   RELAY_URL_SECRET,
 } from "../cloud/config.ts";
 import * as ServerConfig from "../config.ts";
+import { HostTimeZoneSource } from "../schedules/hostZone.ts";
 import * as ServerEnvironment from "./ServerEnvironment.ts";
 
 const isServerEnvironmentIdPersistenceError = Schema.is(
@@ -262,6 +264,45 @@ it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
 
       const web = yield* describeWith({ mode: "web", desktopTelemetryControlFd: 5 });
       expect(web.capabilities.desktopAppUpdate).toBeUndefined();
+    }),
+  );
+
+  it.effect("advertises the schedule backend's scheduler and the host zone", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const baseDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-server-environment-schedules-test-",
+      });
+      const serverConfig = yield* makeServerConfig(baseDir);
+      yield* fileSystem.makeDirectory(serverConfig.stateDir, { recursive: true });
+
+      const schedulesOn = (env: NodeJS.ProcessEnv, platform: NodeJS.Platform) =>
+        Effect.gen(function* () {
+          const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
+          return (yield* serverEnvironment.getDescriptor).capabilities.projectSchedules;
+        }).pipe(
+          Effect.provide(
+            ServerEnvironment.layer.pipe(
+              Layer.provide(emptySecretStoreLayer),
+              Layer.provide(ServerConfig.layer(serverConfig)),
+            ),
+          ),
+          Effect.provideService(HostProcessEnvironment, env),
+          Effect.provideService(HostProcessPlatform, platform),
+          Effect.provideService(HostTimeZoneSource, () => ({
+            zone: "America/Denver",
+            processZone: "UTC",
+          })),
+        );
+
+      const dryRun = { CPLANE_SCHEDULES_BACKEND: "dry-run" };
+      expect(yield* schedulesOn({}, "darwin")).toEqual({
+        scheduler: "none",
+        timeZone: "America/Denver",
+      });
+      expect((yield* schedulesOn(dryRun, "darwin"))?.scheduler).toBe("launchd");
+      expect((yield* schedulesOn(dryRun, "linux"))?.scheduler).toBe("systemd");
+      expect((yield* schedulesOn(dryRun, "win32"))?.scheduler).toBe("none");
     }),
   );
 

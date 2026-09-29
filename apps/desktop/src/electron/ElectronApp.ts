@@ -63,6 +63,9 @@ export class ElectronApp extends Context.Service<
       options: Electron.AboutPanelOptionsOptions,
     ) => Effect.Effect<void>;
     readonly setAppUserModelId: (id: string) => Effect.Effect<void>;
+    /** "Open at login". On macOS 13+ `status` says whether the user must approve it. */
+    readonly getLoginItemSettings: Effect.Effect<Electron.LoginItemSettings>;
+    readonly setLoginItemSettings: (settings: Electron.Settings) => Effect.Effect<void>;
     readonly getAppMetrics: Effect.Effect<ReadonlyArray<Electron.ProcessMetric>>;
     readonly isDefaultProtocolClient: (protocol: string) => Effect.Effect<boolean>;
     readonly setAsDefaultProtocolClient: (
@@ -164,6 +167,11 @@ export const make = ElectronApp.of({
   setAppUserModelId: (id) =>
     Effect.sync(() => {
       Electron.app.setAppUserModelId(id);
+    }),
+  getLoginItemSettings: Effect.sync(() => Electron.app.getLoginItemSettings()),
+  setLoginItemSettings: (settings) =>
+    Effect.sync(() => {
+      Electron.app.setLoginItemSettings(settings);
     }),
   getAppMetrics: Effect.sync(() => Electron.app.getAppMetrics()),
   isDefaultProtocolClient: (protocol) =>

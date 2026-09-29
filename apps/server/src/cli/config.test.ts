@@ -413,6 +413,8 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           tailscaleServePort: 443,
           otlpTracesUrl: "http://localhost:4318/v1/traces",
           otlpMetricsUrl: "http://localhost:4318/v1/metrics",
+          schedulesBackend: "os",
+          appId: "com.lucive.controlplane",
         }),
       );
       const derivedPaths = yield* deriveServerPaths(baseDir, undefined);
@@ -467,6 +469,8 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         desktopTelemetryFd: 4,
         desktopTelemetryControlFd: 5,
         resourceMonitorPath: undefined,
+        schedulesBackend: "os",
+        appId: "com.lucive.controlplane",
         autoBootstrapProjectFromCwd: false,
         logWebSocketEvents: false,
         tailscaleServeEnabled: false,

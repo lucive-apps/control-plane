@@ -3,6 +3,7 @@ import type { ContextMenuItem } from "@t3tools/contracts";
 export type AssistantProjectMenuAction =
   | "rename"
   | "settings"
+  | "schedules"
   | "open-folder"
   | "archive"
   | "move-to-tasks"
@@ -10,14 +11,17 @@ export type AssistantProjectMenuAction =
 
 /**
  * The Project menu (row, coordinator crumb). Open folder needs a file manager
- * on the Project's host, as in the file context menu.
+ * on the Project's host, as in the file context menu; Schedules needs a server
+ * that stores them.
  */
 export function buildAssistantProjectMenuItems(input: {
   readonly canOpenFolder: boolean;
+  readonly canSchedule: boolean;
 }): ReadonlyArray<ContextMenuItem<AssistantProjectMenuAction>> {
   return [
     { id: "rename", label: "Rename", icon: "pencil" },
     { id: "settings", label: "Settings", icon: "settings" },
+    ...(input.canSchedule ? [{ id: "schedules" as const, label: "Schedules", icon: "clock" }] : []),
     ...(input.canOpenFolder
       ? [{ id: "open-folder" as const, label: "Open folder", icon: "folder" }]
       : []),
@@ -31,6 +35,7 @@ export function isAssistantProjectMenuAction(value: string): value is AssistantP
   return (
     value === "rename" ||
     value === "settings" ||
+    value === "schedules" ||
     value === "open-folder" ||
     value === "archive" ||
     value === "move-to-tasks" ||

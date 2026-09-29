@@ -45,6 +45,7 @@ import {
   ArrowLeftIcon,
   ChartNoAxesColumnIcon,
   CircleCheckIcon,
+  ClockIcon,
   CornerLeftUpIcon,
   FileSearchIcon,
   FolderIcon,
@@ -2090,6 +2091,26 @@ function OpenCommandPaletteDialog(props: {
         });
       },
     });
+    const { environmentId } = assistantProject;
+    const { coordinatorThreadId } = contextualProject.assistant;
+    if (serverConfigs.get(environmentId)?.environment.capabilities.projectSchedules !== undefined) {
+      actionItems.push({
+        kind: "action",
+        value: "action:project-schedules",
+        searchTerms: ["project", "schedules", "schedule", "cron", "recurring", "run now"],
+        title: "Project schedules",
+        description: assistantProject.title,
+        icon: <ClockIcon className={ITEM_ICON_CLASS} />,
+        run: async () => {
+          const threadRef = scopeThreadRef(environmentId, coordinatorThreadId);
+          await navigate({
+            to: "/$environmentId/$threadId",
+            params: buildThreadRouteParams(threadRef),
+          });
+          useRightPanelStore.getState().open(threadRef, "schedules");
+        },
+      });
+    }
   } else if (contextualProjectGroup) {
     actionItems.push({
       kind: "action",

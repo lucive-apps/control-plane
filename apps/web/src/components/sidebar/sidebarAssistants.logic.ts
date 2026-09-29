@@ -202,19 +202,23 @@ export function rollupThreadGroupStatus(
  * The dot of one Project row, or of the collapsed Projects section when given
  * every Project. Rolls up each coordinator and its standing and active agents;
  * snoozed and settled agents stay out, as they do for a Tasks folder, so a
- * hidden agent never keeps a dot lit.
+ * hidden agent never keeps a dot lit. A missed or failed schedule reads as
+ * failed.
  */
 export function rollupAssistantsStatus(
   entries: readonly {
     readonly coordinator: RollupThread | null;
     readonly sections: AssistantAgentSections<RollupThread>;
+    readonly scheduleAttention?: boolean | undefined;
   }[],
   lastVisitedAtById: Readonly<Record<string, string>>,
 ): SidebarRollupStatus {
   const statuses: SidebarThreadStatus[] = [];
   let coordinatorUnread = false;
   let agentsUnread = false;
+  let scheduleAttention = false;
   for (const entry of entries) {
+    scheduleAttention ||= entry.scheduleAttention === true;
     if (entry.coordinator !== null) {
       statuses.push(resolveSidebarThreadStatus(entry.coordinator));
       coordinatorUnread ||= isUnreadThread(entry.coordinator, lastVisitedAtById);
@@ -226,5 +230,5 @@ export function rollupAssistantsStatus(
       }
     }
   }
-  return rollupAssistantStatus({ statuses, coordinatorUnread, agentsUnread });
+  return rollupAssistantStatus({ statuses, coordinatorUnread, agentsUnread, scheduleAttention });
 }

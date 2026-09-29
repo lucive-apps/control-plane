@@ -18,6 +18,7 @@ import { useCallback, useMemo } from "react";
 
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
 import { readLocalApi } from "../../localApi";
+import { useRightPanelStore } from "../../rightPanelStore";
 import { readProject, readThreadShell, useServerConfigs } from "../../state/entities";
 import { projectEnvironment } from "../../state/projects";
 import { shellEnvironment } from "../../state/shell";
@@ -36,7 +37,8 @@ export type AssistantActionProject = Pick<
   "environmentId" | "id" | "title" | "workspaceRoot" | "assistant"
 >;
 
-function reportFailure(title: string, result: AtomCommandResult<unknown, unknown>): boolean {
+/** Toasts a failed command under `title`. True when the command failed. */
+export function reportFailure(title: string, result: AtomCommandResult<unknown, unknown>): boolean {
   if (result._tag !== "Failure") return false;
   if (!isAtomCommandInterrupted(result)) {
     const error = squashAtomCommandFailure(result);
@@ -51,7 +53,7 @@ function reportFailure(title: string, result: AtomCommandResult<unknown, unknown
   return true;
 }
 
-async function confirm(message: string, destructive = false): Promise<boolean> {
+export async function confirm(message: string, destructive = false): Promise<boolean> {
   const api = readLocalApi();
   if (!api) return false;
   const result = await settlePromise(() =>
@@ -109,6 +111,20 @@ export function useAssistantActions() {
           to: "/projects/$projectKey",
           params: { projectKey: derivePhysicalProjectKey(project) },
         }),
+      /** The Project's server stores schedules; absent on older and upstream servers. */
+      canSchedule: (environmentId: EnvironmentId): boolean =>
+        serverConfigs.get(environmentId)?.environment.capabilities.projectSchedules !== undefined,
+      /** Opens the Schedules panel beside the coordinator. */
+      openSchedules: async (project: AssistantActionProject): Promise<void> => {
+        const coordinatorThreadId = project.assistant?.coordinatorThreadId;
+        if (coordinatorThreadId === undefined) return;
+        const threadRef = scopeThreadRef(project.environmentId, coordinatorThreadId);
+        await navigate({
+          to: "/$environmentId/$threadId",
+          params: buildThreadRouteParams(threadRef),
+        });
+        useRightPanelStore.getState().open(threadRef, "schedules");
+      },
       canOpenFolder: (environmentId: EnvironmentId): boolean =>
         serverConfigs.get(environmentId)?.availableEditors.includes("file-manager") === true,
       openFolder: async (project: AssistantActionProject): Promise<void> => {
@@ -123,10 +139,16 @@ export function useAssistantActions() {
       unarchive: (projectRef: ScopedProjectRef) =>
         updateAssistant(projectRef, { archived: false }, "Failed to unarchive Project"),
       moveToTasks: async (project: AssistantActionProject): Promise<boolean> => {
+        const scheduleCount = project.assistant?.schedules?.length ?? 0;
         const confirmed = await confirm(
           [
             `Move "${project.title}" to Tasks?`,
             "It becomes a plain workspace: the coordinator and agents stay as ordinary threads, and the files stay on disk.",
+            ...(scheduleCount > 0
+              ? [
+                  `${scheduleCount} ${scheduleCount === 1 ? "schedule" : "schedules"} will be deleted.`,
+                ]
+              : []),
           ].join("\n"),
         );
         if (!confirmed) return false;
@@ -214,6 +236,7 @@ export function useAssistantProjectMenu() {
       const clicked = await api.contextMenu.show(
         buildAssistantProjectMenuItems({
           canOpenFolder: actions.canOpenFolder(project.environmentId),
+          canSchedule: actions.canSchedule(project.environmentId),
         }),
         input.position,
       );
@@ -225,6 +248,9 @@ export function useAssistantProjectMenu() {
           return;
         case "settings":
           await actions.openSettings(project);
+          return;
+        case "schedules":
+          await actions.openSchedules(project);
           return;
         case "open-folder":
           await actions.openFolder(project);

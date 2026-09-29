@@ -20,6 +20,8 @@ import { resolveServerSelfUpdateCapability } from "../cloud/selfUpdate.ts";
 import { resolveServiceLauncherMode } from "../cloud/serviceLauncherClient.ts";
 import * as ServerConfig from "../config.ts";
 import * as ProcessRunner from "../processRunner.ts";
+import { HostTimeZoneSource } from "../schedules/hostZone.ts";
+import { resolveScheduleBackend } from "../schedules/scheduleBackend.ts";
 import { resolveServerEnvironmentLabel } from "./ServerEnvironmentLabel.ts";
 import { detectServerEnvironmentMachineKind } from "./ServerEnvironmentMachine.ts";
 
@@ -203,6 +205,8 @@ export const make = Effect.gen(function* () {
   // the fd and correctly do not advertise.
   const desktopAppUpdate =
     serverSelfUpdate === "desktop-managed" && serverConfig.desktopTelemetryControlFd !== undefined;
+  const scheduleBackend = yield* resolveScheduleBackend;
+  const hostTimeZone = (yield* HostTimeZoneSource)();
 
   const descriptor: ExecutionEnvironmentDescriptor = {
     environmentId,
@@ -238,6 +242,7 @@ export const make = Effect.gen(function* () {
       threadPinReorder: true,
       threadActiveReorder: true,
       assistants: true,
+      projectSchedules: { scheduler: scheduleBackend.scheduler, timeZone: hostTimeZone.zone },
       threadTitleRegeneration: true,
       threadPullRequests: true,
       pullRequestStackActions: true,

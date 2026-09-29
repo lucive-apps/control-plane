@@ -1,5 +1,10 @@
 import {
   McpCapabilityUnavailableError,
+  PROJECT_SCHEDULE_NAME_MAX,
+  PROJECT_SCHEDULE_PROMPT_MAX,
+  ProjectScheduleActor,
+  ProjectScheduleRun,
+  ProjectScheduleTarget,
   RuntimeMode,
   ThreadId,
   TrimmedNonEmptyString,
@@ -119,6 +124,34 @@ export const AgentToolError = Schema.Union([
 ]);
 export type AgentToolError = typeof AgentToolError.Type;
 
+export class SchedulesCoordinatorOnlyError extends Schema.TaggedError<SchedulesCoordinatorOnlyError>()(
+  "SchedulesCoordinatorOnlyError",
+  {},
+) {
+  override get message(): string {
+    return "Only the Project's coordinator can manage schedules.";
+  }
+}
+
+export class ScheduleNotFoundError extends Schema.TaggedError<ScheduleNotFoundError>()(
+  "ScheduleNotFoundError",
+  { id: Schema.String },
+) {
+  override get message(): string {
+    return `This Project has no schedule '${this.id}'. Use cp_schedule_list for ids.`;
+  }
+}
+
+export const ScheduleToolError = Schema.Union([
+  McpCapabilityUnavailableError,
+  SchedulesCoordinatorOnlyError,
+  ScheduleNotFoundError,
+  AgentNotFoundError,
+  AgentAmbiguousError,
+  AgentToolFailedError,
+]);
+export type ScheduleToolError = typeof ScheduleToolError.Type;
+
 const AgentRef = TrimmedNonEmptyString.annotate({
   description: "The agent's threadId (preferred) or its exact title.",
 });
@@ -235,6 +268,80 @@ export const AgentStopResult = Schema.Struct({
 });
 export type AgentStopResult = typeof AgentStopResult.Type;
 
+const ScheduleRef = TrimmedNonEmptyString.annotate({
+  description: "The schedule's id, from cp_schedule_list.",
+});
+const ScheduleName = TrimmedNonEmptyString.annotate({
+  description: `A short name, at most ${PROJECT_SCHEDULE_NAME_MAX} characters.`,
+});
+const SchedulePrompt = TrimmedNonEmptyString.annotate({
+  description: `The message each run sends, at most ${PROJECT_SCHEDULE_PROMPT_MAX} characters.`,
+});
+const ScheduleCron = TrimmedNonEmptyString.annotate({
+  description: `Five-field cron in the host's local time, at most every 15 minutes. "0 9 * * 1-5" is weekdays at 9:00.`,
+});
+const ScheduleTargetRef = TrimmedNonEmptyString.annotate({
+  description: `"coordinator" (you, the default), or a standing agent's threadId or exact title. A standing agent's result comes back to you.`,
+});
+
+export const ScheduleListEntry = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  prompt: Schema.String,
+  cron: Schema.String,
+  cadence: Schema.String.annotate({ description: "The cron in words." }),
+  target: ProjectScheduleTarget,
+  enabled: Schema.Boolean,
+  createdBy: ProjectScheduleActor,
+  updatedBy: ProjectScheduleActor,
+  lastRun: Schema.NullOr(ProjectScheduleRun),
+});
+export type ScheduleListEntry = typeof ScheduleListEntry.Type;
+
+export const ScheduleListResult = Schema.Struct({ schedules: Schema.Array(ScheduleListEntry) });
+export type ScheduleListResult = typeof ScheduleListResult.Type;
+
+export const ScheduleCreateInput = Schema.Struct({
+  name: ScheduleName,
+  prompt: SchedulePrompt,
+  cron: ScheduleCron,
+  target: Schema.optional(ScheduleTargetRef),
+});
+export type ScheduleCreateInput = typeof ScheduleCreateInput.Type;
+
+export const ScheduleCreateResult = Schema.Struct({
+  id: Schema.String,
+  enabled: Schema.Literal(false),
+  note: Schema.String,
+});
+export type ScheduleCreateResult = typeof ScheduleCreateResult.Type;
+
+export const ScheduleUpdateInput = Schema.Struct({
+  id: ScheduleRef,
+  name: Schema.optional(ScheduleName),
+  prompt: Schema.optional(SchedulePrompt),
+  cron: Schema.optional(ScheduleCron),
+  target: Schema.optional(ScheduleTargetRef),
+  pause: Schema.optional(
+    Schema.Boolean.annotate({
+      description: "true pauses the schedule. Only the user can turn one on.",
+    }),
+  ),
+});
+export type ScheduleUpdateInput = typeof ScheduleUpdateInput.Type;
+
+export const ScheduleUpdateResult = Schema.Struct({ id: Schema.String, enabled: Schema.Boolean });
+export type ScheduleUpdateResult = typeof ScheduleUpdateResult.Type;
+
+export const ScheduleDeleteInput = Schema.Struct({ id: ScheduleRef });
+export type ScheduleDeleteInput = typeof ScheduleDeleteInput.Type;
+
+export const ScheduleDeleteResult = Schema.Struct({
+  id: Schema.String,
+  deleted: Schema.Literal(true),
+});
+export type ScheduleDeleteResult = typeof ScheduleDeleteResult.Type;
+
 const AgentCreateTool = Tool.make("cp_agent_create", {
   description:
     "Start an agent in this Project with a first message. Its final message comes back to you.",
@@ -288,9 +395,66 @@ const AgentStopTool = Tool.make("cp_agent_stop", {
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false);
 
+const ScheduleListTool = Tool.make("cp_schedule_list", {
+  description: "List this Project's schedules with their prompts, cadence and last run.",
+  success: ScheduleListResult,
+  failure: ScheduleToolError,
+  dependencies,
+})
+  .annotate(Tool.Title, "List schedules")
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
+const ScheduleCreateTool = Tool.make("cp_schedule_create", {
+  description:
+    "Create a schedule that sends a prompt on a cadence, only when the user asks. It stays paused until the user turns it on.",
+  parameters: ScheduleCreateInput,
+  success: ScheduleCreateResult,
+  failure: ScheduleToolError,
+  dependencies,
+})
+  .annotate(Tool.Title, "Create a schedule")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, false)
+  .annotate(Tool.OpenWorld, false);
+
+const ScheduleUpdateTool = Tool.make("cp_schedule_update", {
+  description:
+    "Change or pause a schedule. A new prompt, cron or target pauses it until the user turns it back on.",
+  parameters: ScheduleUpdateInput,
+  success: ScheduleUpdateResult,
+  failure: ScheduleToolError,
+  dependencies,
+})
+  .annotate(Tool.Title, "Update a schedule")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
+const ScheduleDeleteTool = Tool.make("cp_schedule_delete", {
+  description: "Delete a schedule from this Project, only when the user asks.",
+  parameters: ScheduleDeleteInput,
+  success: ScheduleDeleteResult,
+  failure: ScheduleToolError,
+  dependencies,
+})
+  .annotate(Tool.Title, "Delete a schedule")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, true)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
 export const AgentsToolkit = Toolkit.make(
   AgentCreateTool,
   AgentListTool,
   AgentReadTool,
   AgentStopTool,
+  ScheduleListTool,
+  ScheduleCreateTool,
+  ScheduleUpdateTool,
+  ScheduleDeleteTool,
 );

@@ -15,6 +15,7 @@ import {
   ProjectId,
   ProviderInteractionMode,
   RuntimeMode,
+  SCHEDULE_MESSAGE_PREFIX,
   ThreadId,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -62,8 +63,9 @@ export interface AgentResult {
 }
 
 /**
- * An appended `cp-push:*` or `cp-send:*` message waiting to start in its
- * thread. `started` marks a push whose start failed and may be retried once.
+ * An appended `cp-push:*`, `cp-send:*` or `cp-schedule:*` message waiting to
+ * start in its thread. `started` marks a push whose start failed and may be
+ * retried once.
  */
 export interface AgentDelivery {
   readonly threadId: ThreadId;
@@ -117,6 +119,22 @@ const PushBudgetRow = Schema.Struct({
 
 const pushPattern = `${AGENT_PUSH_MESSAGE_PREFIX}*`;
 const sendPattern = `${AGENT_SEND_MESSAGE_PREFIX}*`;
+/** A Project schedule's prompt, appended by `ScheduleRunner`. */
+const schedulePattern = `${SCHEDULE_MESSAGE_PREFIX}*`;
+/** A push that answers a scheduled request: `cp-push:<agent>:cp-schedule:<key>`. */
+const scheduleAnswerPattern = `${AGENT_PUSH_MESSAGE_PREFIX}*:${SCHEDULE_MESSAGE_PREFIX}*`;
+
+/**
+ * A pushed result that counts against the recipient's budget. A standing
+ * agent's scheduled run answers the coordinator every day, so those pushes
+ * neither count nor wait for a release.
+ */
+export function isBudgetedPush(messageId: string): boolean {
+  return (
+    messageId.startsWith(AGENT_PUSH_MESSAGE_PREFIX) &&
+    !messageId.includes(`:${SCHEDULE_MESSAGE_PREFIX}`)
+  );
+}
 
 function toRepositoryError(operation: string) {
   return (cause: unknown): ProjectionRepositoryError =>
@@ -178,7 +196,7 @@ export function makeAgentPushQueries(sql: SqlClient.SqlClient) {
               WHERE later.thread_id = m.thread_id AND lm.rowid > m.rowid
             )
             AND (
-              m.message_id NOT GLOB ${sendPattern}
+              (m.message_id NOT GLOB ${sendPattern} AND m.message_id NOT GLOB ${schedulePattern})
               OR EXISTS (
                 SELECT 1 FROM orchestration_command_receipts c
                 WHERE c.command_id = ${AGENT_DELIVERY_START_PREFIX} || m.message_id
@@ -260,12 +278,17 @@ export function makeAgentPushQueries(sql: SqlClient.SqlClient) {
     `,
   });
 
-  // A `cp-push:*` or `cp-send:*` message this code appended. Both append
-  // paths use the message id as the command id, so an imported or foreign
-  // message with a delivery id never starts. Uses the alias `m`.
+  // A `cp-push:*`, `cp-send:*` or `cp-schedule:*` message this server
+  // appended. Every append path uses the message id as the command id, so an
+  // imported or foreign message with a delivery id never starts. Uses the
+  // alias `m`.
   const isDelivery = sql`(
     m.role = 'user'
-    AND (m.message_id GLOB ${pushPattern} OR m.message_id GLOB ${sendPattern})
+    AND (
+      m.message_id GLOB ${pushPattern}
+      OR m.message_id GLOB ${sendPattern}
+      OR m.message_id GLOB ${schedulePattern}
+    )
     AND EXISTS (
       SELECT 1 FROM orchestration_command_receipts own
       WHERE own.command_id = m.message_id AND own.status = 'accepted'
@@ -345,8 +368,9 @@ export function makeAgentPushQueries(sql: SqlClient.SqlClient) {
     `,
   });
 
-  // A release is a turn started by the user (no source) or by a manager's
-  // request (a replyTo). Turns with no starting message count as neither.
+  // A release is a turn started by the user (no source), by a manager's
+  // request (a replyTo) or by a schedule. Turns with no starting message
+  // count as neither, and pushes answering a schedule are not counted.
   const findPushBudget = SqlSchema.findOne({
     Request: Schema.Struct({ threadId: Schema.String }),
     Result: PushBudgetRow,
@@ -360,13 +384,14 @@ export function makeAgentPushQueries(sql: SqlClient.SqlClient) {
       release AS (
         SELECT row_id, message_id FROM started
         WHERE source_json IS NULL OR json_extract(source_json, '$.replyTo') IS NOT NULL
+          OR message_id GLOB ${schedulePattern}
         ORDER BY row_id DESC
         LIMIT 1
       )
       SELECT
         (
           SELECT COUNT(*) FROM started
-          WHERE message_id GLOB ${pushPattern}
+          WHERE message_id GLOB ${pushPattern} AND message_id NOT GLOB ${scheduleAnswerPattern}
             AND row_id > COALESCE((SELECT row_id FROM release), 0)
         ) AS "pushedSinceRelease",
         (SELECT message_id FROM release) AS "releaseMessageId"

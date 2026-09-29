@@ -1211,6 +1211,15 @@ export const DesktopPreviewAutomationWaitForInputSchema = Schema.Struct({
 export const SystemSettingsPaneSchema = Schema.Literals(["full-disk-access"]);
 export type SystemSettingsPane = typeof SystemSettingsPaneSchema.Type;
 
+/** "Open at login" for the packaged desktop app on its own host. */
+export interface DesktopOpenAtLoginState {
+  /** False in dev builds and on Linux, where the app never registers itself. */
+  readonly supported: boolean;
+  readonly enabled: boolean;
+  /** macOS is waiting for the user to allow the login item in System Settings. */
+  readonly requiresApproval: boolean;
+}
+
 export interface DesktopBridge {
   getAppBranding: () => DesktopAppBranding | null;
   /** Absolute path of a dropped or picked file; absent on desktop builds predating it. */
@@ -1230,6 +1239,9 @@ export interface DesktopBridge {
   // info (omits instances whose backend hasn't produced a config yet).
   // The primary backend is identified by id === PRIMARY_LOCAL_ENVIRONMENT_ID.
   getLocalEnvironmentBootstraps: () => readonly DesktopEnvironmentBootstrap[];
+  /** Optional: older desktop builds lack it, and clients hide the control. */
+  getOpenAtLogin?: () => Promise<DesktopOpenAtLoginState>;
+  setOpenAtLogin?: (enabled: boolean) => Promise<DesktopOpenAtLoginState>;
   getLocalEnvironmentEnabled?: () => boolean;
   setLocalEnvironmentEnabled?: (enabled: boolean) => Promise<void>;
   getLocalEnvironmentBearerToken: () => Promise<string>;

@@ -23,7 +23,13 @@ import {
   TrimmedString,
   TurnId,
 } from "./baseSchemas.ts";
-import { ProjectAssistant, ProjectAssistantPatch } from "./assistants.ts";
+import {
+  ProjectAssistant,
+  ProjectAssistantPatch,
+  ProjectScheduleAgentChange,
+  ProjectScheduleId,
+  ProjectScheduleRun,
+} from "./assistants.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 import {
   PullRequestActor,
@@ -560,6 +566,8 @@ export const OrchestrationAgentMessageSource = Schema.Struct({
   threadTitle: Schema.optional(TrimmedNonEmptyString),
   /** The thread this request's result goes to. Absent: nothing is sent back. */
   replyTo: Schema.optional(ThreadId),
+  /** The Project schedule that sent this prompt; `threadTitle` is its name. */
+  scheduleId: Schema.optional(TrimmedNonEmptyString),
 });
 export type OrchestrationAgentMessageSource = typeof OrchestrationAgentMessageSource.Type;
 
@@ -1710,7 +1718,29 @@ const ThreadPullRequestLinkSyncCommand = Schema.Struct({
   stack: Schema.NullOr(ThreadPullRequestStack),
 });
 
+/** Records a schedule's last run. Server only. */
+const ProjectScheduleRecordCommand = Schema.Struct({
+  type: Schema.Literal("project.schedule.record"),
+  commandId: CommandId,
+  projectId: ProjectId,
+  scheduleId: ProjectScheduleId,
+  run: ProjectScheduleRun,
+  createdAt: IsoDateTime,
+});
+
+/** One agent write to one schedule, from the schedule tools. Server only. */
+const ProjectScheduleAgentChangeCommand = Schema.Struct({
+  type: Schema.Literal("project.schedule.agent-change"),
+  commandId: CommandId,
+  projectId: ProjectId,
+  actorThreadId: ThreadId,
+  change: ProjectScheduleAgentChange,
+  createdAt: IsoDateTime,
+});
+
 const InternalOrchestrationCommand = Schema.Union([
+  ProjectScheduleRecordCommand,
+  ProjectScheduleAgentChangeCommand,
   ThreadAutoSettleCommand,
   ThreadPullRequestSyncCommand,
   ThreadPullRequestLinkSyncCommand,
@@ -1743,6 +1773,7 @@ export const OrchestrationEventType = Schema.Literals([
   "project.created",
   "project.meta-updated",
   "project.deleted",
+  "project.schedule-run-recorded",
   "thread.created",
   "thread.deleted",
   "thread.archived",
@@ -1812,6 +1843,13 @@ export const ProjectMetaUpdatedPayload = Schema.Struct({
 export const ProjectDeletedPayload = Schema.Struct({
   projectId: ProjectId,
   deletedAt: IsoDateTime,
+});
+
+/** Leaves the Project's `updatedAt` alone, so a run never reorders the sidebar. */
+export const ProjectScheduleRunRecordedPayload = Schema.Struct({
+  projectId: ProjectId,
+  scheduleId: ProjectScheduleId,
+  run: ProjectScheduleRun,
 });
 
 export const ThreadCreatedPayload = Schema.Struct({
@@ -2103,6 +2141,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("project.deleted"),
     payload: ProjectDeletedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("project.schedule-run-recorded"),
+    payload: ProjectScheduleRunRecordedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

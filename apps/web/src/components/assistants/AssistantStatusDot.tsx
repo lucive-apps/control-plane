@@ -3,7 +3,9 @@ import {
   countRunningAgents,
   rollupAssistantStatus,
 } from "@t3tools/client-runtime/state/assistants";
+import { hasScheduleAttention } from "@t3tools/client-runtime/state/schedules";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import type { ProjectAssistant } from "@t3tools/contracts";
 import {
   hasUnseenCompletion,
   resolveSidebarThreadStatus,
@@ -43,11 +45,17 @@ export function AssistantStatusDot(props: {
   );
 }
 
-/** The dot and "N running" for a Project's coordinator and agents. */
-export function useAssistantRollup(entry: {
+interface AssistantRollupEntry {
+  readonly project: { readonly assistant?: ProjectAssistant | null | undefined };
   readonly coordinator: EnvironmentThreadShell | null;
   readonly agents: readonly EnvironmentThreadShell[];
-}): { readonly status: AssistantRollupStatus; readonly running: number } {
+}
+
+/** The dot and "N running" for a Project's coordinator, agents and schedules. */
+export function useAssistantRollup(entry: AssistantRollupEntry): {
+  readonly status: AssistantRollupStatus;
+  readonly running: number;
+} {
   const lastVisitedAtById = useUiStateStore((state) => state.threadLastVisitedAtById);
   return useMemo(() => {
     const isUnread = (thread: EnvironmentThreadShell) =>
@@ -62,19 +70,15 @@ export function useAssistantRollup(entry: {
         statuses: threads.map(resolveSidebarThreadStatus),
         coordinatorUnread: entry.coordinator !== null && isUnread(entry.coordinator),
         agentsUnread: entry.agents.some(isUnread),
+        scheduleAttention: hasScheduleAttention(entry.project.assistant),
       }),
       running: countRunningAgents(entry.agents),
     };
-  }, [entry.agents, entry.coordinator, lastVisitedAtById]);
+  }, [entry.agents, entry.coordinator, entry.project.assistant, lastVisitedAtById]);
 }
 
 /** "N running" (hidden at 0) and the rolled-up dot, as the palette shows a Project. */
-export function AssistantRollupBadge(props: {
-  readonly entry: {
-    readonly coordinator: EnvironmentThreadShell | null;
-    readonly agents: readonly EnvironmentThreadShell[];
-  };
-}) {
+export function AssistantRollupBadge(props: { readonly entry: AssistantRollupEntry }) {
   const { status, running } = useAssistantRollup(props.entry);
   return (
     <span className="ml-auto flex shrink-0 items-center gap-2 text-xs text-muted-foreground">

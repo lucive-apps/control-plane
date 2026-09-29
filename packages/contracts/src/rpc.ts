@@ -269,6 +269,13 @@ import {
   SourceControlRepositoryInfo,
   SourceControlRepositoryLookupInput,
 } from "./sourceControl.ts";
+import {
+  ScheduleUnavailableError,
+  SchedulesRunInput,
+  SchedulesRunResult,
+  SchedulesStatusInput,
+  SchedulesStatusResult,
+} from "./schedules.ts";
 import { VcsError } from "./vcs.ts";
 
 export const WS_METHODS = {
@@ -281,6 +288,10 @@ export const WS_METHODS = {
   projectsSearchContents: "projects.searchContents",
   projectsSearchEntries: "projects.searchEntries",
   projectsWriteFile: "projects.writeFile",
+
+  // Project schedule methods
+  schedulesStatus: "schedules.status",
+  schedulesRun: "schedules.run",
 
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
@@ -938,6 +949,18 @@ const WsProjectsWriteFileRpc = Rpc.make(WS_METHODS.projectsWriteFile, {
   error: Schema.Union([ProjectWriteFileError, EnvironmentAuthorizationError]),
 });
 
+const WsSchedulesStatusRpc = Rpc.make(WS_METHODS.schedulesStatus, {
+  payload: SchedulesStatusInput,
+  success: SchedulesStatusResult,
+  error: Schema.Union([ScheduleUnavailableError, EnvironmentAuthorizationError]),
+});
+
+const WsSchedulesRunRpc = Rpc.make(WS_METHODS.schedulesRun, {
+  payload: SchedulesRunInput,
+  success: SchedulesRunResult,
+  error: Schema.Union([ScheduleUnavailableError, EnvironmentAuthorizationError]),
+});
+
 const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
   payload: LaunchEditorInput,
   error: Schema.Union([ExternalLauncherError, EnvironmentAuthorizationError]),
@@ -1450,6 +1473,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsSearchContentsRpc,
   WsProjectsSearchEntriesRpc,
   WsProjectsWriteFileRpc,
+  WsSchedulesStatusRpc,
+  WsSchedulesRunRpc,
   WsShellOpenInEditorRpc,
   WsFilesystemBrowseRpc,
   WsAgentSessionsScanRpc,

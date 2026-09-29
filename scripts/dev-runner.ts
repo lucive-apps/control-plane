@@ -333,6 +333,9 @@ export function createDevRunnerEnv({
     // (serviceLauncherClient.ts resolveStartup).
     delete output.T3_SERVICE_LAUNCHER_CONTEXT;
     delete output.T3_BOOT_SERVICE_UNIT;
+    // Dev renders the schedule entry to disk and never installs it with the
+    // OS, whatever the shell inherited.
+    output.CPLANE_SCHEDULES_BACKEND = "dry-run";
 
     if (!isDesktopMode) {
       output.T3CODE_PORT = String(serverPort);

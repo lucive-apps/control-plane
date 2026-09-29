@@ -521,6 +521,10 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
         onSome: (resourceMonitorPath) => ({ resourceMonitorPath }),
       }),
       ...buildObservabilityFragment(input.observabilitySettings),
+      // Only the installed app owns a real schedule entry. Sent here, not in
+      // env, so the terminals and agents this server spawns never inherit it.
+      schedulesBackend: environment.isPackaged ? ("os" as const) : ("dry-run" as const),
+      appId: environment.appUserModelId,
     };
 
     return {
@@ -531,6 +535,9 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
       env: {
         ...backendChildEnvPatch(),
         ELECTRON_RUN_AS_NODE: "1",
+        // The bootstrap carries the schedule backend; a value inherited from a
+        // shell would still reach every terminal and agent through this env.
+        CPLANE_SCHEDULES_BACKEND: undefined,
       },
       // Primary wants process.env (PATH, dev-runner's T3CODE_HOME, etc.).
       extendEnv: true,

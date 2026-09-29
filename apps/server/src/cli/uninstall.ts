@@ -12,6 +12,7 @@ import {
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
@@ -19,6 +20,11 @@ import { Command, Flag, GlobalFlag, Prompt } from "effect/unstable/cli";
 
 import * as BootService from "../cloud/bootService.ts";
 import { pinnedRuntimeVersionsDir } from "../cloud/pinnedRuntime.ts";
+import {
+  ScheduleHostBackend,
+  entryRemovalBackendLayer,
+  scheduleEntryLabel,
+} from "../schedules/ScheduleHost.ts";
 import { projectLocationFlags, resolveCliAuthConfig } from "./config.ts";
 import { bootServiceLayer } from "./service.ts";
 import { findWindowsShim, launcherOwnsVersionsDir, resolveLauncherPath } from "./update.ts";
@@ -43,6 +49,8 @@ export interface UninstallPlan {
   readonly launcher: string | undefined;
   /** `<home>/runtime`, holding every downloaded version, when it exists. */
   readonly runtimeDir: string | undefined;
+  /** This home's OS schedule entry, which would fire a removed runtime. */
+  readonly scheduleEntry: { readonly label: string; readonly path: string | undefined } | undefined;
   /** `<home>/userdata`, which is never removed; shown so the user knows where it is. */
   readonly userdataDir: string;
 }
@@ -75,8 +83,29 @@ export const findOwnedLauncher = Effect.fn("cli.uninstall.find_launcher")(functi
   return launcherOwnsVersionsDir(path, input.versionsDir, resolved) ? input.launchedAs : undefined;
 });
 
+/**
+ * This home's schedule entry, when one is installed. The label comes from the
+ * home's environment id, exactly as the server's `ScheduleHost` names it, so
+ * another home's entry is never claimed. The prefix is the default app id,
+ * which is also the installed desktop app's.
+ */
+export const findScheduleEntry = Effect.fn("cli.uninstall.find_schedule_entry")(function* (
+  environmentIdPath: string,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const environmentId = yield* fs.readFileString(environmentIdPath).pipe(
+    Effect.map((contents) => contents.trim()),
+    Effect.orElseSucceed(() => ""),
+  );
+  if (environmentId.length === 0) return undefined;
+  const label = scheduleEntryLabel(undefined, environmentId);
+  const entry = yield* (yield* ScheduleHostBackend).probe(label);
+  return entry.state === "installed" ? { label, path: entry.path } : undefined;
+});
+
 const planUninstall = Effect.fn("cli.uninstall.plan")(function* (input: {
   readonly baseDir: string;
+  readonly environmentIdPath: string;
 }) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -95,6 +124,7 @@ const planUninstall = Effect.fn("cli.uninstall.plan")(function* (input: {
       ? runtimeDir
       : undefined,
     userdataDir: path.join(input.baseDir, "userdata"),
+    scheduleEntry: yield* findScheduleEntry(input.environmentIdPath),
   };
   return plan;
 });
@@ -116,24 +146,36 @@ export const uninstallCommand = Command.make("uninstall", {
     Effect.gen(function* () {
       const logLevel = yield* GlobalFlag.LogLevel;
       const config = yield* resolveCliAuthConfig(flags, logLevel);
-      return yield* runUninstall({ baseDir: config.baseDir, assumeYes: flags.yes }).pipe(
-        Effect.provide(bootServiceLayer(config)),
-      );
+      return yield* runUninstall({
+        baseDir: config.baseDir,
+        environmentIdPath: config.environmentIdPath,
+        assumeYes: flags.yes,
+      }).pipe(Effect.provide(Layer.mergeAll(bootServiceLayer(config), entryRemovalBackendLayer)));
     }),
   ),
 );
 
 const runUninstall = Effect.fn("cli.uninstall.run")(function* (input: {
   readonly baseDir: string;
+  readonly environmentIdPath: string;
   readonly assumeYes: boolean;
 }) {
   const fs = yield* FileSystem.FileSystem;
   const platform = yield* HostProcessPlatform;
   const environment = yield* HostProcessEnvironment;
   const service = yield* BootService.BootService;
-  const plan = yield* planUninstall({ baseDir: input.baseDir });
+  const scheduleBackend = yield* ScheduleHostBackend;
+  const plan = yield* planUninstall({
+    baseDir: input.baseDir,
+    environmentIdPath: input.environmentIdPath,
+  });
 
-  if (!plan.service && plan.launcher === undefined && plan.runtimeDir === undefined) {
+  if (
+    !plan.service &&
+    plan.launcher === undefined &&
+    plan.runtimeDir === undefined &&
+    plan.scheduleEntry === undefined
+  ) {
     yield* Console.log(`Nothing to remove: t3 is not installed for ${input.baseDir}.`);
     if (!(yield* HostProcessIsExecutable)) {
       yield* Console.log(
@@ -145,6 +187,11 @@ const runUninstall = Effect.fn("cli.uninstall.run")(function* (input: {
 
   yield* Console.log("This will remove:");
   if (plan.service) yield* Console.log("  the background service (stopping it first)");
+  if (plan.scheduleEntry !== undefined) {
+    yield* Console.log(
+      `  the schedule entry ${plan.scheduleEntry.path ?? plan.scheduleEntry.label}`,
+    );
+  }
   if (plan.launcher !== undefined) yield* Console.log(`  the launcher at ${plan.launcher}`);
   if (plan.runtimeDir !== undefined) {
     yield* Console.log(`  every downloaded version under ${plan.runtimeDir}`);
@@ -172,6 +219,10 @@ const runUninstall = Effect.fn("cli.uninstall.run")(function* (input: {
   if (plan.service) {
     yield* service.uninstall;
     yield* Console.log("Removed the background service.");
+  }
+  if (plan.scheduleEntry !== undefined) {
+    yield* scheduleBackend.remove(plan.scheduleEntry.label);
+    yield* Console.log("Removed the schedule entry.");
   }
   if (plan.launcher !== undefined) {
     yield* fs

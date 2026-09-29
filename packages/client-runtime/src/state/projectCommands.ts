@@ -92,6 +92,16 @@ export function createProjectEnvironmentAtoms<R, E>(
       scheduler: projectScheduler,
       concurrency: projectConcurrency,
     }),
+    /** Host status, prompts and held runs of one Project's schedules. */
+    schedulesStatus: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:projects:schedules-status",
+      tag: WS_METHODS.schedulesStatus,
+      staleTimeMs: 15_000,
+    }),
+    schedulesRun: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:projects:schedules-run",
+      tag: WS_METHODS.schedulesRun,
+    }),
     writeFile: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:projects:write-file",
       tag: WS_METHODS.projectsWriteFile,

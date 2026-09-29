@@ -3,10 +3,18 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
+import { summarizeSchedules } from "@t3tools/client-runtime/state/schedules";
 import { isArchivedAssistant, type ProjectIconOverride } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import { useNavigate } from "@tanstack/react-router";
-import { ArchiveIcon, ArchiveX, FolderOpenIcon, FolderTreeIcon, Trash2Icon } from "lucide-react";
+import {
+  ArchiveIcon,
+  ArchiveX,
+  ClockIcon,
+  FolderOpenIcon,
+  FolderTreeIcon,
+  Trash2Icon,
+} from "lucide-react";
 import { lazy, Suspense, useRef, useState } from "react";
 
 import { getCustomModelOptionsByInstance } from "../../modelSelection";
@@ -203,6 +211,24 @@ export function AssistantSettingsPanel({ group }: { group: SidebarProjectSnapsho
               </Button>
             }
           />
+          {actions.canSchedule(project.environmentId) ? (
+            <SettingsRow
+              title="Schedules"
+              description={summarizeSchedules(project.assistant)}
+              control={
+                <Button
+                  size="sm"
+                  variant="outline"
+                  type="button"
+                  disabled={coordinatorThreadId === null}
+                  onClick={() => void actions.openSchedules(project)}
+                >
+                  <ClockIcon />
+                  Manage
+                </Button>
+              }
+            />
+          ) : null}
         </SettingsSection>
         <SettingsSection title="Danger zone">
           {isArchived ? (

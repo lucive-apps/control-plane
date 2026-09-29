@@ -12,7 +12,7 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { ChevronDownIcon, NotebookTextIcon } from "lucide-react";
+import { ChevronDownIcon, ClockIcon, NotebookTextIcon } from "lucide-react";
 import {
   memo,
   useCallback,
@@ -73,6 +73,8 @@ interface ChatHeaderProps {
   showGitActions?: boolean | undefined;
   /** Opens the coordinator's `MEMORY.md`. */
   onOpenMemory?: (() => void) | undefined;
+  /** Opens the Project's Schedules panel; absent when its server has no schedules. */
+  onOpenSchedules?: (() => void) | undefined;
   /** An agent's Project crumb opens its coordinator instead of a new thread. */
   onOpenCoordinator?: (() => void) | undefined;
   readonly onOpenPullRequest?: ((number: number) => void) | undefined;
@@ -147,6 +149,7 @@ export const ChatHeader = memo(function ChatHeader({
   assistantRole = null,
   showGitActions = true,
   onOpenMemory,
+  onOpenSchedules,
   onOpenCoordinator,
   onOpenPullRequest,
   onNewThreadInProject,
@@ -460,6 +463,25 @@ export const ChatHeader = memo(function ChatHeader({
               <span className="hidden @3xl/header-actions:inline">Memory</span>
             </TooltipTrigger>
             <TooltipPopup>Open MEMORY.md</TooltipPopup>
+          </Tooltip>
+        ) : null}
+        {onOpenSchedules ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  type="button"
+                  aria-label="Schedules"
+                  onClick={onOpenSchedules}
+                />
+              }
+            >
+              <ClockIcon />
+              <span className="hidden @3xl/header-actions:inline">Schedules</span>
+            </TooltipTrigger>
+            <TooltipPopup>Open schedules</TooltipPopup>
           </Tooltip>
         ) : null}
         {activeProjectScripts || showOpenInPicker || activeProjectName ? (

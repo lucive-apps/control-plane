@@ -79,6 +79,33 @@ to do.
   agent that was working for the coordinator, the coordinator hears that it stopped before
   finishing. Message a stopped agent to start it again.
 
+## Schedules
+
+A Project can send a prompt on a cadence, such as a weekday morning brief. Choose **Schedules**
+in the coordinator's header, the Project's menu, **Project settings** or the command palette's
+**Project schedules**, then **New schedule**.
+
+- Pick a preset (every day, weekdays, weekly on chosen days, every few hours, monthly) or
+  **Custom** for a five-field cron expression. A schedule runs at most every 15 minutes. Times
+  are in the host's time zone, and the editor lists the next three runs.
+- **Runs in** sends the prompt to the coordinator or to a standing agent. A standing agent's
+  result reaches the coordinator like any agent result, so the coordinator's reply is what
+  notifies you. In the thread, the prompt shows as "Scheduled" with the schedule's name.
+- Schedules run on the machine that hosts the Project, only while Control Plane is running
+  there. Turn on **Open at login** in the desktop app on that machine (in the Schedules panel or
+  **Settings → Connections**) so they survive a restart. Schedules need the installed desktop
+  app on macOS. On Linux, a server started with `CPLANE_SCHEDULES_BACKEND=os` uses systemd user
+  timers. Windows is not supported yet.
+- If the target is busy, the run waits up to 15 minutes for it.
+- **Missed** means the run never started: the host was off or asleep for over 2 hours, Control
+  Plane was closed, or the target stayed busy. A run less than 2 hours late still runs once when
+  the host wakes, and reads "after sleep". **Failed** means the run started and then errored.
+  Both show red in the panel and on the Project's dot until the next run, an edit or a pause.
+- The switch pauses and resumes a schedule. **Remove from this host**, in the host menu at the
+  bottom of the panel, pauses every schedule on that machine. Turn each back on with its switch.
+- Ask the coordinator to create or change a schedule and it will. Schedules it creates or edits
+  stay paused, labeled "Created by" or "Edited by", until you turn them on.
+
 ## Memory
 
 The coordinator keeps its notes in `MEMORY.md` in the Project folder: your preferences, how work
@@ -93,16 +120,16 @@ updates the file itself as it works.
 
 Open the command palette from any thread in the Project and choose **Project settings**. There
 you can rename the Project, change its icon, open its folder, choose the default model for new
-agents, open the shared instructions, and archive it, move it to Tasks or delete it. A
-Project's folder cannot be changed. The coordinator's own model is changed in its composer,
-like any thread.
+agents, open the shared instructions, manage its schedules, and archive it, move it to Tasks or
+delete it. A Project's folder cannot be changed. The coordinator's own model is changed in its
+composer, like any thread.
 
 ## Archive, Move to Tasks and Delete
 
-- **Archive** stops the Project's running sessions and hides the Project and its threads.
-  Archived Projects are listed at the top of **Settings → Archived**, where **Unarchive** brings
-  them back.
+- **Archive** stops the Project's running sessions and hides the Project and its threads. Its
+  schedules stop running. Archived Projects are listed at the top of **Settings → Archived**,
+  where **Unarchive** brings them back, with their schedules counting from that moment.
 - **Move to Tasks** turns the Project back into a plain workspace. Its coordinator and agents
-  stay as ordinary threads.
+  stay as ordinary threads, and its schedules are deleted.
 - **Delete** removes the Project, its coordinator and its agent threads after you type the
   Project name. The folder and its files stay on disk.

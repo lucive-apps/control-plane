@@ -6,9 +6,10 @@
  * 1. Every finished request whose result is still owed is appended into its
  *    recipient at once (frozen when the agent finished), and a one-off agent
  *    settles.
- * 2. Each idle thread starts its oldest appended delivery: a pushed result or
- *    a `cp_thread_send` that was held for it. Pushes pause after a budget
- *    until the user or a manager messages the recipient.
+ * 2. Each idle thread starts its oldest appended delivery: a pushed result, a
+ *    `cp_thread_send` that was held for it, or a Project schedule's prompt.
+ *    Pushes pause after a budget until the user, a manager or a schedule
+ *    starts a turn in the recipient.
  *
  * Receipts are the ledger (see `agentProtocol.ts`), so a pass is idempotent
  * and a restart recomputes what is owed. There are no timers: a pass runs when
@@ -17,11 +18,11 @@
  * @module AgentCompletionReactor
  */
 import {
-  AGENT_PUSH_MESSAGE_PREFIX,
   CommandId,
   EventId,
   MessageId,
   canManageAgent,
+  isScheduleMessageId,
   type OrchestrationEvent,
   type OrchestrationThreadActivityTone,
   type ProjectAssistant,
@@ -67,6 +68,7 @@ import {
 } from "./agentProtocol.ts";
 import {
   formatAgentResult,
+  isBudgetedPush,
   isDeliveryIdle,
   makeAgentPushQueries,
   openMessageQuestions,
@@ -340,16 +342,14 @@ export const make = Effect.gen(function* () {
     }
     const head = deliveries[0];
     if (head === undefined) return;
-    if (head.messageId.startsWith(AGENT_PUSH_MESSAGE_PREFIX)) {
+    if (isBudgetedPush(head.messageId)) {
       const budget = yield* queries.pushBudget(recipientId);
       if (budget.pushedSinceRelease >= AGENT_PUSH_BUDGET) {
         yield* notifyPaused(coordinatorId, recipientId, budget.releaseMessageId, createdAt);
-        // A held send may be the manager request that releases the pause.
-        const heldSend = deliveries.find((delivery) =>
-          delivery.messageId.startsWith(AGENT_SEND_MESSAGE_PREFIX),
-        );
-        if (heldSend !== undefined) {
-          yield* startDelivery(heldSend, agentDeliveryStartId(heldSend.messageId), createdAt);
+        // A held send or scheduled prompt still starts, and releases the pause.
+        const unbudgeted = deliveries.find((delivery) => !isBudgetedPush(delivery.messageId));
+        if (unbudgeted !== undefined) {
+          yield* startDelivery(unbudgeted, agentDeliveryStartId(unbudgeted.messageId), createdAt);
         }
         return;
       }
@@ -431,7 +431,8 @@ export const make = Effect.gen(function* () {
           ? Effect.void
           : enqueueThreadProject(event.payload.threadId, false);
       case "thread.message-sent":
-        return event.payload.messageId.startsWith(AGENT_SEND_MESSAGE_PREFIX)
+        return event.payload.messageId.startsWith(AGENT_SEND_MESSAGE_PREFIX) ||
+          isScheduleMessageId(event.payload.messageId)
           ? enqueueThreadProject(event.payload.threadId, true)
           : Effect.void;
       case "thread.activity-appended":

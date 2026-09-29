@@ -17,6 +17,8 @@ import { OrchestrationReactor } from "../Services/OrchestrationReactor.ts";
 import { makeOrchestrationReactor } from "./OrchestrationReactor.ts";
 import * as AgentAwarenessRelay from "../../relay/AgentAwarenessRelay.ts";
 import { StorageCleanup } from "../../storageCleanup.ts";
+import { ScheduleHost } from "../../schedules/ScheduleHost.ts";
+import { ScheduleRunner } from "../../schedules/ScheduleRunner.ts";
 
 describe("OrchestrationReactor", () => {
   let runtime: ManagedRuntime.ManagedRuntime<OrchestrationReactor, never> | null = null;
@@ -106,6 +108,22 @@ describe("OrchestrationReactor", () => {
           }),
         ),
         Layer.provideMerge(
+          Layer.mock(ScheduleRunner)({
+            start: () => {
+              started.push("schedule-runner");
+              return Effect.void;
+            },
+          }),
+        ),
+        Layer.provideMerge(
+          Layer.mock(ScheduleHost)({
+            start: () => {
+              started.push("schedule-host");
+              return Effect.void;
+            },
+          }),
+        ),
+        Layer.provideMerge(
           Layer.succeed(PullRequestSyncReactor.PullRequestSyncReactor, {
             start: () => {
               started.push("pull-request-sync-reactor");
@@ -139,6 +157,8 @@ describe("OrchestrationReactor", () => {
       "thread-pull-request-reactor",
       "thread-settlement-reactor",
       "agent-completion-reactor",
+      "schedule-runner",
+      "schedule-host",
       "pull-request-sync-reactor",
       "agent-awareness-relay",
       "storage-cleanup",
