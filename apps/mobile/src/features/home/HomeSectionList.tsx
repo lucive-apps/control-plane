@@ -861,9 +861,17 @@ export function HomeSectionList(
       threadMovePlanners,
     ],
   );
+  // The row just above a section's closing action runs straight into it, with no hairline.
+  const rowsBeforeAction = useMemo(() => {
+    const keys = new Set<string>();
+    listItems.forEach((item, index) => {
+      if (item.type === "section-action" && index > 0) keys.add(listItems[index - 1]!.key);
+    });
+    return keys;
+  }, [listItems]);
   const renderItem = useCallback(
     ({ item }: { readonly item: HomeSectionItem }) =>
-      grouped && drawsSeparator(item) ? (
+      grouped && drawsSeparator(item) && !rowsBeforeAction.has(item.key) ? (
         <View>
           {renderRow(item)}
           <View className="h-px bg-border" style={SEPARATOR_STYLE} />
@@ -871,7 +879,7 @@ export function HomeSectionList(
       ) : (
         renderRow(item)
       ),
-    [grouped, renderRow],
+    [grouped, renderRow, rowsBeforeAction],
   );
 
   // Everything rows read besides their item. A changed identity re-renders
@@ -880,6 +888,7 @@ export function HomeSectionList(
     () => ({
       capabilities,
       pendingOrder,
+      rowsBeforeAction,
       queuedThreadKeys,
       savedConnectionsById: props.savedConnectionsById,
       searchQuery,
@@ -894,6 +903,7 @@ export function HomeSectionList(
     }),
     [
       capabilities,
+      rowsBeforeAction,
       nowMinute,
       pendingOrder,
       props.savedConnectionsById,
