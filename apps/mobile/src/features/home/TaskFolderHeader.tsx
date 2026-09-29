@@ -23,8 +23,9 @@ const CHEVRON_OPEN_STYLE = { transform: [{ rotate: "90deg" }] } as const;
 
 export const TaskFolderHeader = memo(function TaskFolderHeader(props: {
   readonly pane: "screen" | "sidebar";
-  /** A row of the grouped Home's Tasks card (iOS phone): chevron, folder and
-      name, with the dot only while collapsed. New thread stays on long-press. */
+  /** A row of the grouped Home's Tasks card (iOS phone): chevron, outline
+      folder (never the favicon) and name, with the dot only while collapsed.
+      New thread stays on long-press. */
   readonly grouped?: boolean;
   readonly collapseKey: string;
   readonly title: string;
@@ -114,15 +115,12 @@ export const TaskFolderHeader = memo(function TaskFolderHeader(props: {
         type="monochrome"
         weight="semibold"
       />
-      <ProjectFavicon
-        environmentId={props.project.environmentId}
-        faviconPath={props.project.faviconPath}
-        folderTintClassName="accent-foreground"
-        open={!props.collapsed}
-        projectIcon={props.project.projectIcon}
-        projectTitle={props.project.title}
+      {/* Every workspace shows the same outline folder here, never its favicon. */}
+      <SymbolView
+        name={{ ios: "folder", android: "folder" }}
         size={20}
-        workspaceRoot={props.project.workspaceRoot === "" ? null : props.project.workspaceRoot}
+        tintColorClassName="accent-foreground"
+        type="monochrome"
       />
       <Text className="flex-1 text-[17px] text-foreground" numberOfLines={1}>
         {props.title}

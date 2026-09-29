@@ -48,6 +48,26 @@ const ACTION_CIRCLE_SIZE = 36;
 const ACTION_ICON_SIZE = 15;
 const COMPACT_ACTION_CIRCLE_SIZE = 28;
 const COMPACT_ACTION_ICON_SIZE = 13;
+/** Full-height rectangular cells, as in the grouped Home cards. */
+const CELL_ACTION_WIDTH = 74;
+// Literal class names so the style compiler sees them; same pairs as the circles.
+const CELL_TONE_CLASSES = {
+  primary: {
+    background: "bg-primary",
+    tint: "accent-primary-foreground",
+    label: "text-xs font-t3-medium text-primary-foreground",
+  },
+  secondary: {
+    background: "bg-secondary",
+    tint: "accent-secondary-foreground",
+    label: "text-xs font-t3-medium text-secondary-foreground",
+  },
+  danger: {
+    background: "bg-danger",
+    tint: "accent-danger-foreground",
+    label: "text-xs font-t3-medium text-danger-foreground",
+  },
+} as const;
 
 export const THREAD_SWIPE_ACTIONS_WIDTH = ACTION_ITEM_WIDTH * 2;
 export const THREAD_SWIPE_SPRING = {
@@ -73,8 +93,9 @@ interface ThreadSwipeSecondaryAction extends ThreadSwipeAction {
   readonly tone: "primary" | "secondary" | "danger";
 }
 
-function swipeActionsWidth(hasSecondaryAction: boolean) {
-  return hasSecondaryAction ? THREAD_SWIPE_ACTIONS_WIDTH : ACTION_ITEM_WIDTH;
+function swipeActionsWidth(hasSecondaryAction: boolean, cells = false) {
+  const itemWidth = cells ? CELL_ACTION_WIDTH : ACTION_ITEM_WIDTH;
+  return hasSecondaryAction ? itemWidth * 2 : itemWidth;
 }
 
 /** `undefined` keeps the v1 Delete default; `null` means one action only. */
@@ -232,6 +253,9 @@ interface ThreadSwipeableProps {
   /** Uses action visuals that fit inside compact 44pt rows. The press target
    * still spans the row's full height and width. */
   readonly compactActions?: boolean;
+  /** Full-height rectangular action cells filled with the action color,
+   * sized for the grouped Home's 44pt card rows. */
+  readonly actionCells?: boolean;
   readonly containerStyle?: StyleProp<ViewStyle>;
   /** Disables NEW swipe activations (e.g. while the list scrolls). */
   readonly enabled?: boolean;
@@ -276,7 +300,8 @@ function ThreadSwipeableRow(props: ThreadSwipeableProps) {
   const swipeableRef = useRef<SwipeableMethods | null>(null);
   const fullSwipeArmedRef = useRef(false);
   const hasSecondaryAction = props.secondaryAction !== null;
-  const actionsWidth = swipeActionsWidth(hasSecondaryAction);
+  const actionCells = props.actionCells === true;
+  const actionsWidth = swipeActionsWidth(hasSecondaryAction, actionCells);
   const fullSwipeThreshold = Math.max(actionsWidth + 44, props.fullSwipeWidth * 0.58);
   const fullSwipeAction =
     props.fullSwipeAction ?? (props.secondaryAction === undefined ? "delete" : "primary");
@@ -455,6 +480,7 @@ function ThreadSwipeableRow(props: ThreadSwipeableProps) {
             >
               <ThreadSwipeActions
                 backgroundColor={props.backgroundColor}
+                cells={actionCells}
                 compact={props.compactActions === true}
                 fullSwipeAction={fullSwipeAction}
                 fullSwipeThreshold={fullSwipeThreshold}
@@ -488,6 +514,7 @@ function SwipeActionButton(props: {
   readonly actionsWidth: number;
   readonly tone: "primary" | "secondary" | "danger";
   readonly compact: boolean;
+  readonly cell: boolean;
   readonly entryRange: readonly [number, number];
   readonly fullSwipeThreshold: number;
   readonly icon: ComponentProps<typeof SymbolView>["name"];
@@ -504,6 +531,8 @@ function SwipeActionButton(props: {
     stretchesOnFullSwipe,
     translation,
   } = props;
+  const cell = props.cell;
+  const itemWidth = cell ? CELL_ACTION_WIDTH : ACTION_ITEM_WIDTH;
   const circleSize = props.compact ? COMPACT_ACTION_CIRCLE_SIZE : ACTION_CIRCLE_SIZE;
   const iconSize = props.compact ? COMPACT_ACTION_ICON_SIZE : ACTION_ICON_SIZE;
   const actionStyle = useAnimatedStyle(() => {
@@ -522,6 +551,14 @@ function SwipeActionButton(props: {
       Extrapolation.CLAMP,
     );
 
+    if (cell) {
+      // Cells sit flush like UIKit's: no entry scale, and the one a full
+      // swipe does not commit fades as the committing cell covers the row.
+      return {
+        opacity: stretchesOnFullSwipe ? 1 : 1 - fullSwipeProgress,
+        transform: [{ translateX: stretchesOnFullSwipe ? 0 : -stretch }],
+      };
+    }
     return {
       opacity: stretchesOnFullSwipe ? entryProgress : entryProgress * (1 - fullSwipeProgress),
       transform: [
@@ -539,7 +576,7 @@ function SwipeActionButton(props: {
 
     return {
       transform: [{ translateX: -stretch }],
-      width: circleSize + stretch,
+      width: (cell ? itemWidth : circleSize) + stretch,
     };
   });
   const iconStyle = useAnimatedStyle(() => {
@@ -557,7 +594,7 @@ function SwipeActionButton(props: {
     };
   });
   const labelStyle = useAnimatedStyle(() => {
-    if (!stretchesOnFullSwipe) {
+    if (cell || !stretchesOnFullSwipe) {
       return { opacity: 1 };
     }
 
@@ -574,7 +611,41 @@ function SwipeActionButton(props: {
     };
   });
 
-  const button = (
+  const tone = CELL_TONE_CLASSES[props.tone];
+
+  const cellButton = (
+    <Pressable
+      accessibilityLabel={props.accessibilityLabel}
+      accessibilityRole="button"
+      onPress={props.menu === undefined ? props.onPress : undefined}
+      style={({ pressed }) => ({ height: "100%", opacity: pressed ? 0.72 : 1, width: "100%" })}
+    >
+      <Animated.View
+        className={tone.background}
+        style={[{ height: "100%", left: 0, position: "absolute", top: 0 }, circleStyle]}
+      />
+      <Animated.View
+        style={[
+          { alignItems: "center", gap: 2, height: "100%", justifyContent: "center" },
+          iconStyle,
+        ]}
+      >
+        <SymbolView
+          name={props.icon}
+          size={ACTION_ICON_SIZE}
+          tintColorClassName={tone.tint}
+          type="monochrome"
+        />
+        <Text className={tone.label} numberOfLines={1}>
+          {props.label}
+        </Text>
+      </Animated.View>
+    </Pressable>
+  );
+
+  const button = cell ? (
+    cellButton
+  ) : (
     <Pressable
       accessibilityLabel={props.accessibilityLabel}
       accessibilityRole="button"
@@ -655,7 +726,7 @@ function SwipeActionButton(props: {
           alignItems: "center",
           height: "100%",
           justifyContent: "center",
-          width: ACTION_ITEM_WIDTH,
+          width: itemWidth,
           zIndex: props.stretchesOnFullSwipe ? 2 : 1,
         },
         actionStyle,
@@ -679,6 +750,7 @@ function SwipeActionButton(props: {
 
 export function ThreadSwipeActions(props: {
   readonly backgroundColor: ColorValue;
+  readonly cells?: boolean;
   readonly compact: boolean;
   readonly fullSwipeAction?: "delete" | "primary";
   readonly fullSwipeThreshold: number;
@@ -689,7 +761,9 @@ export function ThreadSwipeActions(props: {
 }) {
   const { fullSwipeThreshold, onFullSwipeArmedChange, secondaryAction, translation } = props;
   const fullSwipeIsPrimary = props.fullSwipeAction === "primary" || secondaryAction === null;
-  const actionsWidth = swipeActionsWidth(secondaryAction !== null);
+  const cells = props.cells === true;
+  const itemWidth = cells ? CELL_ACTION_WIDTH : ACTION_ITEM_WIDTH;
+  const actionsWidth = swipeActionsWidth(secondaryAction !== null, cells);
   useAnimatedReaction(
     () => -translation.value >= fullSwipeThreshold,
     (armed, previous) => {
@@ -714,10 +788,11 @@ export function ThreadSwipeActions(props: {
         actionsWidth={actionsWidth}
         tone="primary"
         compact={props.compact}
+        cell={cells}
         entryRange={
           secondaryAction === null
-            ? [8, ACTION_ITEM_WIDTH * 0.72]
-            : [ACTION_ITEM_WIDTH * 0.55, THREAD_SWIPE_ACTIONS_WIDTH * 0.85]
+            ? [8, itemWidth * 0.72]
+            : [itemWidth * 0.55, itemWidth * 2 * 0.85]
         }
         fullSwipeThreshold={props.fullSwipeThreshold}
         icon={props.primaryAction.icon}
@@ -732,7 +807,8 @@ export function ThreadSwipeActions(props: {
           actionsWidth={actionsWidth}
           tone={secondaryAction.tone}
           compact={props.compact}
-          entryRange={[8, ACTION_ITEM_WIDTH * 0.72]}
+          cell={cells}
+          entryRange={[8, itemWidth * 0.72]}
           fullSwipeThreshold={props.fullSwipeThreshold}
           icon={secondaryAction.icon}
           label={secondaryAction.label}

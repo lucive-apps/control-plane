@@ -81,22 +81,43 @@ const GROUPED_INSET = 20;
 const CHILD_INSET_STYLE = { paddingLeft: GROUPED_CHILD_INSET } as const;
 const SEPARATOR_STYLE = { marginLeft: GROUPED_CHILD_INSET } as const;
 
-/** One slice of a rounded card. Rows below the first draw an inset hairline. */
+const CARD_CORNER = 16;
+const CARD_SLOT_STYLE = { marginHorizontal: GROUPED_INSET } as const;
+
+/**
+ * One slice of a rounded card. Rows below the first draw an inset hairline.
+ * The card's ends are a whole uniformly rounded card extended 16pt past the
+ * slice and cut off by a square clip: uniform corners clip every child on iOS
+ * (native menus and swipe rows included), which per-corner radii do not.
+ */
 function CardSegment(props: { readonly edge: HomeCardEdge; readonly children: React.ReactNode }) {
   const { edge } = props;
   const top = edge === "top" || edge === "only";
   const bottom = edge === "bottom" || edge === "only";
+  const separator = top ? null : <View className="h-px bg-border" style={SEPARATOR_STYLE} />;
+  if (!top && !bottom) {
+    return (
+      <View className="border-x border-border bg-card" style={CARD_SLOT_STYLE}>
+        {separator}
+        {props.children}
+      </View>
+    );
+  }
   return (
-    <View
-      className={cn(
-        "overflow-hidden border-x border-border bg-card",
-        top && "rounded-t-2xl border-t",
-        bottom && "rounded-b-2xl border-b",
-      )}
-      style={{ marginHorizontal: GROUPED_INSET }}
-    >
-      {top ? null : <View className="h-px bg-border" style={SEPARATOR_STYLE} />}
-      {props.children}
+    <View className="overflow-hidden" style={CARD_SLOT_STYLE}>
+      <View
+        className="overflow-hidden border border-border bg-card"
+        style={{
+          borderRadius: CARD_CORNER,
+          marginTop: top ? 0 : -CARD_CORNER,
+          paddingTop: top ? 0 : CARD_CORNER,
+          marginBottom: bottom ? 0 : -CARD_CORNER,
+          paddingBottom: bottom ? 0 : CARD_CORNER,
+        }}
+      >
+        {separator}
+        {props.children}
+      </View>
     </View>
   );
 }

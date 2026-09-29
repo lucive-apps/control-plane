@@ -93,6 +93,10 @@ const SIDEBAR_V2_ROW_RADIUS = 12;
 
 /** Child rows of the grouped Home cards start under their parent row's title. */
 export const GROUPED_CHILD_INSET = 48;
+/** A grouped row swipes inside its inset, so the card's left margin stays put. */
+const GROUPED_SWIPE_CONTAINER_STYLE = { marginLeft: GROUPED_CHILD_INSET } as const;
+/** Screen width outside a grouped row's swipe area: card margins plus the inset. */
+const GROUPED_SWIPE_OUTSET = 40 + GROUPED_CHILD_INSET;
 
 function ThreadListV2Section(props: {
   readonly label: string;
@@ -907,10 +911,8 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         onSelectThread(thread);
       }}
     >
-      <View
-        className="min-h-[44px] flex-row items-center gap-2.5 py-2 pr-4"
-        style={{ paddingLeft: GROUPED_CHILD_INSET }}
-      >
+      {/* The swipeable carries the 48pt inset, so the row slides inside it. */}
+      <View className="min-h-[44px] flex-row items-center gap-2.5 py-2 pr-4">
         <ThreadStatusDot color={statusDot.color} grouped />
         <View className="min-w-0 flex-1">
           <View className="flex-row items-center gap-1.5">
@@ -1121,18 +1123,23 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           grouped ? cardColor : sidebarPane && Platform.OS !== "android" ? drawerColor : screenColor
         }
         compactActions={variant === "slim"}
+        actionCells={grouped}
         containerStyle={
-          Platform.OS === "android"
-            ? { borderRadius: 20, overflow: "hidden", marginHorizontal: 8, marginVertical: 2 }
-            : sidebarPane
-              ? { borderRadius: SIDEBAR_V2_ROW_RADIUS, overflow: "hidden" }
-              : undefined
+          grouped
+            ? GROUPED_SWIPE_CONTAINER_STYLE
+            : Platform.OS === "android"
+              ? { borderRadius: 20, overflow: "hidden", marginHorizontal: 8, marginVertical: 2 }
+              : sidebarPane
+                ? { borderRadius: SIDEBAR_V2_ROW_RADIUS, overflow: "hidden" }
+                : undefined
         }
         enableTrackpadSwipe
         // Full swipe commits the advertised primary action (Settle,
         // Un-settle, Unpin), never the secondary snooze action.
         fullSwipeAction="primary"
-        fullSwipeWidth={props.fullSwipeWidth ?? windowWidth - 32}
+        fullSwipeWidth={
+          props.fullSwipeWidth ?? (grouped ? windowWidth - GROUPED_SWIPE_OUTSET : windowWidth - 32)
+        }
         onDelete={handleDelete}
         onSwipeableClose={props.onSwipeableClose}
         onSwipeableWillOpen={props.onSwipeableWillOpen}
