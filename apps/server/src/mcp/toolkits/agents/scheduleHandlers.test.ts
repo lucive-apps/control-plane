@@ -1,3 +1,4 @@
+import { RemoteAgentsLocalOnly } from "../../../agentMachines/testFixtures.ts";
 import {
   CommandId,
   EnvironmentId,
@@ -51,6 +52,7 @@ const SEEDED_AT = "2026-01-01T00:00:00.000Z";
 /** The real engine, projections and SQLite, so writes go through the decider as they do live. */
 const TestLayer = AgentsToolkitHandlersLive.pipe(
   Layer.provideMerge(makeProviderRegistryLayer()),
+  Layer.provideMerge(RemoteAgentsLocalOnly),
   Layer.provideMerge(
     OrchestrationEngineLive.pipe(
       Layer.provideMerge(OrchestrationProjectionSnapshotQueryLive),

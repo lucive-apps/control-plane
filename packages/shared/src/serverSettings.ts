@@ -274,6 +274,8 @@ export function applyServerSettingsPatch(
     // Merged per entry below; its `null` removals must not reach deepMerge.
     usageLimitSources: usageLimitSourcesPatch,
     usagePriceOverrides: usagePriceOverridesPatch,
+    // `machines` is merged per entry below, with the same `null` removals.
+    agentPlacement: agentPlacementPatch,
     // Entry replacement: deepMerge would keep keys the client meant to clear.
     projectSettingsOverrides: projectSettingsOverridesPatch,
     // Already translated into `projectSettingsOverrides` above; the legacy
@@ -378,6 +380,20 @@ export function applyServerSettingsPatch(
             current.usageLimitSources,
             usageLimitSourcesPatch,
           ),
+        }
+      : {}),
+    ...(agentPlacementPatch !== undefined
+      ? {
+          agentPlacement: (() => {
+            const { machines, ...rest } = agentPlacementPatch;
+            return {
+              ...current.agentPlacement,
+              ...rest,
+              ...(machines !== undefined
+                ? { machines: mergeSettingsEntries(current.agentPlacement.machines, machines) }
+                : {}),
+            };
+          })(),
         }
       : {}),
     ...(usagePriceOverridesPatch !== undefined

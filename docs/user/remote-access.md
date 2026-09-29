@@ -57,6 +57,40 @@ on that machine. Existing threads stay where they started. If resource checks ar
 unavailable or all eligible machines are full, choose a machine manually to continue.
 Mobile keeps its manual environment selection.
 
+### Start agents on other machines
+
+A coordinator can start its agents on another machine, such as a Mac Mini on the
+same tailnet. Set this up in **Settings → Connections → Agent machines** while viewing
+the machine the coordinator runs on.
+
+To link a machine, create a pairing link on it (in **Settings → Connections** there, or
+with `t3 pair --tailscale`), then choose **Add machine** and paste the link. If the
+link's address is not reachable from the coordinator's machine, enter one that is under
+**Address**. Linking lets the coordinator's machine run agents there with full access,
+so link only machines you trust it with.
+
+**Where new agents run** has three modes:
+
+- **This machine** starts every agent on the coordinator's machine. This is the default.
+- **One machine** sends every agent to the machine you pick.
+- **Balance across machines** sends each agent to the machine with the fewest running
+  agents, weighted by each machine's preference. **Manual only** keeps a machine out of
+  automatic choice; a coordinator can still name it.
+
+An agent runs in the matching Project on the other machine, so the Project must exist on
+both. Machines are matched by repository, or by Project title and folder name. A machine
+without the Project is skipped, and each row shows how many of your Projects it matches.
+The agent uses that machine's folder, files and `AGENTS.md`, and its edits stay there.
+The thread appears in that machine's sidebar.
+
+When the chosen machine is offline or has no matching Project, the agent starts on this
+machine instead. Turn off **Use this machine if no other is available** to fail instead.
+Standing agents always stay on the coordinator's machine.
+
+A link lasts 30 days. After that the row shows **Needs re-link**; add the machine again
+with a new pairing link. Unlinking removes the saved access here; to revoke it fully,
+remove the client from **Settings → Connections** on the other machine.
+
 ### Tailscale HTTPS
 
 Join both devices to the same tailnet. In the desktop app, enable **Tailscale

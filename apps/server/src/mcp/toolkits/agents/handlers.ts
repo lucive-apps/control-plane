@@ -5,6 +5,7 @@ import {
   EventId,
   isRunningAgent,
   isStandingAgent,
+  LOCAL_AGENT_MACHINE,
   MessageId,
   type AgentManagerRole,
   type OrchestrationCommand,
@@ -24,6 +25,8 @@ import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import { McpServer } from "effect/unstable/ai";
 
+import { type RemoteAgentRecord } from "../../../agentMachines/RemoteAgentStore.ts";
+import { RemoteAgentError, RemoteAgents } from "../../../agentMachines/RemoteAgents.ts";
 import { AgentLineage } from "../../../orchestration/agentLineage.ts";
 import {
   AGENT_RUNNING_CAP,
@@ -108,6 +111,7 @@ const make = Effect.gen(function* () {
   // Serializes creates so two calls cannot both pass the running cap.
   const createLock = yield* Semaphore.make(1);
   const scheduleHandlers = yield* makeScheduleHandlers;
+  const remote = yield* RemoteAgents;
 
   const nowIso = DateTime.now.pipe(Effect.map(DateTime.formatIso));
   const randomUuid = crypto.randomUUIDv4.pipe(Effect.orDie);
@@ -146,8 +150,10 @@ const make = Effect.gen(function* () {
         thread.id !== manager.project.assistant?.coordinatorThreadId &&
         isAgentCountedRunning(thread, now),
     ).length;
-    if (running >= AGENT_RUNNING_CAP) {
-      return yield* new ConcurrencyLimitError({ limit: AGENT_RUNNING_CAP, running });
+    // Agents on linked machines share the Project's cap.
+    const total = running + (yield* remote.openCount(manager.project.id));
+    if (total >= AGENT_RUNNING_CAP) {
+      return yield* new ConcurrencyLimitError({ limit: AGENT_RUNNING_CAP, running: total });
     }
   });
 
@@ -202,15 +208,39 @@ const make = Effect.gen(function* () {
       });
   });
 
-  const requireAgent = Effect.fn("AgentsToolkit.requireAgent")(function* (
+  const remoteAsManaged = (manager: Manager, record: RemoteAgentRecord) => ({
+    id: ThreadId.make(record.threadId),
+    projectId: manager.project.id,
+    pinnedAt: null,
+    createdByThreadId: ThreadId.make(record.creatorThreadId),
+  });
+
+  /**
+   * An agent a tool names: a local thread, or one the registry knows on a
+   * linked machine. Local wins a title unless a remote agent the caller manages
+   * has the same title too, which is ambiguous like two local ones.
+   */
+  const requireTarget = Effect.fn("AgentsToolkit.requireTarget")(function* (
     manager: Manager,
     ref: string,
   ) {
+    const found = yield* remote.find({ projectId: manager.project.id, ref });
+    const managed = found.filter(
+      (record) =>
+        record.homeProjectId === manager.project.id &&
+        canManageAgent(manager.project, manager.caller, remoteAsManaged(manager, record)),
+    );
     const snapshot = yield* snapshots.getShellSnapshot().pipe(Effect.mapError(readFailed));
     const candidates = agentRefCandidates(ref, {
       threads: snapshot.threads,
       projectId: manager.project.id,
     });
+    const byRemoteId = found.find((record) => record.threadId === ref.trim());
+    if (byRemoteId !== undefined) {
+      return managed.includes(byRemoteId)
+        ? ({ kind: "remote", record: byRemoteId } as const)
+        : yield* new NotYourAgentError({ agent: ref });
+    }
     const canManage = yield* managesThread(manager, candidates);
     const resolved = resolveAgentRef(ref, {
       threads: candidates,
@@ -219,14 +249,35 @@ const make = Effect.gen(function* () {
     });
     switch (resolved.kind) {
       case "found":
-        return resolved.thread;
-      case "not-yours":
-        return yield* new NotYourAgentError({ agent: ref });
+        return managed.length > 0
+          ? yield* new AgentAmbiguousError({ agent: ref })
+          : ({ kind: "local", thread: resolved.thread } as const);
       case "ambiguous":
         return yield* new AgentAmbiguousError({ agent: ref });
+      case "not-yours":
       case "not-found":
+        if (managed.length === 1) return { kind: "remote", record: managed[0]! } as const;
+        if (managed.length > 1) return yield* new AgentAmbiguousError({ agent: ref });
+        if (resolved.kind === "not-yours" || found.length > 0) {
+          return yield* new NotYourAgentError({ agent: ref });
+        }
         return yield* new AgentNotFoundError({ agent: ref });
     }
+  });
+
+  const toolFailed = (error: RemoteAgentError) =>
+    new AgentToolFailedError({ detail: error.detail });
+
+  /** The Project's coordinator, or the caller when it is the coordinator or the thread is gone. */
+  const resolveCoordinator = Effect.fn("AgentsToolkit.resolveCoordinator")(function* (
+    manager: Manager,
+  ) {
+    const coordinatorId = manager.project.assistant?.coordinatorThreadId;
+    if (manager.role === "coordinator" || coordinatorId === undefined) return manager.caller;
+    return Option.getOrElse(
+      yield* snapshots.getThreadShellById(coordinatorId).pipe(Effect.mapError(readFailed)),
+      () => manager.caller,
+    );
   });
 
   /** A first message no turn has adopted yet reads as starting: the cap already counts it. */
@@ -310,115 +361,253 @@ const make = Effect.gen(function* () {
               ),
         );
 
-        return yield* createLock.withPermits(1)(
-          Effect.gen(function* () {
-            if (input.clientRequestId !== undefined) {
-              const existing = yield* snapshots
-                .getThreadShellById(threadId)
-                .pipe(Effect.mapError(readFailed));
-              if (Option.isSome(existing)) {
-                if (existing.value.title !== input.title) {
-                  return yield* new ClientRequestIdConflictError({
-                    clientRequestId: input.clientRequestId,
-                    threadId,
+        const createLocal = (note: string | undefined) =>
+          createLock
+            .withPermits(1)(
+              Effect.gen(function* () {
+                if (input.clientRequestId !== undefined) {
+                  const existing = yield* snapshots
+                    .getThreadShellById(threadId)
+                    .pipe(Effect.mapError(readFailed));
+                  if (Option.isSome(existing)) {
+                    if (existing.value.title !== input.title) {
+                      return yield* new ClientRequestIdConflictError({
+                        clientRequestId: input.clientRequestId,
+                        threadId,
+                      });
+                    }
+                    // The earlier call stopped after creating the thread (a cancel
+                    // or a crash): finish it, or the agent never gets its message.
+                    // Its first message starts it running, so the cap applies.
+                    if (existing.value.latestUserMessageAt === null) {
+                      const createdAt = yield* nowIso;
+                      yield* requireFreeSlot(manager, createdAt);
+                      yield* Effect.uninterruptible(
+                        pinAndStart({
+                          manager,
+                          ids,
+                          threadId,
+                          pin: input.standing === true && existing.value.pinnedAt == null,
+                          message: input.message,
+                          runtimeMode: existing.value.runtimeMode,
+                          createdAt,
+                        }),
+                      );
+                    }
+                    return {
+                      threadId,
+                      title: existing.value.title,
+                      runtimeMode: existing.value.runtimeMode,
+                      created: false,
+                    };
+                  }
+                  // Created before but no longer live: archived or deleted.
+                  if (
+                    (yield* lineage.creatorOf(threadId).pipe(Effect.mapError(readFailed))) !== null
+                  ) {
+                    return yield* new AgentToolFailedError({
+                      detail:
+                        "The agent this clientRequestId started was archived or deleted. Use a new clientRequestId.",
+                    });
+                  }
+                }
+
+                const coordinator = yield* resolveCoordinator(manager);
+                const model = resolveAgentModel({
+                  requested: input.model,
+                  base: project.defaultModelSelection ?? coordinator.modelSelection,
+                  providers: yield* registry.getProviders,
+                });
+                if (model.kind === "unknown") {
+                  return yield* new UnknownModelError({
+                    model: input.model ?? "",
+                    available: model.available,
                   });
                 }
-                // The earlier call stopped after creating the thread (a cancel
-                // or a crash): finish it, or the agent never gets its message.
-                // Its first message starts it running, so the cap applies.
-                if (existing.value.latestUserMessageAt === null) {
-                  const createdAt = yield* nowIso;
-                  yield* requireFreeSlot(manager, createdAt);
-                  yield* Effect.uninterruptible(
-                    pinAndStart({
+                // Never looser than the caller, whatever it asks for.
+                const runtimeMode = stricterRuntimeMode(
+                  input.runtimeMode ??
+                    stricterRuntimeMode(coordinator.runtimeMode, caller.runtimeMode),
+                  caller.runtimeMode,
+                );
+
+                const createdAt = yield* nowIso;
+                yield* requireFreeSlot(manager, createdAt);
+
+                // A cancelled call must not leave an agent created without its
+                // first message, so the three dispatches run to the end.
+                yield* Effect.uninterruptible(
+                  Effect.gen(function* () {
+                    yield* dispatchCreateStep({
+                      type: "thread.create",
+                      commandId: CommandId.make(ids.createCommandId),
+                      threadId,
+                      projectId: project.id,
+                      title: input.title,
+                      modelSelection: model.modelSelection,
+                      runtimeMode,
+                      interactionMode: "default",
+                      branch: null,
+                      worktreePath: null,
+                      createdAt,
+                      createdByThreadId: caller.id,
+                    });
+                    yield* pinAndStart({
                       manager,
                       ids,
                       threadId,
-                      pin: input.standing === true && existing.value.pinnedAt == null,
+                      pin: input.standing === true,
                       message: input.message,
-                      runtimeMode: existing.value.runtimeMode,
+                      runtimeMode,
                       createdAt,
-                    }),
-                  );
-                }
-                return {
-                  threadId,
-                  title: existing.value.title,
-                  runtimeMode: existing.value.runtimeMode,
-                  created: false,
-                };
-              }
-              // Created before but no longer live: archived or deleted.
-              if ((yield* lineage.creatorOf(threadId).pipe(Effect.mapError(readFailed))) !== null) {
-                return yield* new AgentToolFailedError({
-                  detail:
-                    "The agent this clientRequestId started was archived or deleted. Use a new clientRequestId.",
-                });
-              }
-            }
+                    });
+                  }),
+                );
+                // Returns at once: the result arrives later as a message.
+                return { threadId, title: input.title, runtimeMode, created: true };
+              }),
+            )
+            .pipe(
+              Effect.map((result) => ({
+                ...result,
+                machineLabel: null,
+                ...(note === undefined ? {} : { placement: note }),
+              })),
+            );
 
-            const coordinatorId = project.assistant?.coordinatorThreadId;
-            const coordinator =
-              manager.role === "coordinator" || coordinatorId === undefined
-                ? caller
-                : Option.getOrElse(
-                    yield* snapshots
-                      .getThreadShellById(coordinatorId)
-                      .pipe(Effect.mapError(readFailed)),
-                    () => caller,
-                  );
-            const model = resolveAgentModel({
-              requested: input.model,
-              base: project.defaultModelSelection ?? coordinator.modelSelection,
-              providers: yield* registry.getProviders,
-            });
-            if (model.kind === "unknown") {
-              return yield* new UnknownModelError({
-                model: input.model ?? "",
-                available: model.available,
+        /** Where this agent runs: here, or a linked machine the settings allow. */
+        const route = Effect.gen(function* () {
+          const named = input.machine?.trim();
+          const asksForLocal = named !== undefined && named.toLowerCase() === LOCAL_AGENT_MACHINE;
+          // A retry, or an agent this call already made, stays where it started.
+          if (input.clientRequestId !== undefined) {
+            if (Option.isSome(yield* remote.get(threadId)))
+              return { kind: "remote-retry" } as const;
+            const local = yield* snapshots
+              .getThreadShellById(threadId)
+              .pipe(Effect.mapError(readFailed));
+            if (Option.isSome(local)) return { kind: "local", note: undefined } as const;
+          }
+          if (input.standing === true) {
+            if (named !== undefined && !asksForLocal) {
+              return yield* new AgentToolFailedError({
+                detail: 'A standing agent runs on this machine. Omit machine, or use "local".',
               });
             }
-            // Never looser than the caller, whatever it asks for.
+            return { kind: "local", note: undefined } as const;
+          }
+          const plan = yield* remote
+            .plan({
+              project: {
+                id: project.id,
+                title: project.title,
+                workspaceRoot: project.workspaceRoot,
+                repositoryIdentity: project.repositoryIdentity,
+              },
+              requested: named,
+            })
+            .pipe(Effect.mapError((error) => new AgentToolFailedError({ detail: error.detail })));
+          if (plan.decision.kind === "rejected") {
+            return yield* new AgentToolFailedError({ detail: plan.decision.detail });
+          }
+          if (plan.decision.machineId === LOCAL_AGENT_MACHINE) {
+            return { kind: "local", note: plan.decision.note } as const;
+          }
+          if (plan.peerProjectId === null) {
+            return yield* new AgentToolFailedError({
+              detail: `${plan.decision.label} has no matching Project.`,
+            });
+          }
+          return {
+            kind: "remote",
+            machineId: plan.decision.machineId,
+            machineLabel: plan.decision.label,
+            peerProjectId: plan.peerProjectId,
+            // An explicit machine never falls back.
+            fallbackAllowed: named === undefined && plan.allowLocalFallback,
+          } as const;
+        });
+
+        const createRemote = (target: {
+          readonly machineId: string;
+          readonly machineLabel: string;
+          readonly peerProjectId: string;
+        }) =>
+          Effect.gen(function* () {
+            const homeLabel = yield* remote.homeLabel;
+            const coordinator = yield* resolveCoordinator(manager);
             const runtimeMode = stricterRuntimeMode(
               input.runtimeMode ?? stricterRuntimeMode(coordinator.runtimeMode, caller.runtimeMode),
               caller.runtimeMode,
             );
-
             const createdAt = yield* nowIso;
-            yield* requireFreeSlot(manager, createdAt);
-
-            // A cancelled call must not leave an agent created without its
-            // first message, so the three dispatches run to the end.
-            yield* Effect.uninterruptible(
+            const request = {
+              machineId: target.machineId,
+              machineLabel: target.machineLabel,
+              peerProjectId: target.peerProjectId,
+              home: {
+                project: {
+                  id: project.id,
+                  title: project.title,
+                  workspaceRoot: project.workspaceRoot,
+                },
+                label: homeLabel,
+              },
+              creator: { id: caller.id, title: caller.title },
+              ids,
+              threadId,
+              title: input.title,
+              message: input.message,
+              runtimeMode,
+              baseModel: project.defaultModelSelection ?? coordinator.modelSelection,
+              requestedModel: input.model,
+              createdAt,
+            };
+            // Only the cap check and the record are under the lock: the peer calls are slow.
+            const reserved = yield* createLock.withPermits(1)(
               Effect.gen(function* () {
-                yield* dispatchCreateStep({
-                  type: "thread.create",
-                  commandId: CommandId.make(ids.createCommandId),
-                  threadId,
-                  projectId: project.id,
-                  title: input.title,
-                  modelSelection: model.modelSelection,
-                  runtimeMode,
-                  interactionMode: "default",
-                  branch: null,
-                  worktreePath: null,
-                  createdAt,
-                  createdByThreadId: caller.id,
-                });
-                yield* pinAndStart({
-                  manager,
-                  ids,
-                  threadId,
-                  pin: input.standing === true,
-                  message: input.message,
-                  runtimeMode,
-                  createdAt,
-                });
+                const found = yield* remote.get(threadId);
+                if (Option.isSome(found) && found.value.title !== input.title) {
+                  return yield* new ClientRequestIdConflictError({
+                    clientRequestId: input.clientRequestId ?? "",
+                    threadId,
+                  });
+                }
+                if (Option.isNone(found)) yield* requireFreeSlot(manager, createdAt);
+                return yield* remote
+                  .reserve(request)
+                  .pipe(
+                    Effect.mapError((error) => new AgentToolFailedError({ detail: error.detail })),
+                  );
               }),
             );
-            // Returns at once: the result arrives later as a message.
-            return { threadId, title: input.title, runtimeMode, created: true };
-          }),
+            const record = yield* Effect.uninterruptible(remote.start(request, reserved.record));
+            return {
+              threadId,
+              title: input.title,
+              runtimeMode: record.runtimeMode,
+              created: !reserved.existed,
+              machineLabel: record.machineLabel,
+            };
+          });
+
+        const routed = yield* route;
+        if (routed.kind === "local") return yield* createLocal(routed.note);
+        if (routed.kind === "remote-retry") {
+          const record = yield* remote.get(threadId);
+          if (Option.isNone(record)) return yield* createLocal(undefined);
+          return yield* createRemote(record.value).pipe(
+            Effect.catchTag("RemoteAgentError", (error) => Effect.fail(toolFailed(error))),
+          );
+        }
+        return yield* createRemote(routed).pipe(
+          Effect.catchTag("RemoteAgentError", (error) =>
+            error.stage === "create" && routed.fallbackAllowed
+              ? createLocal(
+                  `Could not start on ${routed.machineLabel}: ${error.detail} Started on this machine instead.`,
+                )
+              : Effect.fail(toolFailed(error)),
+          ),
         );
       }),
 
@@ -433,7 +622,7 @@ const make = Effect.gen(function* () {
             (input.includeSettled === true || thread.settledAt === null),
         );
         const canManage = yield* managesThread(manager, listed);
-        const agents = listed
+        const local = listed
           .filter((thread) => canManage(thread))
           .map((thread) => ({
             threadId: thread.id,
@@ -442,14 +631,44 @@ const make = Effect.gen(function* () {
             phase: phaseOf(manager, thread, now),
             settled: thread.settledAt !== null,
             lastActivityAt: thread.updatedAt,
+            machine: null,
           }));
-        return { agents };
+        const onMachines = (yield* remote.list(manager.project.id))
+          .filter(
+            ({ record }) =>
+              (input.includeSettled === true ||
+                record.state === "open" ||
+                record.state === "pending") &&
+              canManageAgent(manager.project, manager.caller, remoteAsManaged(manager, record)),
+          )
+          .map(({ record, phase }) => ({
+            threadId: ThreadId.make(record.threadId),
+            title: record.title,
+            standing: false,
+            phase,
+            settled: record.state === "settled" || record.state === "lost",
+            lastActivityAt: record.lastActivityAt ?? record.createdAt,
+            machine: record.machineLabel,
+          }));
+        return { agents: [...local, ...onMachines] };
       }),
 
     cp_agent_read: (input) =>
       Effect.gen(function* () {
         const manager = yield* requireManager();
-        const agent = yield* requireAgent(manager, input.agent);
+        const target = yield* requireTarget(manager, input.agent);
+        if (target.kind === "remote") {
+          const read = yield* remote
+            .read(target.record, input.turns ?? 1)
+            .pipe(Effect.mapError(toolFailed));
+          return {
+            threadId: ThreadId.make(target.record.threadId),
+            title: target.record.title,
+            phase: read.phase,
+            turns: capAgentReadTurns(read.turns),
+          };
+        }
+        const agent = target.thread;
         const turns = yield* turnRows
           .listByThreadId({ threadId: agent.id })
           .pipe(Effect.mapError(readFailed));
@@ -494,7 +713,14 @@ const make = Effect.gen(function* () {
     cp_agent_stop: (input) =>
       Effect.gen(function* () {
         const manager = yield* requireManager();
-        const agent = yield* requireAgent(manager, input.agent);
+        const target = yield* requireTarget(manager, input.agent);
+        if (target.kind === "remote") {
+          const stopped = yield* remote
+            .stop(target.record, { archive: input.archive === true })
+            .pipe(Effect.mapError(toolFailed));
+          return { threadId: ThreadId.make(target.record.threadId), ...stopped };
+        }
+        const agent = target.thread;
         const createdAt = yield* nowIso;
         const turns = yield* turnRows
           .listByThreadId({ threadId: agent.id })

@@ -84,6 +84,12 @@ export class AgentCompletionReactor extends Context.Service<
     readonly start: () => Effect.Effect<void, never, Scope.Scope>;
     /** Resolves once every event committed so far has been handled. */
     readonly drain: Effect.Effect<void>;
+    /**
+     * Queues a pass for a Project. The remote agent bridge calls this after it
+     * appends a result of its own, since that append is not an event the
+     * reactor watches.
+     */
+    readonly enqueueProject: (projectId: ProjectId) => Effect.Effect<void>;
   }
 >()("t3/orchestration/AgentCompletionReactor") {}
 
@@ -492,7 +498,7 @@ export const make = Effect.gen(function* () {
     }
   });
 
-  return { start, drain } satisfies AgentCompletionReactor["Service"];
+  return { start, drain, enqueueProject: enqueue } satisfies AgentCompletionReactor["Service"];
 });
 
 const RepositoriesLive = Layer.mergeAll(

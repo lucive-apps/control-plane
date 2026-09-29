@@ -19,6 +19,7 @@ import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import { makeProviderRegistryLayer } from "../provider/testUtils/providerRegistryMock.ts";
 import * as ServerConfig from "../config.ts";
 import * as McpHttpServer from "./McpHttpServer.ts";
+import { RemoteAgentsLocalOnly } from "../agentMachines/testFixtures.ts";
 import { AgentsToolkitRegistrationLive } from "./toolkits/agents/handlers.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import * as PreviewAutomationBroker from "./PreviewAutomationBroker.ts";
@@ -62,6 +63,7 @@ const PullRequestsTestLayer = McpHttpServer.PullRequestsToolkitRegistrationLive.
         getThreadShellById: () => Effect.succeed(Option.none()),
       }),
       Layer.mock(OrchestrationEngineService)({}),
+      RemoteAgentsLocalOnly,
       NodeServices.layer,
     ),
   ),
@@ -81,6 +83,7 @@ const ThreadsTestLayer = McpHttpServer.ThreadsToolkitRegistrationLive.pipe(
           }),
       }),
       Layer.mock(OrchestrationEngineService)({}),
+      RemoteAgentsLocalOnly,
       NodeServices.layer,
       SqlitePersistenceMemory,
     ),
@@ -92,6 +95,7 @@ const AgentsTestLayer = AgentsToolkitRegistrationLive.pipe(
     Layer.mergeAll(
       Layer.mock(ProjectionSnapshotQuery)({}),
       Layer.mock(OrchestrationEngineService)({}),
+      RemoteAgentsLocalOnly,
       makeProviderRegistryLayer(),
       SqlitePersistenceMemory,
       NodeServices.layer,

@@ -17,6 +17,8 @@ import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as OrchestrationEngine from "../../../orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as ProviderRegistry from "../../../provider/Services/ProviderRegistry.ts";
+import { AgentPhase } from "../../../agentMachines/agentPhase.ts";
+import * as RemoteAgents from "../../../agentMachines/RemoteAgents.ts";
 
 // Fork-owned. Parameters stay flat primitives: OpenCode stringifies nested unions.
 
@@ -25,6 +27,7 @@ const dependencies = [
   OrchestrationEngine.OrchestrationEngineService,
   ProjectionSnapshotQuery.ProjectionSnapshotQuery,
   ProviderRegistry.ProviderRegistry,
+  RemoteAgents.RemoteAgents,
 ];
 
 export class AgentsUnavailableError extends Schema.TaggedError<AgentsUnavailableError>()(
@@ -176,17 +179,7 @@ const AgentRef = TrimmedNonEmptyString.annotate({
   description: "The agent's threadId (preferred) or its exact title.",
 });
 
-export const AgentPhase = Schema.Literals([
-  "idle",
-  "starting",
-  "running",
-  "waiting_for_approval",
-  "waiting_for_input",
-  "completed",
-  "failed",
-  "stale",
-]);
-export type AgentPhase = typeof AgentPhase.Type;
+export { AgentPhase };
 
 export const AgentCreateInput = Schema.Struct({
   title: TrimmedNonEmptyString.annotate({ description: "A short name for the agent." }),
@@ -211,6 +204,12 @@ export const AgentCreateInput = Schema.Struct({
       description: "Makes a retried call return the agent it already started.",
     }),
   ),
+  machine: Schema.optional(
+    TrimmedNonEmptyString.annotate({
+      description:
+        'Run the agent on a linked machine (its name), or "local" for this one. Omit to follow the user\'s Agent machines setting, which also limits what you may choose. One-off agents only.',
+    }),
+  ),
 });
 export type AgentCreateInput = typeof AgentCreateInput.Type;
 
@@ -221,6 +220,14 @@ export const AgentCreateResult = Schema.Struct({
   created: Schema.Boolean.annotate({
     description: "False when clientRequestId matched an agent started earlier.",
   }),
+  machineLabel: Schema.NullOr(Schema.String).annotate({
+    description: "The machine the agent runs on, or null for this one.",
+  }),
+  placement: Schema.optional(
+    Schema.String.annotate({
+      description: "Present when the agent did not start where the settings asked, and why.",
+    }),
+  ),
 });
 export type AgentCreateResult = typeof AgentCreateResult.Type;
 
@@ -238,6 +245,9 @@ export const AgentListEntry = Schema.Struct({
   phase: AgentPhase,
   settled: Schema.Boolean,
   lastActivityAt: Schema.String,
+  machine: Schema.NullOr(Schema.String).annotate({
+    description: "The machine the agent runs on, or null for this one.",
+  }),
 });
 export type AgentListEntry = typeof AgentListEntry.Type;
 
@@ -379,7 +389,7 @@ export type ScheduleDeleteResult = typeof ScheduleDeleteResult.Type;
 
 const AgentCreateTool = Tool.make("cp_agent_create", {
   description:
-    "Start an agent in this Project with a first message. Its final message comes back to you, and it stays available for follow-ups. Only the coordinator settles a one-off agent with cp_agent_settle once its work is complete and no follow-ups remain.",
+    "Start an agent in this Project with a first message. Its final message comes back to you, and it stays available for follow-ups. Only the coordinator settles a one-off agent with cp_agent_settle once its work is complete and no follow-ups remain. It may run on another linked machine, per the user's settings.",
   parameters: AgentCreateInput,
   success: AgentCreateResult,
   failure: AgentToolError,
