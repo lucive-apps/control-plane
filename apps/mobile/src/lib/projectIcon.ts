@@ -2,6 +2,7 @@ import type { ProjectIconColor, ProjectIconOverride } from "@t3tools/contracts";
 
 export type ProjectIconGlyph =
   | { readonly kind: "emoji"; readonly emoji: string }
+  | { readonly kind: "image"; readonly dataUrl: string }
   | { readonly kind: "monogram"; readonly text: string; readonly color: ProjectIconColor };
 
 /**
@@ -43,6 +44,8 @@ export function resolveProjectIconGlyph(
   switch (projectIcon?.kind) {
     case "emoji":
       return { kind: "emoji", emoji: projectIcon.emoji };
+    case "image":
+      return { kind: "image", dataUrl: projectIcon.dataUrl };
     case "monogram":
       return { kind: "monogram", text: projectIcon.text, color: projectIcon.color };
     case "lucide":

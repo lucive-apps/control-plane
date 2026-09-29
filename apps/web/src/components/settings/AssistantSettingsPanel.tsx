@@ -86,7 +86,7 @@ export function AssistantSettingsPanel({ group }: { group: SidebarProjectSnapsho
   const canOpenFolder = actions.canOpenFolder(project.environmentId);
   const isArchived = isArchivedAssistant(project);
 
-  const setIcon = async (projectIcon: ProjectIconOverride) => {
+  const setIcon = async (projectIcon: ProjectIconOverride | null) => {
     const result = await updateProject({
       environmentId: project.environmentId,
       input: { projectId: project.id, faviconPath: null, projectIcon },
@@ -304,6 +304,7 @@ export function AssistantSettingsPanel({ group }: { group: SidebarProjectSnapsho
             open
             onOpenChange={setIconPickerOpen}
             onSelect={(icon) => void setIcon(icon)}
+            onClear={() => void setIcon(null)}
           />
         </Suspense>
       ) : null}

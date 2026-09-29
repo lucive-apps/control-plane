@@ -5,6 +5,7 @@ import * as Schema from "effect/Schema";
 import { CommandId, ProjectId, ThreadId } from "./baseSchemas.ts";
 
 import {
+  PROJECT_IMAGE_ICON_MAX_DATA_URL_LENGTH,
   ProjectIconOverride,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
@@ -1696,6 +1697,42 @@ it.effect("sends monograms as fallback icons that old and nightly clients can de
     ] as const) {
       assert.deepEqual(yield* decodeProjectIcon(icon), icon);
       assert.deepEqual(yield* encodeProjectIcon(icon), icon);
+    }
+  }),
+);
+
+it.effect("sends images as fallback icons that old clients can decode", () =>
+  Effect.gen(function* () {
+    const dataUrl = "data:image/webp;base64,UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==";
+    const image = { kind: "image", dataUrl } as const;
+    const wire = yield* encodeProjectIcon(image);
+    assert.deepEqual(wire, {
+      kind: "lucide",
+      name: "folder-code",
+      color: "gray",
+      imageDataUrl: dataUrl,
+    });
+    assert.deepEqual(yield* decodeOldIcon(wire), {
+      kind: "lucide",
+      name: "folder-code",
+      color: "gray",
+    });
+    assert.deepEqual(yield* decodeProjectIcon(wire), image);
+    // The projection stores the decoded form, so it must decode too.
+    assert.deepEqual(yield* decodeProjectIcon(image), image);
+  }),
+);
+
+it.effect("rejects image icons that are not small raster data urls", () =>
+  Effect.gen(function* () {
+    for (const dataUrl of [
+      "data:image/svg+xml;base64,PHN2Zy8+",
+      "data:text/html;base64,PGgxPg==",
+      "https://example.com/icon.png",
+      `data:image/png;base64,${"A".repeat(PROJECT_IMAGE_ICON_MAX_DATA_URL_LENGTH)}`,
+    ]) {
+      const exit = yield* Effect.exit(decodeProjectIcon({ kind: "image", dataUrl }));
+      assert.strictEqual(exit._tag, "Failure");
     }
   }),
 );

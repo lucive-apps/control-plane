@@ -486,25 +486,46 @@ const ProjectMonogramIcon = Schema.Struct({
   text: ProjectMonogramText,
   color: ProjectIconColor,
 });
-const ProjectIcon = Schema.Union([ProjectLucideIcon, ProjectEmojiIcon, ProjectMonogramIcon]);
+
+// An uploaded image, downscaled by the client and stored inline so it travels with the project
+// record to every client and environment. The cap keeps snapshots small; clients shrink to fit.
+export const PROJECT_IMAGE_ICON_MAX_DATA_URL_LENGTH = 48_000;
+export const ProjectImageDataUrl = Schema.String.check(
+  Schema.isMaxLength(PROJECT_IMAGE_ICON_MAX_DATA_URL_LENGTH),
+  Schema.isPattern(/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/),
+);
+const ProjectImageIcon = Schema.Struct({
+  kind: Schema.Literal("image"),
+  dataUrl: ProjectImageDataUrl,
+});
+const ProjectIcon = Schema.Union([
+  ProjectLucideIcon,
+  ProjectEmojiIcon,
+  ProjectMonogramIcon,
+  ProjectImageIcon,
+]);
 const ProjectLucideIconWire = Schema.Struct({
   ...ProjectLucideIcon.fields,
   monogramText: Schema.optional(ProjectMonogramText),
   monogram: Schema.optional(ProjectMonogramText),
+  imageDataUrl: Schema.optional(ProjectImageDataUrl),
 });
 
 // Older peers only know lucide/emoji. Keep monograms out of their validated
 // `monogram` field too: old grapheme counters can reject otherwise valid text.
+// Images ride the same fallback in `imageDataUrl`, which older peers ignore.
 export const ProjectIconOverride = Schema.Union([
   ProjectLucideIconWire,
   ProjectEmojiIcon,
   ProjectMonogramIcon,
+  ProjectImageIcon,
 ]).pipe(
   Schema.decodeTo(
     ProjectIcon,
     SchemaTransformation.transform({
       decode: (icon): typeof ProjectIcon.Type => {
         if (icon.kind !== "lucide") return icon;
+        if (icon.imageDataUrl !== undefined) return { kind: "image", dataUrl: icon.imageDataUrl };
         const text = icon.monogramText ?? icon.monogram;
         return text === undefined
           ? { kind: "lucide", name: icon.name, color: icon.color }
@@ -518,7 +539,14 @@ export const ProjectIconOverride = Schema.Union([
               color: icon.color,
               monogramText: icon.text,
             }
-          : icon,
+          : icon.kind === "image"
+            ? {
+                kind: "lucide" as const,
+                name: "folder-code",
+                color: "gray" as const,
+                imageDataUrl: icon.dataUrl,
+              }
+            : icon,
     }),
   ),
 );
