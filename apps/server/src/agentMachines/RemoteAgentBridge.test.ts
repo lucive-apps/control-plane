@@ -137,7 +137,7 @@ const finishedMessages = [
 
 describe("RemoteAgentBridge delivery", () => {
   it.effect(
-    "pushes a finished request into the coordinator, wakes the reactor, and settles the agent",
+    "pushes a finished request into the coordinator, wakes the reactor, and leaves the agent open for follow-ups",
     () =>
       Effect.gen(function* () {
         const h = harness();
@@ -165,8 +165,9 @@ describe("RemoteAgentBridge delivery", () => {
           expect(push.message.source).not.toHaveProperty("replyTo");
         }
         expect(h.enqueued).toEqual([HOME_PROJECT]);
-        expect(h.peer.commands.map((command) => command.type)).toEqual(["thread.settle"]);
-        expect(record.state).toBe("settled");
+        // Only the coordinator settles it: the bridge sends the peer no settle.
+        expect(h.peer.commands).toEqual([]);
+        expect(record.state).toBe("open");
         expect(record.inFlight).toBeNull();
       }),
   );
@@ -469,7 +470,8 @@ describe("RemoteAgentBridge machine health", () => {
       expect(results.down.lastPhase).toBe("stale");
       expect(results.down.inFlight).not.toBeNull();
       expect(h.pushes()).toHaveLength(1);
-      expect(results.up.state).toBe("settled");
+      expect(results.up.state).toBe("open");
+      expect(results.up.inFlight).toBeNull();
     }),
   );
 

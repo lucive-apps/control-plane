@@ -27,7 +27,7 @@ import type * as Scope from "effect/Scope";
 
 import { AgentCompletionReactor } from "../orchestration/AgentCompletionReactor.ts";
 import { isOrchestrationCommandRejection } from "../orchestration/Errors.ts";
-import { agentPushId, agentPushSettleId } from "../orchestration/agentProtocol.ts";
+import { agentPushId } from "../orchestration/agentProtocol.ts";
 import { formatAgentResult, type AgentResultOutcome } from "../orchestration/agentPushes.ts";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
@@ -207,25 +207,13 @@ export const makeRemoteAgentBridge = Effect.gen(function* () {
       const delivered = yield* deliver(record, request, outcome, text);
       if (!delivered) return;
     }
-    const latest = record.queuedSends.length === 0;
+    // The agent stays open for follow-ups, as a local one does: only the
+    // coordinator settles it, with cp_agent_settle.
     yield* update(record, (current) => ({
       ...current,
       inFlight: null,
       lastPhase: verdict.outcome.kind === "finished" ? "completed" : "failed",
     }));
-    // The peer has no `replyTo` to settle a one-off agent, so the home does it,
-    // unless a later message is queued behind this one.
-    if (latest) {
-      const createdAt = yield* nowIso;
-      yield* machines
-        .dispatch(record.machineId, {
-          type: "thread.settle",
-          commandId: CommandId.make(agentPushSettleId(record.threadId, request.messageId)),
-          threadId: ThreadId.make(record.threadId),
-        })
-        .pipe(Effect.ignore);
-      yield* update(record, (current) => ({ ...current, state: "settled", endedAt: createdAt }));
-    }
   });
 
   const markLost = Effect.fn("RemoteAgentBridge.markLost")(function* (

@@ -169,8 +169,8 @@ the shell snapshot, which carries each thread's `latestTurn`, `session`, pending
   Project and may manage the agent, else the coordinator, and it holds while the Project's
   assistant is archived or unmarked or the recipient is archived. Then the bridge calls
   `AgentCompletionReactor.enqueue(projectId)`; without it an idle recipient would never start,
-  because the reactor enqueues only for `cp-send:` and schedule appends. The peer thread is settled
-  only when it is a one-off and the request is still its latest.
+  because the reactor enqueues only for `cp-send:` and schedule appends. The agent stays open for follow-ups, as a local one does: only the coordinator settles it,
+  with `cp_agent_settle`, which also works on remote agents (idle only; it settles the peer thread).
 - **Read.** Maps the peer's messages and `latestTurn` to `AgentReadResult` with the same caps.
   Older turns have no state over HTTP, so their state is approximated as `completed`.
 - **Stop.** Dispatches interrupt, session stop and optionally archive on the peer and marks the
