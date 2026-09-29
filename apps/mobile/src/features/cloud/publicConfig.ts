@@ -1,4 +1,5 @@
 import Constants from "expo-constants";
+import { T3_CONNECT_ENABLED } from "@t3tools/shared/forkFeatures";
 import { relayClerkTokenOptions } from "@t3tools/shared/relayAuth";
 import { normalizeSecureRelayUrl } from "@t3tools/shared/relayUrl";
 import * as Schema from "effect/Schema";
@@ -73,11 +74,8 @@ export function resolveCloudPublicConfig(extra: ExpoExtra = Constants.expoConfig
   } satisfies CloudPublicConfig;
 }
 
-/** T3 Connect stays off until this fork has its own Clerk and relay. */
-const FORK_CLOUD_CONNECT_ENABLED = false;
-
 export function hasCloudPublicConfig(): boolean {
-  if (!FORK_CLOUD_CONNECT_ENABLED) {
+  if (!T3_CONNECT_ENABLED) {
     return false;
   }
   const config = resolveCloudPublicConfig();

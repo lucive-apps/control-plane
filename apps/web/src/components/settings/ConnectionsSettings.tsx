@@ -1795,7 +1795,7 @@ function EmptyRemoteEnvironments({ cloudEnabled = true }: { readonly cloudEnable
         <EmptyDescription>
           {cloudEnabled
             ? "Click “Add environment” to pair another environment, or connect one from T3 Connect."
-            : "Click “Add environment” to pair another environment."}
+            : "Click “Add environment” and paste a pairing link from another machine on your tailnet."}
         </EmptyDescription>
       </EmptyHeader>
     </Empty>

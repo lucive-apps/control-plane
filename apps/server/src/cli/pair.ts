@@ -39,6 +39,7 @@ import {
 } from "effect/unstable/http";
 
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
+import { hasCloudPublicConfig } from "../cloud/publicConfig.ts";
 import * as ServerConfig from "../config.ts";
 import { resolveBaseDir } from "../os-jank.ts";
 import {
@@ -79,7 +80,9 @@ export class NoRunningServerError extends Schema.TaggedError<NoRunningServerErro
     return [
       "No running T3 Code server found.",
       ...this.checkedStatePaths.map((statePath) => `  checked ${statePath}`),
-      "Start one with `npx t3 serve`, or connect this machine with T3 Connect: `npx t3 connect`.",
+      hasCloudPublicConfig
+        ? "Start one with `npx t3 serve`, or connect this machine with T3 Connect: `npx t3 connect`."
+        : "Start one with `npx t3 serve`, or `npx t3 serve --tailscale-serve` to reach it over Tailscale.",
     ].join("\n");
   }
 }

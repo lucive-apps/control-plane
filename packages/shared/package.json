@@ -155,6 +155,10 @@
       "types": "./src/dpopCommon.ts",
       "import": "./src/dpopCommon.ts"
     },
+    "./forkFeatures": {
+      "types": "./src/forkFeatures.ts",
+      "import": "./src/forkFeatures.ts"
+    },
     "./relayAuth": {
       "types": "./src/relayAuth.ts",
       "import": "./src/relayAuth.ts"
