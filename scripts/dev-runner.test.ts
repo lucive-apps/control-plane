@@ -30,6 +30,7 @@ import {
   resolveModePortOffsets,
   resolveOffset,
   runDevRunnerWithInput,
+  shouldShareDevServer,
 } from "./dev-runner.ts";
 
 const emptyConfigLayer = ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} }));
@@ -77,6 +78,7 @@ const devServerInput = {
 it.layer(
   Layer.mergeAll(
     NodeServices.layer,
+    Layer.succeed(HostProcessEnvironment, { DEV_TAILNET: "0" }),
     // The implicit dev home derives from the user's home; never the real one here.
     Layer.succeed(
       HostProcessHomeDirectory,
@@ -1222,7 +1224,7 @@ it.layer(
           }).pipe(
             Effect.provide(Layer.mergeAll(emptyConfigLayer, netServiceLayer, spawnerLayer)),
             Effect.provideService(HostProcessPlatform, "linux"),
-            Effect.provideService(HostProcessEnvironment, {}),
+            Effect.provideService(HostProcessEnvironment, { DEV_TAILNET: "0" }),
           );
 
           assert.equal(captured?.T3CODE_BUNDLED_DEV, undefined);
@@ -1462,5 +1464,28 @@ it.layer(
         }),
       );
     });
+  });
+});
+
+describe("automatic tailnet sharing", () => {
+  const defaults = { mode: "dev", explicitShare: false, helperInstalled: true, env: {} } as const;
+  it("enables browser dev only on opted-in machines", () => {
+    assert.isTrue(shouldShareDevServer(defaults));
+    assert.isTrue(shouldShareDevServer({ ...defaults, mode: "dev:web" }));
+    assert.isFalse(shouldShareDevServer({ ...defaults, helperInstalled: false }));
+    assert.isFalse(shouldShareDevServer({ ...defaults, mode: "dev:desktop" }));
+    assert.isFalse(shouldShareDevServer({ ...defaults, mode: "dev:server" }));
+  });
+  it("respects opt-out and CI without breaking explicit --share", () => {
+    assert.isFalse(shouldShareDevServer({ ...defaults, env: { DEV_TAILNET: "0" } }));
+    assert.isFalse(shouldShareDevServer({ ...defaults, env: { CI: "true" } }));
+    assert.isTrue(
+      shouldShareDevServer({
+        ...defaults,
+        explicitShare: true,
+        helperInstalled: false,
+        env: { DEV_TAILNET: "0" },
+      }),
+    );
   });
 });

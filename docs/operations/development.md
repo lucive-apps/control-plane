@@ -39,7 +39,11 @@ different preference when needed.
 
 `vp run dev --share` publishes the web port over the machine's tailnet and prints a pairing URL
 for that origin. Give the tester the complete URL, including its token. The dev runner removes
-its mapping on exit.
+its mapping on exit. Machines with the personal dev-tailnet helper installed at
+`~/.local/lib/dev-tailnet/dev-tailnet.mjs` automatically share `dev` and `dev:web` runs
+outside CI. Set `DEV_TAILNET=0` to keep a run local. Automatic sharing uses the installed helper at the web port plus 20000, preserves
+existing Serve listeners, and closes its foreground session when the runner stops.
+Explicit `--share` retains its existing same-port, background mapping behavior. Desktop and server-only runs remain unchanged.
 
 Leave `VITE_HTTP_URL` and `VITE_WS_URL` unset. Vite proxies the backend through the browser's
 origin so the same build works over localhost and remote connections.
