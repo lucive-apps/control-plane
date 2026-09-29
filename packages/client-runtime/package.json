@@ -219,6 +219,10 @@
       "types": "./src/state/threadStatus.ts",
       "default": "./src/state/threadStatus.ts"
     },
+    "./state/assistants": {
+      "types": "./src/state/assistants.ts",
+      "default": "./src/state/assistants.ts"
+    },
     "./state/thread-sort": {
       "types": "./src/state/threadSort.ts",
       "default": "./src/state/threadSort.ts"

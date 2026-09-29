@@ -50,6 +50,10 @@ checkouts and removal. On web and desktop, right-click a workspace in the sideba
 own list on each selected environment, and reset returns to the environment's shared list. A
 workspace's `t3.json` actions can be imported there.
 
+When the selected workspace is a [Project](./projects.md), the category holds Project settings
+instead: name, icon, folder, the default model for new agents, the shared instructions, Archive,
+Move to Tasks and Delete. The model is the Project's override of the environment default.
+
 For the checkout setting, a workspace's `t3.json` preference applies when the workspace has no override.
 Browser access changes apply when an agent session next starts.
 

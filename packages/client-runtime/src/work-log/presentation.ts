@@ -5,7 +5,7 @@ import {
   isToolLifecycleItemType,
   type AssetResource,
   type RuntimeItemStatus,
-  type ThreadId,
+  ThreadId,
   type ToolActivitySource,
   type ToolLifecycleItemType,
 } from "@t3tools/contracts";
@@ -135,11 +135,19 @@ const PR_TOOL_ACTIONS: Readonly<Record<string, ToolGroupAction>> = {
   list_thread_pull_requests: "list-prs",
 };
 
+export interface WorkEntryToolPresentation {
+  readonly displayName: string;
+  readonly icon: "message-circle" | "browser" | "device" | "pull-request" | "t3-code";
+  readonly action?: ToolGroupAction | undefined;
+  /** The thread a `cp_thread_send` reached, so a client can link to it. */
+  readonly linkThreadId?: ThreadId;
+}
+
 function resolveT3McpToolPresentation(
   value: string | undefined,
   status: string | undefined,
   data?: unknown,
-) {
+): WorkEntryToolPresentation | null {
   if (!value) return null;
   // `t3-code` and `t3_thread_send` predate the rename to `cplane` and
   // `cp_thread_send`; they stay matched so stored transcripts keep their labels.
@@ -182,7 +190,13 @@ function resolveT3McpToolPresentation(
             : status === "stopped"
               ? `Stopped messaging ${peer}`
               : agentMessageToolLabel(source);
-    return { displayName, icon: "message-circle" as const, action: undefined };
+    const linkThreadId = sentThreadIdFromToolData(payload, input);
+    return {
+      displayName,
+      icon: "message-circle" as const,
+      action: undefined,
+      ...(linkThreadId ? { linkThreadId } : {}),
+    };
   }
   const urlTarget = typeof input?.url === "string" ? parseChangeRequestUrl(input.url) : null;
   const number = urlTarget?.number ?? input?.number;
@@ -250,6 +264,34 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function nonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+// The server slims MCP results to their first line, which can cut the JSON
+// short, so the id is matched rather than parsed.
+const SENT_THREAD_ID_PATTERN = /"threadId"\s*:\s*"([^"\\]+)"/;
+
+/**
+ * The thread a `cp_thread_send` reached. Its result names the target
+ * (`{threadId, threadTitle}`) even when the call addressed it by title only;
+ * a call that never returned falls back to the `threadId` argument.
+ */
+function sentThreadIdFromToolData(
+  payload: Record<string, unknown> | null,
+  input: Record<string, unknown> | null,
+): ThreadId | undefined {
+  const item = asRecord(payload?.item);
+  const state = asRecord(payload?.state);
+  for (const result of [item?.result, payload?.result, state?.output, payload?.rawOutput]) {
+    const record = asRecord(result);
+    const structured =
+      nonEmptyString(asRecord(record?.structuredContent)?.threadId) ??
+      nonEmptyString(record?.threadId);
+    const text = structured === null ? commandResultContent(result) : null;
+    const threadId = structured ?? (text ? SENT_THREAD_ID_PATTERN.exec(text)?.[1] : undefined);
+    if (threadId?.trim()) return ThreadId.make(threadId.trim());
+  }
+  const argument = nonEmptyString(input?.threadId);
+  return argument ? ThreadId.make(argument.trim()) : undefined;
 }
 
 function commandResultContent(value: unknown): string | null {

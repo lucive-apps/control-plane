@@ -5,6 +5,7 @@ import {
   buildBrowseGroups,
   buildCommandPaletteProjectMetadata,
   buildProjectActionItems,
+  buildRootGroups,
   buildThreadActionItems,
   buildLinkedThreadActionItems,
   enumerateCommandPaletteItems,
@@ -835,5 +836,50 @@ describe("filterCommandPaletteGroups", () => {
       "setting:default-model",
       "setting:keybinding-modelPicker.toggle",
     ]);
+  });
+});
+
+describe("buildRootGroups", () => {
+  const item = (value: string, title: string) =>
+    ({
+      kind: "action",
+      value,
+      title,
+      searchTerms: [title],
+      icon: null,
+      run: async () => undefined,
+    }) satisfies CommandPaletteActionItem;
+
+  it("leads with the Projects group, which a search keeps filtering", () => {
+    const projectItems = [
+      item("assistant:env:personal", "Personal"),
+      item("action:new-project", "New Project…"),
+    ];
+    const groups = buildRootGroups({
+      projectItems,
+      actionItems: [item("action:settings", "Open settings")],
+      recentThreadItems: [item("thread:1", "Fix hero")],
+    });
+    expect(groups.map((group) => group.label)).toEqual(["Projects", "Actions", "Recent Threads"]);
+
+    const filtered = filterCommandPaletteGroups({
+      activeGroups: groups,
+      query: "personal",
+      isInSubmenu: false,
+      projectSearchItems: [],
+      threadSearchItems: [],
+    });
+    expect(filtered).toEqual([
+      { value: "assistants", label: "Projects", items: [projectItems[0]] },
+    ]);
+  });
+
+  it("omits the Projects group when there is nothing to list", () => {
+    const groups = buildRootGroups({
+      projectItems: [],
+      actionItems: [item("action:settings", "Open settings")],
+      recentThreadItems: [],
+    });
+    expect(groups.map((group) => group.value)).toEqual(["actions"]);
   });
 });

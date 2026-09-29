@@ -1,6 +1,11 @@
+import { ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { buildThreadActionMenuItems, type ThreadActionMenuState } from "./threadActionMenu.logic";
+import {
+  buildThreadActionMenuItems,
+  resolveThreadActionMenuAgent,
+  type ThreadActionMenuState,
+} from "./threadActionMenu.logic";
 
 const baseState: ThreadActionMenuState = {
   branch: null,
@@ -127,5 +132,88 @@ describe("buildThreadActionMenuItems", () => {
       (item) => item.id === "archive",
     );
     expect(archiveItem?.disabled).toBe(true);
+  });
+});
+
+describe("Project agent menu", () => {
+  const coordinatorId = ThreadId.make("coordinator");
+  const project = { assistant: { coordinatorThreadId: coordinatorId } };
+  const agentThread = (overrides: {
+    pinnedAt?: string | null;
+    worktreePath?: string | null;
+    session?: { status: string } | null;
+  }) => ({
+    id: ThreadId.make("agent"),
+    pinnedAt: overrides.pinnedAt ?? null,
+    worktreePath: overrides.worktreePath ?? null,
+    session: overrides.session ?? null,
+  });
+  const menuFor = (thread: ReturnType<typeof agentThread>, state = baseState) => {
+    const agent = resolveThreadActionMenuAgent(project, thread);
+    return buildThreadActionMenuItems({
+      ...state,
+      branch: "feat/agent",
+      projectFilter: { label: "Personal", isActive: false },
+      isPinned: thread.pinnedAt != null,
+      agent,
+    });
+  };
+  const item = (items: ReturnType<typeof menuFor>, id: string) =>
+    items.find((candidate) => candidate.id === id);
+
+  it("gives a standing agent Unpin and no Settle", () => {
+    const items = menuFor(agentThread({ pinnedAt: "2026-09-28T00:00:00.000Z" }));
+    const menuIds = items.map((candidate) => candidate.id);
+    expect(menuIds).toContain("unpin");
+    expect(menuIds).toContain("snooze");
+    expect(menuIds).not.toContain("settle");
+    expect(menuIds).not.toContain("unsettle");
+  });
+
+  it("gives a one-off agent Pin and Settle", () => {
+    const menuIds = menuFor(agentThread({})).map((candidate) => candidate.id);
+    expect(menuIds).toEqual(expect.arrayContaining(["pin", "settle", "snooze"]));
+  });
+
+  it("adds Set as coordinator and Stop agent, and drops branch and workspace filter items", () => {
+    for (const thread of [agentThread({}), agentThread({ pinnedAt: "2026-09-28T00:00:00.000Z" })]) {
+      const items = menuFor(thread);
+      const menuIds = items.map((candidate) => candidate.id);
+      expect(menuIds).toEqual(expect.arrayContaining(["set-coordinator", "stop-agent"]));
+      expect(menuIds).not.toContain("new-thread-on-branch");
+      expect(menuIds).not.toContain("filter-by-project");
+      expect(item(items, "project-settings")?.label).toBe("Project settings");
+      expect(items.at(-2)?.id).toBe("archive");
+    }
+  });
+
+  it("disables Stop agent without a live session", () => {
+    expect(item(menuFor(agentThread({})), "stop-agent")?.disabled).toBe(true);
+    expect(
+      item(menuFor(agentThread({ session: { status: "stopped" } })), "stop-agent")?.disabled,
+    ).toBe(true);
+    expect(
+      item(menuFor(agentThread({ session: { status: "ready" } })), "stop-agent")?.disabled,
+    ).toBe(false);
+  });
+
+  it("disables Set as coordinator for a worktree agent", () => {
+    expect(item(menuFor(agentThread({})), "set-coordinator")?.disabled).toBe(false);
+    expect(
+      item(menuFor(agentThread({ worktreePath: "/work/.worktrees/a" })), "set-coordinator")
+        ?.disabled,
+    ).toBe(true);
+  });
+
+  it("is not an agent menu for the coordinator or a plain workspace thread", () => {
+    expect(
+      resolveThreadActionMenuAgent(project, { ...agentThread({}), id: coordinatorId }),
+    ).toBeUndefined();
+    expect(resolveThreadActionMenuAgent({ assistant: null }, agentThread({}))).toBeUndefined();
+    const plain = buildThreadActionMenuItems({ ...baseState, branch: "main" });
+    expect(plain.map((candidate) => candidate.id)).not.toContain("stop-agent");
+    expect(plain.find((candidate) => candidate.id === "project-settings")?.label).toBe(
+      "Workspace settings",
+    );
   });
 });

@@ -581,6 +581,7 @@ function runtimeModeToTurnSandboxPolicy(
 }
 
 function buildCodexCollaborationMode(input: {
+  readonly runtimeThreadId: ThreadId;
   readonly interactionMode?: ProviderInteractionMode;
   readonly model?: string;
   readonly effort?: EffectCodexSchema.V2TurnStartParams__ReasoningEffort;
@@ -598,7 +599,7 @@ function buildCodexCollaborationMode(input: {
       reasoning_effort: reasoningEffort,
       developer_instructions: buildCodexDeveloperInstructions(
         input.interactionMode,
-        { model, reasoningEffort },
+        { model, reasoningEffort, threadId: input.runtimeThreadId },
         input.browserToolsAvailable ?? true,
       ),
     },
@@ -610,7 +611,10 @@ const SKILL_MENTION_PATTERN =
   /(^|\s)\p{Sc}(?![0-9][0-9_]*(?:[kKmMbBtT]|[eE][0-9]+)?(?:\s|$))(?=[a-zA-Z0-9:_-]*[a-zA-Z])([a-zA-Z0-9][a-zA-Z0-9:_-]*)(?=\s|$)/gu;
 
 export function buildTurnStartParams(input: {
+  /** The Codex provider thread. */
   readonly threadId: string;
+  /** The T3 thread, whose stored Project role block joins the developer instructions. */
+  readonly runtimeThreadId: ThreadId;
   readonly runtimeMode: RuntimeMode;
   readonly prompt?: string;
   readonly attachments?: ReadonlyArray<{
@@ -640,6 +644,7 @@ export function buildTurnStartParams(input: {
 
   const config = runtimeModeToThreadConfig(input.runtimeMode);
   const collaborationMode = buildCodexCollaborationMode({
+    runtimeThreadId: input.runtimeThreadId,
     ...(input.interactionMode ? { interactionMode: input.interactionMode } : {}),
     ...(input.model ? { model: input.model } : {}),
     ...(input.effort ? { effort: input.effort } : {}),
@@ -2452,6 +2457,7 @@ export const makeCodexSessionRuntime = (
           );
           const params = yield* buildTurnStartParams({
             threadId: providerThreadId,
+            runtimeThreadId: options.threadId,
             runtimeMode: options.runtimeMode,
             ...(input.input ? { prompt: input.input } : {}),
             ...(input.attachments ? { attachments: input.attachments } : {}),

@@ -23,6 +23,7 @@ import {
   TrimmedString,
   TurnId,
 } from "./baseSchemas.ts";
+import { ProjectAssistant, ProjectAssistantPatch } from "./assistants.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 import {
   PullRequestActor,
@@ -532,6 +533,7 @@ export const OrchestrationProject = Schema.Struct({
   // Optional on the wire so cached snapshots from older servers still decode.
   faviconPath: Schema.optional(Schema.NullOr(ProjectFaviconPath)),
   projectIcon: Schema.optional(Schema.NullOr(ProjectIconOverride)),
+  assistant: Schema.optional(Schema.NullOr(ProjectAssistant)),
   scripts: Schema.Array(ProjectScript),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
@@ -924,6 +926,7 @@ export const OrchestrationProjectShell = Schema.Struct({
   // Optional on the wire so cached snapshots from older servers still decode.
   faviconPath: Schema.optional(Schema.NullOr(ProjectFaviconPath)),
   projectIcon: Schema.optional(Schema.NullOr(ProjectIconOverride)),
+  assistant: Schema.optional(Schema.NullOr(ProjectAssistant)),
   scripts: Schema.Array(ProjectScript),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
@@ -1155,6 +1158,8 @@ const ProjectMetaUpdateCommand = Schema.Struct({
   faviconPath: Schema.optional(Schema.NullOr(ProjectFaviconPath)),
   projectIcon: Schema.optional(Schema.NullOr(ProjectIconOverride)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
+  // Absent = leave unchanged; null = clear the marker (back to a workspace).
+  assistant: Schema.optional(Schema.NullOr(ProjectAssistantPatch)),
 });
 
 const ProjectDeleteCommand = Schema.Struct({
@@ -1793,6 +1798,8 @@ export const ProjectMetaUpdatedPayload = Schema.Struct({
   faviconPath: Schema.optional(Schema.NullOr(ProjectFaviconPath)),
   projectIcon: Schema.optional(Schema.NullOr(ProjectIconOverride)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
+  // The full resolved marker, never the command's patch.
+  assistant: Schema.optional(Schema.NullOr(ProjectAssistant)),
   updatedAt: IsoDateTime,
 });
 

@@ -12,8 +12,10 @@ import { useRouter } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
 
 import { resolveSnoozePresets, snoozeWakeDescription } from "../components/Sidebar.snooze";
+import { useAssistantActions } from "../components/assistants/useAssistantActions";
 import {
   buildThreadActionMenuItems,
+  resolveThreadActionMenuAgent,
   type ThreadActionMenuId,
 } from "../components/threadActionMenu.logic";
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
@@ -95,6 +97,7 @@ export function useThreadActionMenu(input: {
     reportFailure: false,
   });
   const handleNewThread = useNewThreadHandler();
+  const assistantActions = useAssistantActions();
   const markThreadUnread = useUiStateStore((s) => s.markThreadUnread);
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
@@ -138,6 +141,10 @@ export function useThreadActionMenu(input: {
         };
         const isRegeneratingTitle = thread.titleRegeneration != null;
         const snoozePresets = resolveSnoozePresets(now, timestampFormat);
+        const project = projects.find(
+          (candidate) =>
+            candidate.environmentId === thread.environmentId && candidate.id === thread.projectId,
+        );
         const items = buildThreadActionMenuItems({
           branch: thread.branch ?? null,
           // The chat header has no project-scoped thread list behind the
@@ -151,6 +158,7 @@ export function useThreadActionMenu(input: {
           isRunning: thread.session?.status === "running" && thread.session.activeTurnId != null,
           supports,
           snoozePresets,
+          agent: resolveThreadActionMenuAgent(project, thread),
         });
         const clicked = await settlePromise(() => api.contextMenu.show(items, position));
         if (clicked._tag === "Failure" || clicked.value === null) return;
@@ -198,11 +206,6 @@ export function useThreadActionMenu(input: {
         };
         switch (action) {
           case "project-settings": {
-            const project = projects.find(
-              (candidate) =>
-                candidate.environmentId === thread.environmentId &&
-                candidate.id === thread.projectId,
-            );
             if (!project) return;
             const projectKey =
               logicalProjectKeyByPhysicalKey.get(derivePhysicalProjectKey(project)) ??
@@ -283,6 +286,12 @@ export function useThreadActionMenu(input: {
           case "copy-thread-id":
             copyThreadIdToClipboard(thread.id, { threadId: thread.id });
             return;
+          case "set-coordinator":
+            await assistantActions.setCoordinator(threadRef);
+            return;
+          case "stop-agent":
+            await assistantActions.stopAgent(threadRef);
+            return;
           case "archive": {
             if (confirmThreadArchive) {
               const confirmed = await settlePromise(() =>
@@ -337,6 +346,7 @@ export function useThreadActionMenu(input: {
     },
     [
       archiveThread,
+      assistantActions,
       confirmThreadArchive,
       confirmThreadDelete,
       confirmAndUnpinThread,

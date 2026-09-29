@@ -8,8 +8,15 @@ import {
   type EnvironmentThreadStatus,
   mergeEnvironmentThread,
 } from "@t3tools/client-runtime/state/threads";
-import type { ScopedProjectRef, ScopedThreadRef, ServerConfig } from "@t3tools/contracts";
+import type {
+  ProjectAssistant,
+  ScopedProjectRef,
+  ScopedThreadRef,
+  ServerConfig,
+} from "@t3tools/contracts";
 import type { EnvironmentId } from "@t3tools/contracts";
+import { selectWorkspaceProjects } from "@t3tools/client-runtime/state/assistants";
+import { arrayElementsEqual } from "@t3tools/client-runtime/state/entities";
 import { Atom } from "effect/unstable/reactivity";
 import { useMemo } from "react";
 import { appAtomRegistry } from "../rpc/atomRegistry";
@@ -68,6 +75,31 @@ export function useEnvironmentThreadRefs(
 
 export function useProjects(): ReadonlyArray<EnvironmentProject> {
   return useAtomValue(environmentProjects.projectsAtom);
+}
+
+/**
+ * Plain workspaces of `source`. The value keeps its identity while only
+ * Projects change, so workspace listings do not re-render for them.
+ */
+export function makeWorkspaceProjectsAtom<
+  P extends { readonly assistant?: ProjectAssistant | null | undefined },
+>(source: Atom.Atom<ReadonlyArray<P>>): Atom.Atom<ReadonlyArray<P>> {
+  return Atom.make((get) => selectWorkspaceProjects(get(source))).pipe(
+    Atom.withEquality<ReadonlyArray<P>>(arrayElementsEqual),
+  );
+}
+
+const workspaceProjectsAtom = makeWorkspaceProjectsAtom(environmentProjects.projectsAtom).pipe(
+  Atom.withLabel("web-workspace-projects"),
+);
+
+/**
+ * Plain workspaces: every project without the Project (`assistant`) marker.
+ * Listing surfaces (new-thread targets, pickers) use this; lookups by ref keep
+ * `useProjects()`, since a Project's threads still resolve their project.
+ */
+export function useWorkspaceProjects(): ReadonlyArray<EnvironmentProject> {
+  return useAtomValue(workspaceProjectsAtom);
 }
 
 export function useServerConfigs(): ReadonlyMap<EnvironmentId, ServerConfig> {

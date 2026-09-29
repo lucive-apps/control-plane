@@ -24,7 +24,7 @@ import {
 } from "../logicalProject";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { resolveDefaultThreadEnvMode } from "@t3tools/shared/threadEnvMode";
-import { readProjects, readThreadShell, useProjects, useThread } from "../state/entities";
+import { readProjects, readThreadShell, useThread, useWorkspaceProjects } from "../state/entities";
 import {
   hasExplicitComposerModelSelection,
   resolveNewDraftStartFromOrigin,
@@ -155,6 +155,8 @@ export function useNewThreadHandler() {
       // skipped entirely when a higher-priority source decides, and its
       // query atom caches per project after the first call.
       const resolveDefaultEnvMode = async (): Promise<DraftThreadEnvMode> => {
+        // Agents always start Local in the Project folder.
+        if (project?.assistant != null) return "local";
         const consultProjectFile = project !== undefined && projectThreadEnvMode == null;
         return resolveDefaultThreadEnvMode({
           projectSetting: projectThreadEnvMode,
@@ -460,7 +462,8 @@ export function useHandleNewThread() {
         : useComposerDraftStore.getState().getDraftSession(routeTarget.draftId)
       : null,
   );
-  const projects = useProjects();
+  // The fallback target for a new thread is a plain workspace, never a Project.
+  const projects = useWorkspaceProjects();
   const orderedProjects = useMemo(() => {
     return orderItemsByPreferredIds({
       items: projects,

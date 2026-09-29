@@ -554,10 +554,15 @@ export function getCommandPaletteMode(input: {
 }
 
 export function buildRootGroups(input: {
+  /** Projects (the coordinators) and "New Project…"; the group leads the root. */
+  projectItems?: ReadonlyArray<CommandPaletteActionItem>;
   actionItems: ReadonlyArray<CommandPaletteActionItem | CommandPaletteSubmenuItem>;
   recentThreadItems: ReadonlyArray<CommandPaletteActionItem>;
 }): CommandPaletteGroup[] {
   const groups: CommandPaletteGroup[] = [];
+  if (input.projectItems && input.projectItems.length > 0) {
+    groups.push({ value: "assistants", label: "Projects", items: input.projectItems });
+  }
   if (input.actionItems.length > 0) {
     groups.push({ value: "actions", label: "Actions", items: input.actionItems });
   }
@@ -574,7 +579,7 @@ export function buildRootGroups(input: {
 export function getCommandPaletteInputPlaceholder(mode: CommandPaletteMode): string {
   switch (mode) {
     case "root":
-      return "Search commands, workspaces, and threads...";
+      return "Search threads, projects and commands...";
     case "root-browse":
       return "Enter workspace path (e.g. ~/projects/my-app)";
     case "submenu":

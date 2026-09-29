@@ -356,9 +356,92 @@ describe("resolveWorkEntryToolPresentation", () => {
           toolLifecycleStatus: "completed",
           toolData: { arguments: { threadId: "5f13b410-5497-44d6-af9c-6bfad3804593" } },
         }),
-      ).toEqual({ displayName: "messaged agent", icon: "message-circle" });
+      ).toEqual({
+        displayName: "messaged agent",
+        icon: "message-circle",
+        linkThreadId: "5f13b410-5497-44d6-af9c-6bfad3804593",
+      });
     },
   );
+
+  describe("cp_thread_send link target", () => {
+    const targetThreadId = "5f13b410-5497-44d6-af9c-6bfad3804593";
+    const resultText = JSON.stringify({ threadId: targetThreadId, threadTitle: "Sales" });
+
+    it.each([
+      [
+        "a Codex item",
+        {
+          server: "cplane",
+          tool: "cp_thread_send",
+          arguments: { threadTitle: "Sales" },
+          result: { content: resultText },
+        },
+      ],
+      [
+        "an unslimmed MCP result",
+        {
+          toolName: "mcp__cplane__cp_thread_send",
+          input: { threadTitle: "Sales" },
+          result: { content: [{ type: "text", text: resultText }] },
+        },
+      ],
+      [
+        "structured content",
+        {
+          toolName: "mcp__cplane__cp_thread_send",
+          input: { threadTitle: "Sales" },
+          result: { structuredContent: { threadId: targetThreadId, threadTitle: "Sales" } },
+        },
+      ],
+      [
+        "a result the server cut to its first 84 characters",
+        {
+          toolName: "mcp__cplane__cp_thread_send",
+          input: { threadTitle: "Sales" },
+          result: {
+            content: `{"threadId":"${targetThreadId}","threadTitle":"Quarterly vendor renewa…`,
+          },
+        },
+      ],
+    ])("reads the target from %s when the call named only a title", (_case, toolData) => {
+      const presentation = resolveWorkEntryToolPresentation({
+        label: "MCP tool call",
+        toolLifecycleStatus: "completed",
+        toolData,
+      });
+      expect(presentation).toMatchObject({ displayName: "messaged Sales" });
+      expect(presentation?.linkThreadId).toBe(ThreadId.make(targetThreadId));
+    });
+
+    it("prefers the result over a threadId argument", () => {
+      expect(
+        resolveWorkEntryToolPresentation({
+          label: "mcp__cplane__cp_thread_send",
+          toolLifecycleStatus: "completed",
+          toolData: {
+            input: { threadId: "thread-from-arguments" },
+            result: { content: resultText },
+          },
+        })?.linkThreadId,
+      ).toBe(targetThreadId);
+    });
+
+    it("has no link when neither the result nor the arguments name a thread", () => {
+      const presentation = resolveWorkEntryToolPresentation({
+        label: "mcp__cplane__cp_thread_send",
+        toolLifecycleStatus: "failed",
+        toolData: {
+          input: { threadTitle: "Sales" },
+          result: { content: "Thread not found: Sales" },
+        },
+      });
+      expect(presentation).toEqual({
+        displayName: "Failed to message Sales",
+        icon: "message-circle",
+      });
+    });
+  });
 
   it.each(["mcp__cplane__task_status", "mcp__t3_code__task_status"])(
     "brands %s with the product mark and falls back to the original tool label",

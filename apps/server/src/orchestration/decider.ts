@@ -44,6 +44,13 @@ import {
   requireThreadAbsent,
   requireThreadNotArchived,
 } from "./commandInvariants.ts";
+import {
+  decideAssistantMetaUpdate,
+  requireNotCoordinator,
+  requireSettleable,
+  resolveCoordinatorMetaUpdate,
+} from "./assistantDecider.ts";
+import { withEventBase, type PlannedOrchestrationEvent } from "./eventBase.ts";
 import { projectEvent } from "./projector.ts";
 import { threadHasQueuedTurnStart } from "./ThreadSettlementPolicy.ts";
 
@@ -137,38 +144,6 @@ function findPullRequestLink(
 ): ThreadPullRequestLink | undefined {
   return thread.pullRequests.find((link) => threadPullRequestKeysEqual(link, key));
 }
-
-function withEventBase(
-  input: Pick<OrchestrationCommand, "commandId"> & {
-    readonly aggregateKind: OrchestrationEvent["aggregateKind"];
-    readonly aggregateId: OrchestrationEvent["aggregateId"];
-    readonly occurredAt: string;
-    readonly metadata?: OrchestrationEvent["metadata"];
-  },
-): Effect.Effect<
-  Omit<OrchestrationEvent, "sequence" | "type" | "payload">,
-  PlatformError.PlatformError,
-  Crypto.Crypto
-> {
-  return Crypto.Crypto.pipe(
-    Effect.flatMap((crypto) =>
-      crypto.randomUUIDv4.pipe(
-        Effect.map((eventId) => ({
-          eventId: EventId.make(eventId),
-          aggregateKind: input.aggregateKind,
-          aggregateId: input.aggregateId,
-          occurredAt: input.occurredAt,
-          commandId: input.commandId,
-          causationEventId: null,
-          correlationId: input.commandId,
-          metadata: input.metadata ?? {},
-        })),
-      ),
-    ),
-  );
-}
-
-type PlannedOrchestrationEvent = Omit<OrchestrationEvent, "sequence">;
 
 type DecideOrchestrationCommandResult =
   | PlannedOrchestrationEvent
@@ -297,14 +272,21 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         });
       }
       const occurredAt = yield* nowIso;
-      return {
+      const { assistant, companions } = yield* decideAssistantMetaUpdate({
+        readModel,
+        project,
+        command,
+        occurredAt,
+        hasQueuedTurnStart: hasQueuedTurnStartForThread,
+      });
+      const metaUpdatedEvent = {
         ...(yield* withEventBase({
           aggregateKind: "project",
           aggregateId: command.projectId,
           occurredAt,
           commandId: command.commandId,
         })),
-        type: "project.meta-updated",
+        type: "project.meta-updated" as const,
         payload: {
           projectId: command.projectId,
           ...(command.title !== undefined ? { title: command.title } : {}),
@@ -319,13 +301,17 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.faviconPath !== undefined ? { faviconPath: command.faviconPath } : {}),
           ...(command.projectIcon !== undefined ? { projectIcon: command.projectIcon } : {}),
           ...(command.scripts !== undefined ? { scripts: command.scripts } : {}),
+          ...(assistant !== undefined ? { assistant } : {}),
           updatedAt: occurredAt,
         },
       };
+      // The project event goes last: the command receipt records the last
+      // event's aggregate, and a retry must match this project command.
+      return companions.length > 0 ? [...companions, metaUpdatedEvent] : metaUpdatedEvent;
     }
 
     case "project.delete": {
-      yield* requireProject({
+      const project = yield* requireProject({
         readModel,
         command,
         projectId: command.projectId,
@@ -339,10 +325,23 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           detail: `Project '${command.projectId}' is not empty and cannot be deleted without force=true.`,
         });
       }
-      if (activeThreads.length > 0) {
+      // A Project's marker is cleared first so the coordinator guard lets
+      // the cascade delete it, atomically with the rest of the sequence.
+      const clearsAssistant = command.force === true && project.assistant != null;
+      if (activeThreads.length > 0 || clearsAssistant) {
         return yield* decideCommandSequence({
           readModel,
           commands: [
+            ...(clearsAssistant
+              ? [
+                  {
+                    type: "project.meta.update" as const,
+                    commandId: command.commandId,
+                    projectId: command.projectId,
+                    assistant: null,
+                  },
+                ]
+              : []),
             ...activeThreads.map(
               (thread): Extract<OrchestrationCommand, { type: "thread.delete" }> => ({
                 type: "thread.delete",
@@ -416,6 +415,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      yield* requireNotCoordinator(readModel, command.threadId, command.type);
       const occurredAt = yield* nowIso;
       return {
         ...(yield* withEventBase({
@@ -438,6 +438,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      yield* requireNotCoordinator(readModel, command.threadId, command.type);
       const occurredAt = yield* nowIso;
       return {
         ...(yield* withEventBase({
@@ -484,6 +485,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      yield* requireSettleable(readModel, command.threadId, command.type);
       if (command.type === "thread.auto-settle" && thread.settledOverride !== null) {
         return yield* Effect.fail(
           new OrchestrationCommandInvariantError({
@@ -634,6 +636,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      yield* requireNotCoordinator(readModel, command.threadId, command.type);
       const occurredAt = yield* nowIso;
       // A wake time in the past would create a thread that is snoozed and
       // woken at once — the row would never leave the inbox but still carry
@@ -731,6 +734,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      yield* requireNotCoordinator(readModel, command.threadId, command.type);
       const occurredAt = yield* nowIso;
       // Re-pinning an already-pinned thread is a duplicate (double-click,
       // raced clients): re-emit with the original timestamps so the
@@ -902,6 +906,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      const coordinatorCommand = yield* resolveCoordinatorMetaUpdate(readModel, command);
+      if (coordinatorCommand !== command) {
+        return yield* decideOrchestrationCommand({ command: coordinatorCommand, readModel });
+      }
       // Old clients only see the derived single link. Unlink that request through
       // the same command path as modern clients, including stack dismissal, while
       // retaining other links they cannot see. Historical metadata events still replay unchanged.

@@ -29,6 +29,7 @@ import {
   threadWokeAt,
 } from "@t3tools/client-runtime/state/thread-settled";
 import { resolveSettledThreadTimestamp } from "@t3tools/client-runtime/state/thread-sort";
+import { partitionAssistants } from "@t3tools/client-runtime/state/assistants";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import {
   parseScopedThreadKey,
@@ -37,6 +38,8 @@ import {
   scopedThreadKey,
 } from "@t3tools/client-runtime/environment";
 import {
+  isArchivedAssistant,
+  isAssistantSettlementExempt,
   resolveEnvironmentMachineKind,
   type EnvironmentMachineKind,
   type ProjectIconOverride,
@@ -123,6 +126,8 @@ import {
 import {
   legacyProjectCwdPreferenceKey,
   resolveProjectExpanded,
+  resolveSectionExpanded,
+  SIDEBAR_ASSISTANTS_SECTION_KEY,
   SIDEBAR_PROJECTS_SECTION_KEY,
   SIDEBAR_REPOSITORIES_SECTION_KEY,
   useUiStateStore,
@@ -169,7 +174,7 @@ import {
   resolveProjectFolderMenuAction,
   routeBelongsToProjectMembers,
 } from "./sidebarProjectActions.logic";
-import { buildThreadActionMenuItems } from "./threadActionMenu.logic";
+import { buildThreadActionMenuItems, resolveThreadActionMenuAgent } from "./threadActionMenu.logic";
 import {
   animateSidebarLayoutChanges,
   applySidebarThreadDrop,
@@ -237,6 +242,21 @@ import { stackedThreadToast, toastManager } from "./ui/toast";
 import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
+import {
+  SidebarAssistantsEmptyRow,
+  SidebarAssistantsSection,
+  useSidebarAssistants,
+  useThreadGroupRollup,
+} from "./sidebar/SidebarAssistantsSection";
+import {
+  flattenAssistantJumpOrder,
+  selectableThreadKeys,
+  settleableSelection,
+  type SidebarRollupStatus,
+} from "./sidebar/sidebarAssistants.logic";
+import { AssistantStatusDot } from "./assistants/AssistantStatusDot";
+import { openConvertToProject, openNewProject } from "./assistants/assistantDialogStore";
+import { useAssistantActions } from "./assistants/useAssistantActions";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import {
@@ -2122,26 +2142,64 @@ function sidebarProjectExpansionKeys(project: SidebarProjectSnapshot | null, pro
   ];
 }
 
+// Clicking the title collapses the section. The chevron shows on hover and
+// stays while collapsed, next to the section's one static rolled-up dot. The
+// action shows on hover unless `actionAlwaysVisible` (an empty section).
 function SidebarListSectionHeader({
   title,
   actionLabel,
   onAction,
+  actionAlwaysVisible = false,
+  collapsed,
+  onToggleCollapsed,
+  rollupStatus,
   children,
 }: {
   title: string;
   actionLabel: string;
-  onAction: () => void;
+  onAction: (() => void) | null;
+  actionAlwaysVisible?: boolean;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
+  rollupStatus: SidebarRollupStatus;
   children: ReactNode;
 }) {
   return (
     <li className="list-none w-full" data-testid={`sidebar-section-${title.toLowerCase()}`}>
       <div className="group/section flex h-7 w-full items-center gap-0.5 px-2">
-        <span className="min-w-0 flex-1 truncate text-[length:1em] font-normal leading-tight text-sidebar-muted-foreground/65 dark:text-sidebar-muted-foreground">
-          {title}
-        </span>
-        <SidebarSectionIconButton label={actionLabel} onClick={onAction}>
-          {children}
-        </SidebarSectionIconButton>
+        <button
+          type="button"
+          aria-expanded={!collapsed}
+          aria-label={`${collapsed ? "Expand" : "Collapse"} ${title}`}
+          className="flex h-7 min-w-0 flex-1 cursor-pointer items-center gap-1 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={onToggleCollapsed}
+        >
+          <span className="min-w-0 truncate text-[length:1em] font-normal leading-tight text-sidebar-muted-foreground/65 dark:text-sidebar-muted-foreground">
+            {title}
+          </span>
+          <ChevronRightIcon
+            aria-hidden
+            className={cn(
+              "size-3 shrink-0 text-sidebar-muted-foreground/65 transition-[opacity,transform] duration-150",
+              !collapsed && "rotate-90",
+              collapsed
+                ? "opacity-100"
+                : "opacity-0 group-hover/section:opacity-100 group-focus-within/section:opacity-100",
+            )}
+          />
+          {collapsed && rollupStatus !== null ? (
+            <AssistantStatusDot status={rollupStatus} className="ml-auto mr-1" />
+          ) : null}
+        </button>
+        {onAction !== null ? (
+          <SidebarSectionIconButton
+            label={actionLabel}
+            onClick={onAction}
+            alwaysVisible={actionAlwaysVisible}
+          >
+            {children}
+          </SidebarSectionIconButton>
+        ) : null}
       </div>
     </li>
   );
@@ -2150,10 +2208,12 @@ function SidebarListSectionHeader({
 function SidebarSectionIconButton({
   label,
   onClick,
+  alwaysVisible,
   children,
 }: {
   label: string;
   onClick: () => void;
+  alwaysVisible: boolean;
   children: ReactNode;
 }) {
   return (
@@ -2163,7 +2223,11 @@ function SidebarSectionIconButton({
           <button
             type="button"
             aria-label={label}
-            className="inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground opacity-0 outline-none pointer-events-none transition-opacity hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover/section:pointer-events-auto group-hover/section:opacity-100"
+            className={cn(
+              "inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none transition-opacity hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring",
+              !alwaysVisible &&
+                "opacity-0 pointer-events-none focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/section:pointer-events-auto group-hover/section:opacity-100",
+            )}
             onClick={(event) => {
               event.stopPropagation();
               onClick();
@@ -2184,6 +2248,7 @@ const SidebarProjectFolderBlock = memo(function SidebarProjectFolderBlock({
   projectKey,
   displayName,
   containsActiveThread,
+  rollupThreads,
   sortable = false,
   consumeToggleSuppression,
   onNewThreadInProject,
@@ -2194,6 +2259,8 @@ const SidebarProjectFolderBlock = memo(function SidebarProjectFolderBlock({
   projectKey: string;
   displayName: string;
   containsActiveThread: boolean;
+  /** Threads a collapsed folder rolls up into its dot. */
+  rollupThreads: readonly EnvironmentThreadShell[];
   sortable?: boolean;
   consumeToggleSuppression?: () => boolean;
   onNewThreadInProject?: ((project: SidebarProjectSnapshot) => void) | undefined;
@@ -2211,6 +2278,7 @@ const SidebarProjectFolderBlock = memo(function SidebarProjectFolderBlock({
     resolveProjectExpanded(state.projectExpandedById, preferenceKeys),
   );
   const setProjectExpanded = useUiStateStore((state) => state.setProjectExpanded);
+  const rollupStatus = useThreadGroupRollup(rollupThreads, !expanded);
   const wasActiveRef = useRef(false);
   const showNewThread = project !== null && onNewThreadInProject !== undefined;
   const { listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
@@ -2284,6 +2352,9 @@ const SidebarProjectFolderBlock = memo(function SidebarProjectFolderBlock({
             <FolderIcon aria-hidden className="size-3.5 shrink-0 text-sidebar-foreground" />
           )}
           <span className="min-w-0 flex-1 truncate">{displayName}</span>
+          {rollupStatus !== null ? (
+            <AssistantStatusDot status={rollupStatus} className="mr-1" />
+          ) : null}
         </button>
         {showNewThread ? (
           <Tooltip>
@@ -2403,6 +2474,7 @@ export default function Sidebar() {
     },
   });
   const newThreadContext = useHandleNewThread();
+  const assistantActions = useAssistantActions();
   const openAddProjectCommandPalette = useCallback(
     () => openCommandPalette({ open: "add-project" }),
     [],
@@ -2461,10 +2533,17 @@ export default function Sidebar() {
       ),
     [environments],
   );
+  // Projects render in their own section; Tasks sees plain workspaces and
+  // their threads only, so no Project thread can land in a folder or "Other".
+  const assistantPartition = useMemo(
+    () => partitionAssistants(projects, threads, primaryEnvironmentId),
+    [primaryEnvironmentId, projects, threads],
+  );
+  const { workspaceProjects, workspaceThreads } = assistantPartition;
   const orderedProjects = useMemo(
     () =>
       orderItemsByPreferredIds({
-        items: projects,
+        items: workspaceProjects,
         preferredIds: projectOrder,
         getId: getProjectOrderKey,
         getPreferenceIds: (project) => [
@@ -2472,13 +2551,13 @@ export default function Sidebar() {
           legacyProjectCwdPreferenceKey(project.workspaceRoot),
         ],
       }),
-    [projectOrder, projects],
+    [projectOrder, workspaceProjects],
   );
   const useManualProjectOrder = sidebarProjectSortOrder === "manual" || folderOrderLocked;
   const unsortedProjectGroups = useMemo(
     () =>
       buildSidebarProjectSnapshots({
-        projects: useManualProjectOrder ? orderedProjects : projects,
+        projects: useManualProjectOrder ? orderedProjects : workspaceProjects,
         settings: projectGroupingSettings,
         primaryEnvironmentId,
         resolveEnvironmentLabel: (environmentId) => environmentLabelById.get(environmentId) ?? null,
@@ -2488,10 +2567,33 @@ export default function Sidebar() {
       orderedProjects,
       primaryEnvironmentId,
       projectGroupingSettings,
-      projects,
       useManualProjectOrder,
+      workspaceProjects,
     ],
   );
+  // Projects never group, so each snapshot is one Project; drafts and the
+  // row's environment label read it. Built from `projects` alone, so thread
+  // events keep the snapshots (and the draft blocks' memos) stable.
+  const assistantProjects = useMemo(
+    () => projects.filter((project) => project.assistant != null && !isArchivedAssistant(project)),
+    [projects],
+  );
+  const assistantGroups = useMemo(
+    () =>
+      buildSidebarProjectSnapshots({
+        projects: assistantProjects,
+        settings: projectGroupingSettings,
+        primaryEnvironmentId,
+        resolveEnvironmentLabel: (environmentId) => environmentLabelById.get(environmentId) ?? null,
+      }),
+    [assistantProjects, environmentLabelById, primaryEnvironmentId, projectGroupingSettings],
+  );
+  const assistantGroupByKey = useMemo(
+    () => new Map(assistantGroups.map((group) => [group.projectKey, group] as const)),
+    [assistantGroups],
+  );
+  const assistantGroupsRef = useRef(assistantGroups);
+  assistantGroupsRef.current = assistantGroups;
   const projectGroups = useMemo(
     () =>
       sortLogicalProjectsForSidebar(
@@ -2525,13 +2627,13 @@ export default function Sidebar() {
   const projectDisplayNameByKey = useMemo(
     () =>
       new Map(
-        projectGroups.flatMap((group) =>
+        [...projectGroups, ...assistantGroups].flatMap((group) =>
           group.memberProjects.map(
             (project) => [`${project.environmentId}:${project.id}`, group.displayName] as const,
           ),
         ),
       ),
-    [projectGroups],
+    [assistantGroups, projectGroups],
   );
 
   const nowMinute = useNowMinute();
@@ -2650,7 +2752,7 @@ export default function Sidebar() {
     // memo exactly at the next wake boundary.
     void snoozeWakeTick;
     const preciseNow = new Date().toISOString();
-    const visible = threads.filter(
+    const visible = workspaceThreads.filter(
       (thread) =>
         thread.archivedAt === null &&
         (scopedProjectKeys === null ||
@@ -2740,16 +2842,81 @@ export default function Sidebar() {
       settledThreads: sortSettledThreadsForSidebar(settled),
       snoozeNow: preciseNow,
     };
-  }, [nowMinute, optimisticDrop, scopedProjectKeys, serverConfigs, snoozeWakeTick, threads]);
+  }, [
+    nowMinute,
+    optimisticDrop,
+    scopedProjectKeys,
+    serverConfigs,
+    snoozeWakeTick,
+    workspaceThreads,
+  ]);
+
+  const {
+    models: assistantModels,
+    coordinatorKeys,
+    canCreate: canCreateAssistants,
+    visible: showAssistantsSection,
+    sectionExpanded: assistantsSectionExpanded,
+    toggleSection: toggleAssistantsSection,
+    expandedKeys: expandedAssistantKeys,
+    settledCounts: assistantSettledCounts,
+    setSettledCount: setAssistantSettledCount,
+    rollupStatus: assistantsRollupStatus,
+  } = useSidebarAssistants({
+    entries: assistantPartition.assistants,
+    serverConfigs,
+    environments,
+    // The filter actually applied: a stale scope key filters nothing.
+    workspaceFilterActive: scopedProjectGroup !== null,
+    nowMinute,
+    snoozeWakeTick,
+  });
+  const coordinatorKeysRef = useRef(coordinatorKeys);
+  coordinatorKeysRef.current = coordinatorKeys;
+  const tasksSectionExpanded = useUiStateStore((store) =>
+    resolveSectionExpanded(store.projectExpandedById, [
+      SIDEBAR_PROJECTS_SECTION_KEY,
+      SIDEBAR_REPOSITORIES_SECTION_KEY,
+    ]),
+  );
+  const tasksRollupThreads = useMemo(
+    () => [...pinnedThreads, ...activeThreads],
+    [activeThreads, pinnedThreads],
+  );
+  const tasksRollupStatus = useThreadGroupRollup(tasksRollupThreads, !tasksSectionExpanded);
 
   const threadSearchInputRef = useRef<HTMLInputElement>(null);
   const [threadSearchQuery, setThreadSearchQuery] = useState("");
   const [activeSearchResultIndex, setActiveSearchResultIndex] = useState(0);
   const isSearchingThreads = threadSearchQuery.trim().length > 0;
-  const searchableThreads = useMemo(
-    () => [...pinnedThreads, ...activeThreads, ...snoozedThreads, ...settledThreads],
-    [activeThreads, pinnedThreads, settledThreads, snoozedThreads],
-  );
+  const searchableThreads = useMemo(() => {
+    const workspaceSearchThreads = [
+      ...pinnedThreads,
+      ...activeThreads,
+      ...snoozedThreads,
+      ...settledThreads,
+    ];
+    if (!showAssistantsSection) return workspaceSearchThreads;
+    // Projects come first, as in the list. Search rows are click-only, so a
+    // coordinator hit only navigates.
+    return [
+      ...assistantModels.flatMap(({ coordinator, sections }) => [
+        ...(coordinator === null ? [] : [coordinator]),
+        ...sections.standing,
+        ...sections.active,
+        ...sections.snoozed,
+        ...sections.settled,
+      ]),
+      ...workspaceSearchThreads,
+    ];
+  }, [
+    activeThreads,
+    assistantModels,
+    pinnedThreads,
+    settledThreads,
+    showAssistantsSection,
+    snoozedThreads,
+  ]);
   const threadSearchResults = useMemo(
     () => searchSidebarThreads(searchableThreads, threadSearchQuery),
     [searchableThreads, threadSearchQuery],
@@ -2773,11 +2940,16 @@ export default function Sidebar() {
   // moment a snooze expires instead of on the next minute tick. Sorted
   // soonest-first, so entry 0 is the boundary.
   useEffect(() => {
-    const nextWakeAtMs =
-      snoozedThreads.length > 0 && snoozedThreads[0]?.snoozedUntil != null
-        ? Date.parse(snoozedThreads[0].snoozedUntil)
-        : Number.NaN;
-    if (Number.isNaN(nextWakeAtMs)) return;
+    // Snoozed agents wake on the same timer as the Tasks shelf.
+    const wakeTimes = [
+      snoozedThreads[0],
+      ...assistantModels.map((model) => model.sections.snoozed[0]),
+    ].flatMap((thread) => {
+      const wakeAtMs = thread?.snoozedUntil != null ? Date.parse(thread.snoozedUntil) : Number.NaN;
+      return Number.isNaN(wakeAtMs) ? [] : [wakeAtMs];
+    });
+    if (wakeTimes.length === 0) return;
+    const nextWakeAtMs = Math.min(...wakeTimes);
     // setTimeout delays are signed 32-bit: anything larger overflows and
     // fires immediately, turning a far-future wake (event-condition snoozes
     // synced from elsewhere) into a tight re-arm loop. Clamped, the timer
@@ -2785,7 +2957,7 @@ export default function Sidebar() {
     const delayMs = Math.min(Math.max(0, nextWakeAtMs - Date.now()) + 50, 2_147_483_647);
     const id = window.setTimeout(() => bumpSnoozeWakeTick((tick) => tick + 1), delayMs);
     return () => window.clearTimeout(id);
-  }, [snoozedThreads]);
+  }, [assistantModels, snoozedThreads]);
 
   // The settled tail renders in pages: history shouldn't dominate the
   // sidebar, and the common lookups are recent. Expansion resets when the
@@ -2885,26 +3057,64 @@ export default function Sidebar() {
       ]).filter((folder) => folder.entries.length > 0),
     [projectGroups, settledThreads],
   );
+  // Rendered order: coordinators and their visible agents, then Tasks. A
+  // collapsed section contributes nothing, so jump keys match visible rows.
+  const assistantThreads = useMemo(
+    () =>
+      showAssistantsSection && assistantsSectionExpanded
+        ? flattenAssistantJumpOrder(
+            assistantModels,
+            expandedAssistantKeys,
+            assistantSettledCounts,
+            routeThreadKey,
+          )
+        : EMPTY_THREADS,
+    [
+      assistantModels,
+      assistantSettledCounts,
+      assistantsSectionExpanded,
+      expandedAssistantKeys,
+      routeThreadKey,
+      showAssistantsSection,
+    ],
+  );
+  // Rows the list motion does not track (they nest in the Projects section),
+  // keyed so the motion re-measures when that section changes height.
+  const assistantMotionKey = useMemo(
+    () =>
+      [
+        showAssistantsSection,
+        tasksSectionExpanded,
+        ...assistantThreads.map((thread) =>
+          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+        ),
+      ].join("\0"),
+    [assistantThreads, showAssistantsSection, tasksSectionExpanded],
+  );
   const orderedThreads = useMemo(() => {
     if (isSearchingThreads) return threadSearchResults;
-    return flattenSidebarProjectFolderThreads(
-      settledViewOpen ? settledProjectFolders : projectFolders,
-    );
+    if (settledViewOpen) return flattenSidebarProjectFolderThreads(settledProjectFolders);
+    const folderThreads = tasksSectionExpanded
+      ? flattenSidebarProjectFolderThreads(projectFolders)
+      : EMPTY_THREADS;
+    return assistantThreads.length === 0 ? folderThreads : [...assistantThreads, ...folderThreads];
   }, [
+    assistantThreads,
     isSearchingThreads,
     projectFolders,
     settledProjectFolders,
     settledViewOpen,
+    tasksSectionExpanded,
     threadSearchResults,
   ]);
   const sortableFolderIds = useMemo(
     () =>
-      settledViewOpen
+      settledViewOpen || !tasksSectionExpanded
         ? []
         : projectFolders
             .filter((folder) => folder.project !== null)
             .map((folder) => folder.projectKey),
-    [projectFolders, settledViewOpen],
+    [projectFolders, settledViewOpen, tasksSectionExpanded],
   );
   const projectThreadRows = useMemo(
     () =>
@@ -2956,22 +3166,22 @@ export default function Sidebar() {
   const settledThreadKeys = useMemo(
     () =>
       new Set(
-        settledThreads.map((thread) =>
-          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+        [...settledThreads, ...assistantModels.flatMap((model) => model.sections.settled)].map(
+          (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
         ),
       ),
-    [settledThreads],
+    [assistantModels, settledThreads],
   );
   const settledThreadKeysRef = useRef(settledThreadKeys);
   settledThreadKeysRef.current = settledThreadKeys;
   const snoozedThreadKeys = useMemo(
     () =>
       new Set(
-        snoozedThreads.map((thread) =>
-          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+        [...snoozedThreads, ...assistantModels.flatMap((model) => model.sections.snoozed)].map(
+          (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
         ),
       ),
-    [snoozedThreads],
+    [assistantModels, snoozedThreads],
   );
   const snoozedThreadKeysRef = useRef(snoozedThreadKeys);
   snoozedThreadKeysRef.current = snoozedThreadKeys;
@@ -3164,7 +3374,10 @@ export default function Sidebar() {
       }
       if (event.shiftKey) {
         event.preventDefault();
-        rangeSelectTo(threadKey, orderedThreadKeysRef.current);
+        rangeSelectTo(
+          threadKey,
+          selectableThreadKeys(orderedThreadKeysRef.current, coordinatorKeysRef.current),
+        );
         return;
       }
       if (isTrailingDoubleClick(event.detail)) {
@@ -3555,8 +3768,10 @@ export default function Sidebar() {
     // Later thread actions can animate while writes settle.
     // Draft navigation can reveal a frozen row without changing the draft count.
     void sidebarListOrderKey;
+    void assistantMotionKey;
     listMotionRef.current?.update(!listMotionPaused && sidebarListHasRows);
   }, [
+    assistantMotionKey,
     listMotionPaused,
     routeDraftIdForRows,
     sidebarListHasRows,
@@ -3749,8 +3964,10 @@ export default function Sidebar() {
       // thread deletion elsewhere) and the menu labels must count only what
       // the actions will touch.
       const selectedThreadKeys = [...useThreadSelectionStore.getState().selectedThreadKeys];
-      const threadKeys = selectedThreadKeys.filter((threadKey) =>
-        threadByKeyRef.current.has(threadKey),
+      // Coordinators are in the rendered order for jumps, never in bulk actions.
+      const threadKeys = selectedThreadKeys.filter(
+        (threadKey) =>
+          threadByKeyRef.current.has(threadKey) && !coordinatorKeysRef.current.has(threadKey),
       );
       if (threadKeys.length === 0) return;
       const count = threadKeys.length;
@@ -3789,12 +4006,16 @@ export default function Sidebar() {
       const unpinMenuItem = buildBulkUnpinContextMenuItem({
         pinnedCount: pinnedSelectedThreads.length,
       });
+      // Standing agents never settle, so "Settle (k)" leaves them out.
+      const settleableThreads = settleableSelection(selectedThreads, projectByKey);
       const snoozePresets = resolveSnoozePresets(new Date(), timestampFormat);
       const clicked = await settlePromise(() =>
         api.contextMenu.show(
           [
             ...(unpinMenuItem ? [unpinMenuItem] : []),
-            { id: "settle", label: `Settle (${count})` },
+            ...(settleableThreads.length > 0
+              ? [{ id: "settle", label: `Settle (${settleableThreads.length})` }]
+              : []),
             ...(canSnoozeSelection
               ? [
                   {
@@ -3915,10 +4136,14 @@ export default function Sidebar() {
         // are already explicitly settled are skipped: nothing to do on a
         // valid mixed selection. Pinned rows ARE included: the decider
         // clears the pin as part of settling, so they park like the rest.
-        const coSettlingKeys = new Set(threadKeys);
-        for (const threadKey of threadKeys) {
-          const thread = threadByKeyRef.current.get(threadKey);
-          if (!thread || thread.settledOverride === "settled") continue;
+        // Standing agents are the exception: they never settle.
+        const coSettlingKeys = new Set(
+          settleableThreads.map((thread) =>
+            scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+          ),
+        );
+        for (const thread of settleableThreads) {
+          if (thread.settledOverride === "settled") continue;
           attemptSettle(scopeThreadRef(thread.environmentId, thread.id), { coSettlingKeys });
         }
         clearSelection();
@@ -3981,6 +4206,7 @@ export default function Sidebar() {
       deleteThread,
       markThreadUnread,
       performSnooze,
+      projectByKey,
       removeFromSelection,
       serverConfigs,
       attemptUnsnooze,
@@ -4026,13 +4252,17 @@ export default function Sidebar() {
         // Presets resolve at menu-open time (same as the popover).
         const snoozePresets = resolveSnoozePresets(new Date(), timestampFormat);
         const threadProjectGroup =
-          projectGroupsRef.current.find((project) =>
+          [...projectGroupsRef.current, ...assistantGroupsRef.current].find((project) =>
             project.memberProjectRefs.some(
               (projectRef) =>
                 projectRef.environmentId === thread.environmentId &&
                 projectRef.projectId === thread.projectId,
             ),
           ) ?? null;
+        const agent = resolveThreadActionMenuAgent(
+          projectByKey.get(`${thread.environmentId}:${thread.projectId}`),
+          thread,
+        );
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
             buildThreadActionMenuItems({
@@ -4057,6 +4287,7 @@ export default function Sidebar() {
                 titleRegeneration: supportsTitleRegeneration,
               },
               snoozePresets,
+              agent,
             }),
             position,
           ),
@@ -4168,6 +4399,12 @@ export default function Sidebar() {
           case "copy-thread-id":
             copyThreadIdToClipboard(thread.id, { threadId: thread.id });
             return;
+          case "set-coordinator":
+            await assistantActions.setCoordinator(threadRef);
+            return;
+          case "stop-agent":
+            await assistantActions.stopAgent(threadRef);
+            return;
           case "archive": {
             if (confirmThreadArchive) {
               const confirmed = await settlePromise(() =>
@@ -4230,6 +4467,7 @@ export default function Sidebar() {
     },
     [
       archiveThread,
+      assistantActions,
       attemptPin,
       attemptSettle,
       attemptSnooze,
@@ -4355,6 +4593,25 @@ export default function Sidebar() {
     setProjectExpanded([SIDEBAR_PROJECTS_SECTION_KEY, SIDEBAR_REPOSITORIES_SECTION_KEY], true);
     openAddProjectCommandPalette();
   }, [openAddProjectCommandPalette, setProjectExpanded]);
+  const handleNewAssistant = useCallback(() => {
+    setProjectExpanded(SIDEBAR_ASSISTANTS_SECTION_KEY, true);
+    openNewProject();
+  }, [setProjectExpanded]);
+  const openAssistantCoordinator = useCallback(
+    (project: EnvironmentProject) => {
+      const coordinatorThreadId = project.assistant?.coordinatorThreadId;
+      if (coordinatorThreadId === undefined) return;
+      void navigateToThread(scopeThreadRef(project.environmentId, coordinatorThreadId));
+    },
+    [navigateToThread],
+  );
+  const handleNewAgent = useCallback(
+    (project: EnvironmentProject) => {
+      if (isMobile) setOpenMobile(false);
+      void handleNewThreadRef.current(scopeProjectRef(project.environmentId, project.id));
+    },
+    [isMobile, setOpenMobile],
+  );
   const suppressFolderToggleRef = useRef(false);
   const consumeFolderToggleSuppression = useCallback(() => {
     if (!suppressFolderToggleRef.current) return false;
@@ -4461,7 +4718,14 @@ export default function Sidebar() {
         const api = readLocalApi();
         if (!api) return;
         const clicked = await settlePromise(() =>
-          api.contextMenu.show(buildProjectFolderActionMenuItems(project), position),
+          api.contextMenu.show(
+            buildProjectFolderActionMenuItems(project, {
+              canConvert: (member) =>
+                serverConfigs.get(member.environmentId)?.environment.capabilities.assistants ===
+                true,
+            }),
+            position,
+          ),
         );
         if (clicked._tag === "Failure" || clicked.value === null) return;
         const action = resolveProjectFolderMenuAction(project, clicked.value);
@@ -4475,13 +4739,16 @@ export default function Sidebar() {
               path: action.member.workspaceRoot,
             });
             return;
+          case "convert":
+            openConvertToProject(scopeProjectRef(action.member.environmentId, action.member.id));
+            return;
           case "delete":
             await handleRemoveProjectMembers(project, action.members);
             return;
         }
       })();
     },
-    [copyPathToClipboard, handleRemoveProjectMembers, openProjectSettings],
+    [copyPathToClipboard, handleRemoveProjectMembers, openProjectSettings, serverConfigs],
   );
   const folderCollisionDetection = useCallback<CollisionDetection>(
     (args) => {
@@ -4737,9 +5004,14 @@ export default function Sidebar() {
                                   ? "unsettle"
                                   : "settle"
                             }
+                            // Coordinators and standing agents never settle.
                             settlementSupported={
                               serverConfigs.get(thread.environmentId)?.environment.capabilities
-                                .threadSettlement === true
+                                .threadSettlement === true &&
+                              !isAssistantSettlementExempt(
+                                projectByKey.get(`${thread.environmentId}:${thread.projectId}`),
+                                thread,
+                              )
                             }
                             snoozeSupported={
                               serverConfigs.get(thread.environmentId)?.environment.capabilities
@@ -4845,12 +5117,78 @@ export default function Sidebar() {
                       const folders = settledViewOpen ? settledProjectFolders : projectFolders;
                       const items: ReactNode[] = [];
                       if (!settledViewOpen) {
+                        if (showAssistantsSection) {
+                          items.push(
+                            <SidebarListSectionHeader
+                              key="assistants-section"
+                              title="Projects"
+                              actionLabel="New Project"
+                              onAction={canCreateAssistants ? handleNewAssistant : null}
+                              actionAlwaysVisible={assistantModels.length === 0}
+                              collapsed={!assistantsSectionExpanded}
+                              onToggleCollapsed={toggleAssistantsSection}
+                              rollupStatus={assistantsRollupStatus}
+                            >
+                              <PlusIcon aria-hidden className="size-3.5" />
+                            </SidebarListSectionHeader>,
+                          );
+                          if (assistantsSectionExpanded && assistantModels.length === 0) {
+                            items.push(
+                              <SidebarAssistantsEmptyRow
+                                key="assistants-empty"
+                                onNewProject={canCreateAssistants ? handleNewAssistant : null}
+                              />,
+                            );
+                          } else if (assistantsSectionExpanded) {
+                            items.push(
+                              <SidebarAssistantsSection
+                                key="assistants"
+                                models={assistantModels}
+                                snapshotByKey={assistantGroupByKey}
+                                expandedKeys={expandedAssistantKeys}
+                                settledCounts={assistantSettledCounts}
+                                onSettledCountChange={setAssistantSettledCount}
+                                primaryEnvironmentId={primaryEnvironmentId}
+                                routeThreadKey={routeThreadKey}
+                                routeDraft={routeDraftThread ?? null}
+                                onOpenCoordinator={openAssistantCoordinator}
+                                onNewAgent={handleNewAgent}
+                                onRenameProject={assistantActions.rename}
+                                renderJumpHint={(coordinatorKey) => {
+                                  const label = showThreadJumpHints
+                                    ? jumpLabelByKey.get(coordinatorKey)
+                                    : undefined;
+                                  return label ? <JumpHintBadge label={label} /> : null;
+                                }}
+                                renderDrafts={(snapshot) => (
+                                  <SidebarDraftBlock
+                                    project={snapshot}
+                                    routeDraftId={routeDraftIdForRows}
+                                    onNavigateToDraft={navigateToDraft}
+                                  />
+                                )}
+                                // Agents are never draggable: no sortable bag.
+                                renderThreadRow={(thread, section) =>
+                                  renderThreadRowInner(thread, section)
+                                }
+                              />,
+                            );
+                          }
+                        }
                         items.push(
                           <SidebarListSectionHeader
                             key="projects-section"
                             title="Tasks"
                             actionLabel="Add workspace"
                             onAction={handleNewProject}
+                            collapsed={!tasksSectionExpanded}
+                            onToggleCollapsed={() =>
+                              setProjectExpanded(
+                                [SIDEBAR_PROJECTS_SECTION_KEY, SIDEBAR_REPOSITORIES_SECTION_KEY],
+                                !tasksSectionExpanded,
+                              )
+                            }
+                            rollupStatus={tasksRollupStatus}
                           >
                             <FolderPlusIcon aria-hidden className="size-3.5" />
                           </SidebarListSectionHeader>,
@@ -4875,12 +5213,18 @@ export default function Sidebar() {
                         );
                       }
                       for (const folder of folders) {
+                        if (!settledViewOpen && !tasksSectionExpanded) break;
                         items.push(
                           <SidebarProjectFolderBlock
                             key={folder.projectKey}
                             project={folder.project}
                             projectKey={folder.projectKey}
                             displayName={folder.displayName}
+                            rollupThreads={folder.entries.flatMap((entry) =>
+                              entry.section === "pinned" || entry.section === "active"
+                                ? [entry.thread]
+                                : [],
+                            )}
                             containsActiveThread={
                               folder.entries.some(
                                 (entry) =>
@@ -4944,8 +5288,9 @@ export default function Sidebar() {
           ) : null}
           {!isSearchingThreads &&
           !settledViewOpen &&
+          tasksSectionExpanded &&
           visibleDraftSessionCount === 0 &&
-          projects.length === 0 ? (
+          workspaceProjects.length === 0 ? (
             <div className="flex flex-col items-center gap-2 px-2 py-6 text-center text-xs text-muted-foreground/60">
               <span>No workspaces yet</span>
               <button

@@ -116,6 +116,7 @@ import * as ProviderMaintenanceRunner from "./provider/providerMaintenanceRunner
 import { ProviderAuthService } from "./provider/Services/ProviderAuthService.ts";
 import { ProviderInstanceRegistry } from "./provider/Services/ProviderInstanceRegistry.ts";
 import { makeProviderInstallation } from "./provider/providerInstallation.ts";
+import { noteProjectFileWritten } from "./provider/assistantRuntime.ts";
 import * as ServerSelfUpdate from "./cloud/selfUpdate.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
@@ -3065,6 +3066,10 @@ const makeWsRpcLayer = (
           observeRpcEffect(
             WS_METHODS.projectsWriteFile,
             workspaceFileSystem.writeFile(input).pipe(
+              // A saved MEMORY.md or role file restarts its Project thread at the next turn.
+              Effect.tap((result) =>
+                Effect.sync(() => noteProjectFileWritten(input.cwd, result.relativePath)),
+              ),
               Effect.mapError(
                 (cause) =>
                   new ProjectWriteFileError({

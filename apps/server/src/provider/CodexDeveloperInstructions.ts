@@ -1,4 +1,4 @@
-import type { ProviderInteractionMode } from "@t3tools/contracts";
+import type { ProviderInteractionMode, ThreadId } from "@t3tools/contracts";
 import { MCP_SERVER_NAME } from "../mcp/McpProviderSession.ts";
 import { buildRuntimeInstructions } from "./RuntimeInstructions.ts";
 
@@ -196,6 +196,8 @@ ${browserToolInstructions(browserToolsAvailable)}
 export interface CodexRuntimeInfo {
   readonly model: string;
   readonly reasoningEffort: string;
+  /** The T3 thread (not the Codex thread), for its stored Project role block. */
+  readonly threadId?: ThreadId;
 }
 
 export function buildCodexDeveloperInstructions(

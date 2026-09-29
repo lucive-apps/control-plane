@@ -87,9 +87,12 @@ export function getProjectOrderKey(
 }
 
 export function resolveProjectGroupingMode(
-  project: Pick<EnvironmentProject, "environmentId" | "workspaceRoot">,
+  project: Pick<EnvironmentProject, "environmentId" | "workspaceRoot" | "assistant">,
   settings: ProjectGroupingSettings,
 ): SidebarProjectGroupingMode {
+  // A Project (the `assistant` marker) is always its own group: merging it
+  // with a repository's other checkouts would mix its agents into them.
+  if (project.assistant != null) return "separate";
   return (
     settings.sidebarProjectGroupingOverrides?.[deriveProjectGroupingOverrideKey(project)] ??
     settings.sidebarProjectGroupingMode
@@ -143,7 +146,7 @@ export function deriveLogicalProjectKey(
 export function deriveLogicalProjectKeyFromSettings(
   project: Pick<
     EnvironmentProject,
-    "environmentId" | "id" | "workspaceRoot" | "repositoryIdentity"
+    "environmentId" | "id" | "workspaceRoot" | "repositoryIdentity" | "assistant"
   >,
   settings: ProjectGroupingSettings,
 ): string {

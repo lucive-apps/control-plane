@@ -39,6 +39,7 @@ import {
   ProjectFaviconPickerDialog,
 } from "./ProjectFaviconPickerDialog";
 import { ProjectActionsSettings } from "./ProjectActionsSettings";
+import { AssistantSettingsPanel } from "./AssistantSettingsPanel";
 import { projectGroupTitleNeedsUpdate } from "./ProjectSettingsPanel.logic";
 import { useSettingsProjectGroups } from "./useSettingsProjectGroups";
 
@@ -145,6 +146,10 @@ export function ProjectSettingsPanel({
     environmentId: members[0]!.environmentId,
     id: members[0]!.id,
   };
+  // A Project never groups with other checkouts, so it has exactly one member.
+  if (scopedGroup.memberProjects[0]?.assistant) {
+    return <AssistantSettingsPanel key={selected.projectKey} group={scopedGroup} />;
+  }
   return (
     <ProjectDetail
       key={`${selected.projectKey}:${environmentId ?? "all"}:${checkoutKey ?? "all"}`}

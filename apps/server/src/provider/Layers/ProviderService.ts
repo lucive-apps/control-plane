@@ -83,6 +83,7 @@ import { type EventNdjsonLogger } from "./EventNdjsonLogger.ts";
 import * as ProviderEventLoggers from "./ProviderEventLoggers.ts";
 import * as AnalyticsService from "../../telemetry/AnalyticsService.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
+import * as AssistantRuntime from "../assistantRuntime.ts";
 import * as McpSessionRegistry from "../../mcp/McpSessionRegistry.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import * as ProjectionSnapshotQuery from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
@@ -940,8 +941,20 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     } satisfies Record<string, string>;
   });
 
+  /** Stores the thread's Project role block for this session, or clears it. */
+  const prepareAssistantRuntime = (threadId: ThreadId) =>
+    Option.isSome(projectionQuery)
+      ? AssistantRuntime.prepareAssistantRuntime({
+          threadId,
+          projection: projectionQuery.value,
+          readFile: (absolutePath) =>
+            fileSystem.readFileString(absolutePath).pipe(Effect.orElseSucceed(() => "")),
+        })
+      : Effect.sync(() => AssistantRuntime.clearAssistantRuntime(threadId));
+
   const prepareMcpSession = (threadId: ThreadId, providerInstanceId: ProviderInstanceId) =>
     Effect.gen(function* () {
+      yield* prepareAssistantRuntime(threadId);
       const capabilities = yield* agentAccessCapabilities(threadId);
       const credential = yield* issueMcpCredential({ threadId, providerInstanceId, capabilities });
       if (credential) {
@@ -959,7 +972,12 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     });
   const clearMcpSession = (threadId: ThreadId) =>
     McpSessionRegistry.revokeActiveMcpThread(threadId).pipe(
-      Effect.tap(() => Effect.sync(() => McpProviderSession.clearMcpProviderSession(threadId))),
+      Effect.tap(() =>
+        Effect.sync(() => {
+          McpProviderSession.clearMcpProviderSession(threadId);
+          AssistantRuntime.clearAssistantRuntime(threadId);
+        }),
+      ),
     );
 
   const publishRuntimeEvent = (event: ProviderRuntimeEvent): Effect.Effect<void> =>

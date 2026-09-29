@@ -19,6 +19,14 @@ Terms whose meaning matters across T3 Code. Architecture and lifecycle constrain
 
 The UI calls a project a **workspace** and lists workspaces under the sidebar's **Tasks** section.
 
+## Projects
+
+| Term        | Meaning                                                                                                       |
+| ----------- | ------------------------------------------------------------------------------------------------------------- |
+| Assistant   | The project marker the UI shows as a **Project**: a named coordinator plus its agents.                        |
+| Coordinator | The Project's long-running thread, `assistant.coordinatorThreadId`, always titled with the Project name.      |
+| Agent       | Any other thread in a Project. Pinned agents are standing roles that never settle; others are one-off agents. |
+
 ## Orchestration
 
 | Term                    | Meaning                                                                                      |

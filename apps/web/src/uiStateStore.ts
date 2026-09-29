@@ -70,8 +70,11 @@ const initialState: UiState = {
 
 const LEGACY_PROJECT_CWD_PREFERENCE_PREFIX = "legacy-project-cwd:";
 const LEGACY_PROJECT_EXPANSION_DEFAULT_KEY = "legacy-project-expansion-default";
+// The Tasks section's key. It predates the Tasks name, so it still says
+// "projects"; the Projects section uses SIDEBAR_ASSISTANTS_SECTION_KEY.
 export const SIDEBAR_PROJECTS_SECTION_KEY = "sidebar-section:projects";
 export const SIDEBAR_REPOSITORIES_SECTION_KEY = "sidebar-section:repositories";
+export const SIDEBAR_ASSISTANTS_SECTION_KEY = "sidebar-section:assistants";
 let legacyKeysCleanedUp = false;
 
 export function legacyProjectCwdPreferenceKey(cwd: string): string {
@@ -363,6 +366,21 @@ export function resolveProjectExpanded(
     }
   }
   return projectExpandedById[LEGACY_PROJECT_EXPANSION_DEFAULT_KEY] ?? true;
+}
+
+/**
+ * Whether a sidebar section (Projects, Tasks) is expanded: the first stored
+ * choice, else expanded. Sections ignore the folder-level legacy default.
+ */
+export function resolveSectionExpanded(
+  projectExpandedById: Readonly<Record<string, boolean>>,
+  sectionKeys: readonly string[],
+): boolean {
+  for (const key of sectionKeys) {
+    const expanded = projectExpandedById[key];
+    if (expanded !== undefined) return expanded;
+  }
+  return true;
 }
 
 export function setProjectExpanded(

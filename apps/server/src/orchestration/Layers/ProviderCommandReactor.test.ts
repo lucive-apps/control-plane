@@ -56,6 +56,11 @@ import {
   type ProviderServiceShape,
 } from "../../provider/Services/ProviderService.ts";
 import { ProviderAuthService } from "../../provider/Services/ProviderAuthService.ts";
+import {
+  clearAssistantRuntime,
+  prepareAssistantRuntime,
+  readAssistantRuntime,
+} from "../../provider/assistantRuntime.ts";
 import { makeProviderRegistryLayer } from "../../provider/testUtils/providerRegistryMock.ts";
 import { TextGeneration } from "../../textGeneration/TextGeneration.ts";
 import * as RepositoryIdentityResolver from "../../project/RepositoryIdentityResolver.ts";
@@ -3342,6 +3347,104 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.session?.threadId).toBe("thread-1");
     expect(thread?.session?.runtimeMode).toBe("approval-required");
   });
+
+  effectIt.effect("restarts the provider session when the thread's Project role changes", () =>
+    Effect.gen(function* () {
+      const now = "2026-01-01T00:00:00.000Z";
+      const threadId = ThreadId.make("thread-1");
+      // Store blocks the way ProviderService does, from the same projection the reactor reads.
+      let projection: ProjectionSnapshotQuery["Service"] | undefined;
+      const harness = yield* Effect.promise(() =>
+        createHarness({
+          startSessionEffect: (session) =>
+            prepareAssistantRuntime({
+              threadId: session.threadId,
+              projection: projection!,
+              readFile: () => Effect.succeed(""),
+            }).pipe(Effect.as(session)),
+        }),
+      );
+      projection = harness.snapshotQuery;
+      let commandIndex = 0;
+      const nextCommandId = (label: string) =>
+        CommandId.make(`cmd-project-role-${label}-${++commandIndex}`);
+      const startTurn = () =>
+        harness.engine
+          .dispatch({
+            type: "thread.turn.start",
+            commandId: nextCommandId("turn"),
+            threadId,
+            message: {
+              messageId: asMessageId(`user-message-project-role-${commandIndex}`),
+              role: "user",
+              text: "turn",
+              attachments: [],
+            },
+            interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+            runtimeMode: "approval-required",
+            createdAt: now,
+          })
+          .pipe(Effect.andThen(Effect.promise(() => harness.drain())));
+      const setSessionStatus = (status: "starting" | "running" | "ready") =>
+        harness.engine.dispatch({
+          type: "thread.session.set",
+          commandId: nextCommandId(`session-${status}`),
+          threadId,
+          session: {
+            threadId,
+            status,
+            providerName: "codex",
+            providerInstanceId: ProviderInstanceId.make("codex"),
+            runtimeMode: "approval-required",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: now,
+          },
+          createdAt: now,
+        });
+      const turnWhile = (status: "starting" | "running" | "ready") =>
+        setSessionStatus(status).pipe(Effect.andThen(startTurn()));
+      const setAssistant = (assistant: { coordinatorThreadId: ThreadId } | null) =>
+        harness.engine.dispatch({
+          type: "project.meta.update",
+          commandId: nextCommandId("assistant"),
+          projectId: asProjectId("project-1"),
+          assistant,
+        });
+
+      yield* startTurn();
+      yield* turnWhile("ready");
+      expect(harness.startSession.mock.calls.length).toBe(1);
+      expect(readAssistantRuntime(threadId)).toBeUndefined();
+
+      yield* setAssistant({ coordinatorThreadId: threadId });
+      // A steer into a starting or running turn keeps the session.
+      yield* turnWhile("starting");
+      yield* turnWhile("running");
+      expect(harness.startSession.mock.calls.length).toBe(1);
+
+      yield* turnWhile("ready");
+      expect(harness.startSession.mock.calls.length).toBe(2);
+      expect(harness.startSession.mock.calls[1]?.[1]).toMatchObject({
+        threadId,
+        resumeCursor: { opaque: "resume-1" },
+        runtimeMode: "approval-required",
+      });
+      expect(readAssistantRuntime(threadId)?.roleKey).toMatch(/^coordinator:/);
+      // The stored key matches what the reactor computes, so later turns keep the session.
+      yield* turnWhile("ready");
+      expect(harness.startSession.mock.calls.length).toBe(2);
+
+      // Move to Tasks: the next turn restarts without the block, then stays put.
+      yield* setAssistant(null);
+      yield* turnWhile("ready");
+      expect(harness.startSession.mock.calls.length).toBe(3);
+      expect(readAssistantRuntime(threadId)).toBeUndefined();
+      yield* turnWhile("ready");
+      expect(harness.startSession.mock.calls.length).toBe(3);
+      expect(harness.stopSession.mock.calls.length).toBe(0);
+    }).pipe(Effect.ensuring(Effect.sync(() => clearAssistantRuntime(ThreadId.make("thread-1"))))),
+  );
 
   it("does not inject derived model options when restarting claude on runtime mode changes", async () => {
     const harness = await createHarness({

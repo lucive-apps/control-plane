@@ -9,6 +9,7 @@ import * as CodexErrors from "effect-codex-app-server/errors";
 import * as CodexRpc from "effect-codex-app-server/rpc";
 import * as EffectCodexSchema from "effect-codex-app-server/schema";
 
+import { clearAssistantRuntime, setAssistantRuntime } from "../assistantRuntime.ts";
 import { buildCodexDeveloperInstructions } from "../CodexDeveloperInstructions.ts";
 import { codexSessionAppServerArgs } from "./codexLaunchArgs.ts";
 import {
@@ -23,6 +24,7 @@ import {
   toMcpElicitationResponse,
 } from "./CodexSessionRuntime.ts";
 const isCodexAppServerRequestError = Schema.is(CodexErrors.CodexAppServerRequestError);
+const runtimeThreadId = ThreadId.make("t3-thread-1");
 
 describe("Codex thread history", () => {
   for (const numTurns of [1, 2, 3, 5]) {
@@ -160,6 +162,7 @@ describe("buildTurnStartParams", () => {
         const prose = `${symbol}20 ${symbol}20k ${symbol}100M ${symbol}1e6 5${symbol}review`;
         const params = yield* buildTurnStartParams({
           threadId: "provider-thread-1",
+          runtimeThreadId,
           runtimeMode: "full-access",
           prompt: `${symbol}review ${symbol}2spec $existing ${prose} ${symbol}last`,
         });
@@ -176,6 +179,7 @@ describe("buildTurnStartParams", () => {
     const error = Effect.runSync(
       buildTurnStartParams({
         threadId: "provider-thread-1",
+        runtimeThreadId,
         runtimeMode: "full-access",
         attachments: [
           {
@@ -201,6 +205,7 @@ describe("buildTurnStartParams", () => {
     const params = Effect.runSync(
       buildTurnStartParams({
         threadId: "provider-thread-1",
+        runtimeThreadId,
         runtimeMode: "full-access",
         prompt: "Make a plan",
         model: "gpt-5.3-codex",
@@ -242,6 +247,7 @@ describe("buildTurnStartParams", () => {
     const params = Effect.runSync(
       buildTurnStartParams({
         threadId: "provider-thread-1",
+        runtimeThreadId,
         runtimeMode: "auto-accept-edits",
         prompt: "Implement it",
         model: "gpt-5.3-codex",
@@ -291,6 +297,7 @@ describe("buildTurnStartParams", () => {
     const params = Effect.runSync(
       buildTurnStartParams({
         threadId: "provider-thread-1",
+        runtimeThreadId,
         runtimeMode: "full-access",
         prompt: "Go",
         interactionMode: "default",
@@ -303,10 +310,46 @@ describe("buildTurnStartParams", () => {
     NodeAssert.ok(settings?.developer_instructions?.includes(`as ${DEFAULT_MODEL} with medium`));
   });
 
+  it.effect("adds the Project block registered for the T3 thread, not the Codex thread", () =>
+    Effect.gen(function* () {
+      const codexThreadId = ThreadId.make("provider-thread-1");
+      setAssistantRuntime(runtimeThreadId, {
+        roleKey: "coordinator",
+        inline: "<t3 coordinator block>",
+        pointer: "pointer",
+      });
+      setAssistantRuntime(codexThreadId, {
+        roleKey: "agent",
+        inline: "<codex id block>",
+        pointer: "pointer",
+      });
+
+      const params = yield* buildTurnStartParams({
+        threadId: codexThreadId,
+        runtimeThreadId,
+        runtimeMode: "full-access",
+        prompt: "Go",
+        interactionMode: "default",
+      });
+
+      const instructions = params.collaborationMode?.settings.developer_instructions ?? "";
+      NodeAssert.ok(instructions.endsWith("\n\n<t3 coordinator block>"));
+      NodeAssert.ok(!instructions.includes("<codex id block>"));
+    }).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          clearAssistantRuntime(runtimeThreadId);
+          clearAssistantRuntime(ThreadId.make("provider-thread-1"));
+        }),
+      ),
+    ),
+  );
+
   it.effect("routes approvals to the auto reviewer in auto mode", () =>
     Effect.gen(function* () {
       const params = yield* buildTurnStartParams({
         threadId: "provider-thread-1",
+        runtimeThreadId,
         runtimeMode: "auto",
         prompt: "Ship it",
       });
@@ -332,6 +375,7 @@ describe("buildTurnStartParams", () => {
     const params = Effect.runSync(
       buildTurnStartParams({
         threadId: "provider-thread-1",
+        runtimeThreadId,
         runtimeMode: "approval-required",
         prompt: "Review",
       }),

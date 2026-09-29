@@ -39,6 +39,38 @@ export function resolveSidebarThreadStatus(thread: SidebarThreadStatusInput): Si
   return "ready";
 }
 
+// Most urgent first. Failed sits below working so a live turn elsewhere in a
+// group still reads as work in progress.
+const ROLLUP_PRIORITY: readonly SidebarThreadStatus[] = [
+  "approval",
+  "input",
+  "working",
+  "failed",
+  "monitoring",
+  "ready",
+];
+
+/**
+ * The most urgent status in a group of threads (a collapsed folder, a
+ * Project), or null for an empty group. A roll-up is static: callers never
+ * pulse its dot.
+ */
+export function rollupSidebarThreadStatus(
+  statuses: Iterable<SidebarThreadStatus>,
+): SidebarThreadStatus | null {
+  let rollup: SidebarThreadStatus | null = null;
+  let rank = ROLLUP_PRIORITY.length;
+  for (const status of statuses) {
+    const statusRank = ROLLUP_PRIORITY.indexOf(status);
+    if (statusRank < rank) {
+      rollup = status;
+      rank = statusRank;
+      if (rank === 0) break;
+    }
+  }
+  return rollup;
+}
+
 export function hasUnseenCompletion(
   thread: Pick<OrchestrationThreadShell, "latestTurn"> & { lastVisitedAt?: string | undefined },
 ): boolean {
