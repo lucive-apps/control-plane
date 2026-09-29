@@ -111,6 +111,17 @@ describe("resolveThreadSelectionOverlayState", () => {
     ).toEqual({ ...stack, index: 1, routes: [home, thread] });
   });
 
+  it("dismisses a sheet on a phone when it links to the thread beneath it, without a second copy", () => {
+    expect(
+      resolveThreadSelectionOverlayState({
+        state: { ...stack, index: 2, routes: [home, thread, settings] },
+        workspaceRouteKey: thread.key,
+        action: "push",
+        params: thread.params,
+      }),
+    ).toEqual({ ...stack, index: 1, routes: [home, thread] });
+  });
+
   it.each([home, files])(
     "keeps $name in the back stack when pushing from beneath a sheet",
     (route) => {

@@ -29,6 +29,11 @@ import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
 
 import { ThreadSwipeable } from "../home/thread-swipe-actions";
+import {
+  buildAgentRowMenu,
+  resolveAgentRowState,
+  resolveAgentSwipeActions,
+} from "../projects/projectMenus";
 import { buildThreadTitleRegenerationMenuItems } from "./thread-title-regeneration-menu";
 import {
   THREAD_LIST_V2_SETTLED_PAGE_COUNT,
@@ -85,6 +90,13 @@ const LEGACY_MENU_ACTIONS: MenuAction[] = [
 
 /** Rounded-row radius shared with the v1 sidebar rows. */
 const SIDEBAR_V2_ROW_RADIUS = 12;
+
+/** Child rows of the iPhone Home start under their parent row's title: 20pt edge, 20pt icon, 12pt gap. */
+export const GROUPED_CHILD_INSET = 52;
+/** A grouped row swipes inside its inset, so the title column stays put. */
+const GROUPED_SWIPE_CONTAINER_STYLE = { marginLeft: GROUPED_CHILD_INSET } as const;
+/** Screen width outside a grouped row's swipe area: the inset. */
+const GROUPED_SWIPE_OUTSET = GROUPED_CHILD_INSET;
 
 function ThreadListV2Section(props: {
   readonly label: string;
@@ -244,6 +256,8 @@ export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props
   /** Drawn beside the label; ignored while the label is null. */
   readonly environmentMachine?: EnvironmentMachineKind;
   readonly pane?: "screen" | "sidebar";
+  /** A child row of the iPhone Home: inset under the title column, 44pt. */
+  readonly grouped?: boolean;
   /** Draws the "Unsent" divider above the first draft or queued row. */
   readonly showPendingDivider: boolean;
   readonly onSelectPendingTask: (pendingTask: PendingNewTask) => void;
@@ -316,6 +330,13 @@ export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props
         >
           {sidebarPane ? (
             rowContent
+          ) : props.grouped ? (
+            <View
+              className="min-h-[44px] justify-center py-2 pr-5"
+              style={{ paddingLeft: GROUPED_CHILD_INSET }}
+            >
+              {rowContent}
+            </View>
           ) : (
             <View className="min-h-[68px] justify-center px-5 py-4">{rowContent}</View>
           )}
@@ -332,8 +353,20 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   readonly hasQueuedMessages?: boolean;
   /** Snoozed-shelf row: shows its wake time and offers Wake. */
   readonly snoozed?: boolean;
-  /** Pinned-block row: shows the pin glyph and offers Unpin. */
+  /** Pinned-block row: offers Unpin. */
   readonly pinned?: boolean;
+  /** Standing agent (pinned in a Project): pin glyph beside the title, a full
+      swipe unpins it, and Settle is never offered. Tasks rows stay title-only. */
+  readonly standing?: boolean;
+  /** Set on Project agent rows. An active agent card takes the agent menu
+      (Stop agent, Set as coordinator, no branch or arrange items) and swipes
+      to Pin or Unpin, with Stop as a tap-only button so a full swipe never
+      interrupts a turn. Snoozed and settled agents keep the thread actions.
+      Pass a stable object so the memoized row skips unchanged renders. */
+  readonly agent?: {
+    readonly onStop: (thread: EnvironmentThreadShell) => void;
+    readonly onSetCoordinator: (thread: EnvironmentThreadShell) => void;
+  };
   /** Preformatted against the parent minute tick so this memoized row's
       countdown keeps moving. */
   readonly snoozeWakeLabelText?: string;
@@ -357,6 +390,9 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       into the drawer surface, selection filled with the accent color,
       matching the v1 sidebar rows. */
   readonly pane?: "screen" | "sidebar";
+  /** A child row of the iPhone Home: one 44pt row inset under the title
+      column for every variant, dot, title and time. */
+  readonly grouped?: boolean;
   /** Highlights the thread open in the detail pane (iPad split view). The
       compact Home list never sets it — phones navigate away on select. */
   readonly selected?: boolean;
@@ -364,7 +400,8 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   readonly fullSwipeWidth?: number;
   readonly onSelectThread: (thread: EnvironmentThreadShell) => void;
   readonly onDeleteThread: (thread: EnvironmentThreadShell) => void;
-  readonly onNewThreadOnBranch: (thread: EnvironmentThreadShell) => void;
+  /** Omitted for agent rows: a Project draft always starts Local. */
+  readonly onNewThreadOnBranch?: (thread: EnvironmentThreadShell) => void;
   readonly onRenameThread: (thread: EnvironmentThreadShell) => void;
   readonly onRegenerateThreadTitle: (thread: EnvironmentThreadShell) => void;
   readonly onSettleThread: (thread: EnvironmentThreadShell) => Promise<boolean>;
@@ -418,8 +455,11 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     onPinThread,
     onUnpinThread,
     onMoveThread,
+    agent,
   } = props;
   const snoozedRow = props.snoozed === true;
+  const standing = props.standing === true;
+  const agentCard = agent !== undefined && variant === "card" && !snoozedRow;
 
   const theme = useUniwindTheme();
   const screenColor = theme["--color-screen"];
@@ -427,6 +467,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const selectedBackgroundColor =
     theme[Platform.OS === "android" ? "--color-thread-selected" : "--color-user-bubble"];
   const sidebarPane = props.pane === "sidebar";
+  const grouped = props.grouped === true && !sidebarPane;
   const selected = props.selected === true;
 
   const status = resolveThreadListV2Status(thread);
@@ -478,10 +519,23 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     snoozeSupported: props.snoozeSupported,
     snoozable: canSnooze(thread, { now: new Date().toISOString() }),
     snoozed: snoozedRow,
+    standing,
   });
+  const snoozable = swipeActions.secondary === "snooze";
+  const agentState = resolveAgentRowState(thread);
+  const agentSwipe = agentCard
+    ? resolveAgentSwipeActions({
+        standing,
+        running: agentState.running,
+        canStop: agentState.canStop,
+      })
+    : null;
+  const agentPrimary = agentSwipe?.primary ?? null;
+  const agentSecondary = agentSwipe?.secondary ?? null;
+  // Also feeds the agent menu's Snooze, whose swipe slot holds Stop instead.
   const snoozePresets = useMemo(
-    () => (swipeActions.secondary === "snooze" ? resolveSnoozePresets(new Date()) : ([] as const)),
-    [props.snoozePresetMinute, swipeActions.secondary],
+    () => (snoozable ? resolveSnoozePresets(new Date()) : ([] as const)),
+    [props.snoozePresetMinute, snoozable],
   );
   const snoozePresetActions = useMemo<MenuAction[]>(
     () => [
@@ -582,6 +636,30 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     () => [SNOOZED_MENU_ACTIONS[0]!, ...titleMenuItems, SNOOZED_MENU_ACTIONS[1]!],
     [titleMenuItems],
   );
+  const agentMenuActions = useMemo<MenuAction[] | null>(
+    () =>
+      agentCard
+        ? buildAgentRowMenu({
+            standing,
+            snoozable,
+            snoozeSubactions: snoozePresetActions,
+            canStop: agentState.canStop,
+            canBeCoordinator: agentState.canBeCoordinator,
+            titleRegenerationSupported: props.titleRegenerationSupported,
+            isRegenerating: thread.titleRegeneration != null,
+          })
+        : null,
+    [
+      agentCard,
+      agentState.canBeCoordinator,
+      agentState.canStop,
+      props.titleRegenerationSupported,
+      snoozable,
+      snoozePresetActions,
+      standing,
+      thread.titleRegeneration,
+    ],
+  );
   const legacyMenuActions = useMemo<MenuAction[]>(
     () => [
       LEGACY_MENU_ACTIONS[0]!,
@@ -593,7 +671,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   );
   const handleMenuAction = useCallback(
     ({ nativeEvent }: { readonly nativeEvent: { readonly event: string } }) => {
-      if (nativeEvent.event === "new-thread-on-branch") onNewThreadOnBranch(thread);
+      if (nativeEvent.event === "new-thread-on-branch") onNewThreadOnBranch?.(thread);
       if (nativeEvent.event === "settle") handleSettle();
       if (nativeEvent.event === "unsettle") handleUnsettle();
       if (nativeEvent.event === "unsnooze") handleUnsnooze();
@@ -603,6 +681,8 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       if (nativeEvent.event === "move-up") handleMoveUp();
       if (nativeEvent.event === "move-down") handleMoveDown();
       if (nativeEvent.event === "archive") handleArchive();
+      if (nativeEvent.event === "stop-agent") agent?.onStop(thread);
+      if (nativeEvent.event === "set-coordinator") agent?.onSetCoordinator(thread);
       if (nativeEvent.event === "rename") handleRename();
       if (nativeEvent.event === "regenerate-title") handleRegenerateTitle();
       if (nativeEvent.event === "copy-thread-id") {
@@ -625,6 +705,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       }
     },
     [
+      agent,
       onNewThreadOnBranch,
       thread,
       handleArchive,
@@ -643,6 +724,22 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     ],
   );
   const primaryAction = useMemo(() => {
+    // An active agent full-swipes to Pin or Unpin: reversible, never a stop.
+    if (agentPrimary !== null) {
+      return agentPrimary === "pin"
+        ? {
+            accessibilityLabel: `Pin ${thread.title}`,
+            icon: "pin" as const,
+            label: "Pin",
+            onPress: handlePin,
+          }
+        : {
+            accessibilityLabel: `Unpin ${thread.title}`,
+            icon: "pin.slash" as const,
+            label: "Unpin",
+            onPress: handleUnpin,
+          };
+    }
     // Pre-settlement server: archive is the swipe action, as in v1. (Slim
     // rows cannot occur here — unsupported environments never classify as
     // settled.)
@@ -652,6 +749,14 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         icon: "archivebox" as const,
         label: "Archive",
         onPress: handleArchive,
+      };
+    }
+    if (swipeActions.primary === "unpin") {
+      return {
+        accessibilityLabel: `Unpin ${thread.title}`,
+        icon: "pin.slash" as const,
+        label: "Unpin",
+        onPress: handleUnpin,
       };
     }
     if (swipeActions.primary === "unsnooze") {
@@ -676,34 +781,56 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           onPress: handleSettle,
         };
   }, [
+    agentPrimary,
     handleArchive,
+    handlePin,
     handleSettle,
+    handleUnpin,
     handleUnsettle,
     handleUnsnooze,
     swipeActions.primary,
     thread.title,
   ]);
-  const secondaryAction = useMemo(
+  const secondaryAction = useMemo<NonNullable<
+    ComponentProps<typeof ThreadSwipeable>["secondaryAction"]
+  > | null>(
     () =>
-      swipeActions.secondary === "snooze"
-        ? {
-            accessibilityLabel: `Choose when to snooze ${thread.title}`,
-            icon: "clock" as const,
-            label: "Snooze",
-            menu: {
-              actions: snoozePresetActions,
-              onPressAction: handleMenuAction,
-              title: "Snooze until",
-            },
-            onPress: () => undefined,
-          }
-        : null,
-    [handleMenuAction, snoozePresetActions, swipeActions.secondary, thread.title],
+      agentCard
+        ? agentSecondary === "stop" && agent !== undefined
+          ? {
+              accessibilityLabel: `Stop ${thread.title}`,
+              icon: "stop.fill" as const,
+              label: "Stop",
+              onPress: () => agent.onStop(thread),
+            }
+          : null
+        : swipeActions.secondary === "snooze"
+          ? {
+              accessibilityLabel: `Choose when to snooze ${thread.title}`,
+              icon: "clock" as const,
+              label: "Snooze",
+              menu: {
+                actions: snoozePresetActions,
+                onPressAction: handleMenuAction,
+                title: "Snooze until",
+              },
+              onPress: () => undefined,
+            }
+          : null,
+    [
+      agent,
+      agentCard,
+      agentSecondary,
+      handleMenuAction,
+      snoozePresetActions,
+      swipeActions.secondary,
+      thread,
+    ],
   );
   const swipeAccessibilityHint =
     secondaryAction === null
       ? `Opens the thread. Swipe left to ${primaryAction.label.toLowerCase()}.`
-      : `Opens the thread. Swipe left for ${primaryAction.label.toLowerCase()} and snooze actions.`;
+      : `Opens the thread. Swipe left for ${primaryAction.label.toLowerCase()} and ${secondaryAction.label.toLowerCase()} actions.`;
 
   // The sidebar pane fills selected rows with the theme's message surface, so
   // every piece of row text must use that surface's paired foreground.
@@ -725,6 +852,14 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           {thread.title}
         </Text>
         {props.hasQueuedMessages ? <QueuedMessageIcon selected={selected} /> : null}
+        {standing ? (
+          <SymbolView
+            name="pin"
+            size={11}
+            tintColorClassName="accent-foreground-muted"
+            type="monochrome"
+          />
+        ) : null}
       </View>
       {props.searchMatch ? (
         <View className="mt-1">
@@ -753,8 +888,85 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     </>
   );
 
+  const accessibilityLabel = [
+    thread.title,
+    statusDot.label,
+    props.hasQueuedMessages ? "messages queued to send" : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
+  const timeText =
+    snoozedRow && props.snoozeWakeLabelText !== undefined ? props.snoozeWakeLabelText : timeLabel;
+
+  const groupedRow = (close: () => void) => (
+    <RowPressable
+      key={`${thread.environmentId}:${thread.id}`}
+      className="bg-screen"
+      accessibilityHint={swipeAccessibilityHint}
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="button"
+      onPress={() => {
+        close();
+        onSelectThread(thread);
+      }}
+    >
+      {/* The swipeable carries the 48pt inset, so the row slides inside it. */}
+      <View className="min-h-[44px] flex-row items-center gap-2.5 py-2 pr-5">
+        <ThreadStatusDot color={statusDot.color} grouped />
+        <View className="min-w-0 flex-1">
+          <View className="flex-row items-center gap-1.5">
+            <Text
+              className={cn(
+                "flex-shrink text-base",
+                agent === undefined
+                  ? "text-foreground-muted"
+                  : standing
+                    ? "font-t3-medium text-foreground"
+                    : "text-foreground",
+              )}
+              numberOfLines={1}
+            >
+              {thread.title}
+            </Text>
+            {standing ? (
+              <SymbolView
+                name="pin"
+                size={13}
+                tintColorClassName="accent-icon-muted"
+                type="monochrome"
+              />
+            ) : null}
+          </View>
+          {props.searchMatch ? (
+            <ThreadSearchMatchExcerpt
+              match={props.searchMatch}
+              query={props.searchQuery ?? ""}
+              selected={false}
+            />
+          ) : null}
+          {status === "failed" && thread.session?.lastError ? (
+            <Text className="mt-0.5 text-xs text-danger-foreground" numberOfLines={1}>
+              {thread.session.lastError}
+            </Text>
+          ) : null}
+        </View>
+        {props.hasQueuedMessages ? <QueuedMessageIcon selected={false} /> : null}
+        <Text
+          className={cn(
+            "text-xs tabular-nums",
+            snoozedRow ? "text-foreground-secondary" : "text-foreground-muted",
+          )}
+        >
+          {timeText}
+        </Text>
+      </View>
+    </RowPressable>
+  );
+
   const rowContent = (close: () => void) =>
-    variant === "card" ? (
+    grouped ? (
+      groupedRow(close)
+    ) : variant === "card" ? (
       <RowPressable
         key={`${thread.environmentId}:${thread.id}`}
         interactionClassName={
@@ -908,18 +1120,23 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         threadKey={`${thread.environmentId}:${thread.id}`}
         backgroundColor={sidebarPane && Platform.OS !== "android" ? drawerColor : screenColor}
         compactActions={variant === "slim"}
+        actionCells={grouped}
         containerStyle={
-          Platform.OS === "android"
-            ? { borderRadius: 20, overflow: "hidden", marginHorizontal: 8, marginVertical: 2 }
-            : sidebarPane
-              ? { borderRadius: SIDEBAR_V2_ROW_RADIUS, overflow: "hidden" }
-              : undefined
+          grouped
+            ? GROUPED_SWIPE_CONTAINER_STYLE
+            : Platform.OS === "android"
+              ? { borderRadius: 20, overflow: "hidden", marginHorizontal: 8, marginVertical: 2 }
+              : sidebarPane
+                ? { borderRadius: SIDEBAR_V2_ROW_RADIUS, overflow: "hidden" }
+                : undefined
         }
         enableTrackpadSwipe
-        // Full swipe commits the advertised lifecycle action (Settle /
-        // Un-settle), never the secondary snooze action.
+        // Full swipe commits the advertised primary action (Settle,
+        // Un-settle, Unpin), never the secondary snooze action.
         fullSwipeAction="primary"
-        fullSwipeWidth={props.fullSwipeWidth ?? windowWidth - 32}
+        fullSwipeWidth={
+          props.fullSwipeWidth ?? (grouped ? windowWidth - GROUPED_SWIPE_OUTSET : windowWidth - 32)
+        }
         onDelete={handleDelete}
         onSwipeableClose={props.onSwipeableClose}
         onSwipeableWillOpen={props.onSwipeableWillOpen}
@@ -931,30 +1148,33 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       >
         {(close) => (
           <ControlPillMenu
-            actions={[
-              ...(thread.branch
-                ? [
-                    {
-                      id: "new-thread-on-branch",
-                      title:
-                        Platform.OS === "ios"
-                          ? "New thread on branch"
-                          : `New thread on ${thread.branch}`,
-                      image: "square.and.pencil",
-                    },
-                  ]
-                : []),
-              { id: "copy-thread-id", title: "Copy thread ID", image: "doc.on.doc" },
-              ...(snoozedRow
-                ? snoozedMenuActions
-                : !props.settlementSupported
-                  ? legacyMenuActions
-                  : canUnsettle
-                    ? slimMenuActions
-                    : swipeActions.secondary === "snooze"
-                      ? snoozableCardMenuActions
-                      : cardMenuActions),
-            ]}
+            actions={
+              agentMenuActions ?? [
+                ...(thread.branch && onNewThreadOnBranch
+                  ? [
+                      {
+                        id: "new-thread-on-branch",
+                        title:
+                          Platform.OS === "ios"
+                            ? "New thread on branch"
+                            : `New thread on ${thread.branch}`,
+                        image: "square.and.pencil",
+                      },
+                    ]
+                  : []),
+                { id: "copy-thread-id", title: "Copy thread ID", image: "doc.on.doc" },
+                ...(snoozedRow
+                  ? snoozedMenuActions
+                  : !props.settlementSupported
+                    ? legacyMenuActions
+                    : canUnsettle
+                      ? slimMenuActions
+                      : swipeActions.secondary === "snooze"
+                        ? snoozableCardMenuActions
+                        : cardMenuActions
+                ).filter((action) => !(standing && action.id === "settle")),
+              ]
+            }
             onPressAction={handleMenuAction}
             shouldOpenOnLongPress
           >

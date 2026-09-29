@@ -22,12 +22,10 @@ import {
 import { describe, expect, it } from "vite-plus/test";
 
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
-import { threadJumpTarget } from "../keyboard/threadKeyboardShortcuts";
 import {
   buildThreadListV2Items,
   buildThreadListV2ListItems,
   getThreadListV2OrderedSection,
-  resolveThreadListV2Enabled,
   resolveThreadListV2SnoozeMenuSelection,
   resolveThreadListV2SnoozeGateExpiryMs,
   resolveThreadListV2Status,
@@ -117,29 +115,6 @@ describe("resolveThreadListV2SnoozeMenuSelection", () => {
         new Date(selectedAt.getTime() + 60 * 60 * 1_000).toISOString(),
       );
     }
-  });
-});
-
-describe("resolveThreadListV2Enabled", () => {
-  it("defaults on when the device has never chosen", () => {
-    expect(
-      resolveThreadListV2Enabled({ legacyPreference: undefined, preferencesLoaded: true }),
-    ).toBe(true);
-  });
-
-  it("honors an explicit legacy opt-in", () => {
-    expect(resolveThreadListV2Enabled({ legacyPreference: true, preferencesLoaded: true })).toBe(
-      false,
-    );
-    expect(resolveThreadListV2Enabled({ legacyPreference: false, preferencesLoaded: true })).toBe(
-      true,
-    );
-  });
-
-  it("holds the default while preferences are still loading so the list does not remount", () => {
-    expect(
-      resolveThreadListV2Enabled({ legacyPreference: undefined, preferencesLoaded: false }),
-    ).toBe(true);
   });
 });
 
@@ -277,6 +252,20 @@ describe("resolveThreadListV2SwipeActions", () => {
         snoozable: true,
       }),
     ).toEqual({ primary: "archive", secondary: null });
+  });
+
+  it("unpins a standing agent on a full swipe instead of settling or archiving it", () => {
+    for (const settlementSupported of [true, false]) {
+      expect(
+        resolveThreadListV2SwipeActions({
+          variant: "card",
+          settlementSupported,
+          snoozeSupported: true,
+          snoozable: true,
+          standing: true,
+        }),
+      ).toEqual({ primary: "unpin", secondary: "snooze" });
+    }
   });
 
   it("offers wake and no snooze on a snoozed row", () => {
@@ -1065,9 +1054,67 @@ describe("buildThreadListV2ListItems", () => {
       "v2-settled-shelf",
       "v2-thread",
     ]);
-    expect(threadJumpTarget(items, "thread.jump.1")?.id).toBe("active");
-    expect(threadJumpTarget(items, "thread.jump.2")?.id).toBe("settled");
-    expect(threadJumpTarget(items, "thread.jump.3")).toBeNull();
+  });
+});
+
+describe("Tasks rows beside Project threads", () => {
+  const rows = ["a", "b", "c"].map((id, index) =>
+    makeThread({
+      id: ThreadId.make(id),
+      title: id,
+      createdAt: `2026-06-01T0${3 - index}:00:00.000Z`,
+    }),
+  );
+  const agent = makeThread({
+    id: ThreadId.make("agent"),
+    title: "agent",
+    projectId: ProjectId.make("project-2"),
+    createdAt: "2026-06-01T04:00:00.000Z",
+  });
+  const fullSection = [...rows, agent];
+
+  function taskIds(
+    pendingOrder: PendingThreadOrder | null,
+    sectionThreads?: EnvironmentThreadShell[],
+  ) {
+    return buildThreadListV2Items({
+      threads: rows,
+      ...(sectionThreads ? { sectionThreads } : {}),
+      pendingOrder,
+      environmentId: null,
+      searchQuery: "",
+      now: NOW,
+    }).items.map((item) => item.thread.id);
+  }
+
+  it("lists plain threads the same with or without the full section", () => {
+    expect(taskIds(null, fullSection)).toEqual(["a", "b", "c"]);
+    expect(taskIds(null)).toEqual(["a", "b", "c"]);
+  });
+
+  it("holds a pending move planned against the full section", () => {
+    const ordered = getThreadListV2OrderedSection({
+      threads: fullSection,
+      section: "active",
+      now: NOW,
+    });
+    const orderedIds = ordered.map((row) => `${row.environmentId}:${row.id}`);
+    const movedId = `${environmentId}:c`;
+    const pending = createPendingThreadOrder({
+      section: "active",
+      ordered,
+      movedId,
+      direction: "up",
+      assignments: planPinnedMove({
+        orderedIds,
+        keysById: new Map(orderedIds.map((id) => [id, null])),
+        movedId,
+        direction: "up",
+      })!,
+    });
+    expect(taskIds(pending, fullSection)).toEqual(["a", "c", "b"]);
+    // Reconciling against the Tasks subset alone sees a size mismatch and drops the hold.
+    expect(taskIds(pending)).toEqual(["a", "b", "c"]);
   });
 });
 

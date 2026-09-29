@@ -39,6 +39,8 @@ import {
   createNativeMailSearchToolbarItem,
   NATIVE_MAIL_SEARCH_TOOLBAR_SUPPORTED,
 } from "../layout/native-mail-search-toolbar";
+import type { ArchivedProjectRow } from "./archivedProjects";
+import { ArchivedProjectsSection } from "./ArchivedProjectsSection";
 import type { ArchivedThreadGroup, ArchivedThreadSortOrder } from "./archivedThreadList";
 import { SettingsScreenContent } from "../settings/components/SettingsScreen";
 
@@ -377,6 +379,7 @@ function ProjectGroupLabel(props: {
       <ProjectFavicon
         environmentId={props.project.environmentId}
         faviconPath={props.project.faviconPath}
+        projectIcon={props.project.projectIcon}
         projectTitle={props.project.title}
         size={18}
         workspaceRoot={props.project.workspaceRoot}
@@ -512,6 +515,7 @@ function ArchiveError(props: { readonly message: string; readonly onRetry: () =>
 }
 
 export function ArchivedThreadsScreen(props: {
+  readonly archivedProjects: ReadonlyArray<ArchivedProjectRow<EnvironmentProject>>;
   readonly environments: ReadonlyArray<ArchivedThreadsHeaderEnvironment>;
   readonly error: string | null;
   readonly groups: ReadonlyArray<ArchivedThreadGroup>;
@@ -521,9 +525,11 @@ export function ArchivedThreadsScreen(props: {
   readonly sortOrder: ArchivedThreadSortOrder;
   readonly onDeleteThread: (thread: EnvironmentThreadShell) => void;
   readonly onEnvironmentChange: (environmentId: EnvironmentId | null) => void;
+  readonly onOpenArchivedProject: (project: EnvironmentProject) => void;
   readonly onRefresh: () => void;
   readonly onSearchQueryChange: (query: string) => void;
   readonly onSortOrderChange: (sortOrder: ArchivedThreadSortOrder) => void;
+  readonly onUnarchiveProject: (project: EnvironmentProject) => void;
   readonly onUnarchiveThread: (thread: EnvironmentThreadShell) => void;
 }) {
   const { onDeleteThread, onUnarchiveThread } = props;
@@ -664,9 +670,24 @@ export function ArchivedThreadsScreen(props: {
             keyboardDismissMode="on-drag"
             keyboardShouldPersistTaps="handled"
             keyExtractor={(item) => item.key}
-            ListEmptyComponent={listEmptyComponent}
+            // Archived Projects fill the header, so the empty state only shows
+            // when neither Projects nor threads are archived.
+            ListEmptyComponent={
+              isInitialLoad || props.archivedProjects.length === 0 ? listEmptyComponent : null
+            }
             ListHeaderComponent={
-              props.error ? <ArchiveError message={props.error} onRetry={props.onRefresh} /> : null
+              props.archivedProjects.length > 0 || props.error ? (
+                <View className="gap-3">
+                  <ArchivedProjectsSection
+                    rows={props.archivedProjects}
+                    onOpenProject={props.onOpenArchivedProject}
+                    onUnarchiveProject={props.onUnarchiveProject}
+                  />
+                  {props.error ? (
+                    <ArchiveError message={props.error} onRetry={props.onRefresh} />
+                  ) : null}
+                </View>
+              ) : null
             }
             onScrollBeginDrag={() => openSwipeableRef.current?.close()}
             refreshControl={

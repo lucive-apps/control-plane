@@ -1,5 +1,6 @@
 import {
   AlertDialog,
+  Column,
   Host,
   OutlinedTextField,
   Text,
@@ -44,29 +45,34 @@ export function MaterialConfirmDialog(props: MaterialConfirmDialogProps) {
         </AlertDialog.Title>
         {props.inputInitialValue !== undefined ? (
           <AlertDialog.Text>
-            <OutlinedTextField
-              autoFocus
-              singleLine
-              value={inputState}
-              selection={inputSelection}
-              onValueChange={props.onInputChange}
-              textStyle={inputTypography}
-              keyboardOptions={{ imeAction: "done" }}
-              keyboardActions={{
-                onDone: confirm,
-              }}
-              colors={{
-                focusedTextColor: colors["--color-foreground"],
-                unfocusedTextColor: colors["--color-foreground"],
-                focusedIndicatorColor: colors["--color-primary"],
-                unfocusedIndicatorColor: colors["--color-border"],
-                cursorColor: colors["--color-primary"],
-              }}
-            >
-              <OutlinedTextField.Label>
-                <Text style={bodyTypography}>{props.request.title}</Text>
-              </OutlinedTextField.Label>
-            </OutlinedTextField>
+            <Column verticalArrangement={{ spacedBy: 16 }}>
+              {props.request.message ? (
+                <Text style={bodyTypography}>{props.request.message}</Text>
+              ) : null}
+              <OutlinedTextField
+                autoFocus
+                singleLine
+                value={inputState}
+                selection={inputSelection}
+                onValueChange={props.onInputChange}
+                textStyle={inputTypography}
+                keyboardOptions={{ imeAction: "done" }}
+                keyboardActions={{
+                  onDone: confirm,
+                }}
+                colors={{
+                  focusedTextColor: colors["--color-foreground"],
+                  unfocusedTextColor: colors["--color-foreground"],
+                  focusedIndicatorColor: colors["--color-primary"],
+                  unfocusedIndicatorColor: colors["--color-border"],
+                  cursorColor: colors["--color-primary"],
+                }}
+              >
+                <OutlinedTextField.Label>
+                  <Text style={bodyTypography}>{props.request.title}</Text>
+                </OutlinedTextField.Label>
+              </OutlinedTextField>
+            </Column>
           </AlertDialog.Text>
         ) : props.request.message ? (
           <AlertDialog.Text>

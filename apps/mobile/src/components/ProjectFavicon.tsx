@@ -1,8 +1,9 @@
 import { SymbolView } from "./AppSymbol";
+import { AppText } from "./AppText";
 import { Image } from "expo-image";
 import { useLayoutEffect, useMemo, useState } from "react";
 import { View } from "react-native";
-import type { EnvironmentId } from "@t3tools/contracts";
+import type { EnvironmentId, ProjectIconOverride } from "@t3tools/contracts";
 import {
   getProjectFaviconCacheKey,
   getProjectFaviconResourceKey,
@@ -11,6 +12,13 @@ import {
 import { useAtomValue } from "@effect/atom-react";
 import { Atom } from "effect/unstable/reactivity";
 import { projectFaviconUrlAtom } from "../state/assets";
+import {
+  countGlyphs,
+  projectIconColorClassNames,
+  projectMonogram,
+  resolveProjectIconGlyph,
+  type ProjectIconGlyph,
+} from "../lib/projectIcon";
 
 import {
   beginProjectFaviconRequest,
@@ -30,10 +38,16 @@ export function ProjectFavicon(props: {
   readonly projectTitle: string;
   readonly workspaceRoot?: string | null;
   readonly faviconPath?: string | null;
+  readonly projectIcon?: ProjectIconOverride | null;
+  /** Tint of the folder fallback, so a row can match its title's color. */
+  readonly folderTintClassName?: string;
+  /** What shows without an icon or favicon: a folder, or a Project's letter tile. */
+  readonly fallback?: "folder" | "letter";
 }) {
   const size = props.size ?? 42;
+  const glyph = resolveProjectIconGlyph(props.projectIcon, props.projectTitle);
   const faviconUrl = useAtomValue(
-    props.workspaceRoot == null
+    props.workspaceRoot == null || glyph !== null
       ? EMPTY_FAVICON_URL
       : projectFaviconUrlAtom({
           environmentId: props.environmentId,
@@ -51,11 +65,17 @@ export function ProjectFavicon(props: {
         : getProjectFaviconCacheKey(props.environmentId, props.workspaceRoot, renderableFaviconUrl)
       : null;
 
+  if (glyph !== null) {
+    return <ProjectIconGlyphView glyph={glyph} size={size} />;
+  }
+
   return (
     <ProjectFaviconImage
       key={cacheKey}
       cacheKey={cacheKey}
       faviconUrl={renderableFaviconUrl}
+      folderTintClassName={props.folderTintClassName}
+      fallback={props.fallback ?? "folder"}
       open={props.open}
       projectTitle={props.projectTitle}
       size={size}
@@ -63,9 +83,91 @@ export function ProjectFavicon(props: {
   );
 }
 
+function ProjectIconGlyphView(props: { readonly glyph: ProjectIconGlyph; readonly size: number }) {
+  const { glyph, size } = props;
+  if (glyph.kind === "emoji") {
+    return (
+      <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
+        <AppText
+          allowFontScaling={false}
+          style={{
+            fontSize: size * 0.8,
+            lineHeight: size,
+            textAlign: "center",
+            includeFontPadding: false,
+          }}
+        >
+          {glyph.emoji}
+        </AppText>
+      </View>
+    );
+  }
+
+  const colors = projectIconColorClassNames(glyph.color);
+  return (
+    <View
+      className={colors.background}
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size * 0.25,
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <AppText
+        allowFontScaling={false}
+        numberOfLines={1}
+        className={`font-mono ${colors.text}`}
+        style={{
+          fontWeight: "700",
+          fontSize: size * (countGlyphs(glyph.text) === 1 ? 0.6 : 0.515625),
+          lineHeight: size,
+          textAlign: "center",
+          includeFontPadding: false,
+        }}
+      >
+        {glyph.text}
+      </AppText>
+    </View>
+  );
+}
+
+/** A Project without an icon: its initial, knocked out of a foreground tile. */
+function ProjectLetterTile(props: { readonly projectTitle: string; readonly size: number }) {
+  const initial = Array.from(projectMonogram(props.projectTitle))[0] ?? "P";
+  return (
+    <View
+      className="bg-foreground"
+      style={{
+        width: props.size,
+        height: props.size,
+        borderRadius: props.size * 0.25,
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <AppText
+        allowFontScaling={false}
+        className="font-t3-medium text-card"
+        style={{
+          fontSize: props.size * 0.6,
+          lineHeight: props.size,
+          textAlign: "center",
+          includeFontPadding: false,
+        }}
+      >
+        {initial.toLocaleUpperCase()}
+      </AppText>
+    </View>
+  );
+}
+
 function ProjectFaviconImage(props: {
   readonly cacheKey: string | null;
   readonly faviconUrl: string | null;
+  readonly folderTintClassName?: string | undefined;
+  readonly fallback: "folder" | "letter";
   readonly open?: boolean;
   readonly projectTitle: string;
   readonly size: number;
@@ -102,11 +204,13 @@ function ProjectFaviconImage(props: {
       }}
     >
       {/* Folder icon fallback (matches web's FolderIcon) */}
-      {!showImage ? (
+      {!showImage && props.fallback === "letter" ? (
+        <ProjectLetterTile projectTitle={props.projectTitle} size={props.size} />
+      ) : !showImage ? (
         <SymbolView
-          name={{ ios: "folder.fill", android: props.open ? "folder_open" : "folder" }}
-          size={props.size * 0.78}
-          tintColorClassName={"accent-icon-subtle"}
+          name={{ ios: "folder", android: props.open ? "folder_open" : "folder" }}
+          size={props.size}
+          tintColorClassName={props.folderTintClassName ?? "accent-icon-subtle"}
           type="monochrome"
         />
       ) : null}

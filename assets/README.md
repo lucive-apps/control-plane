@@ -1,67 +1,30 @@
 # Brand icons
 
-The three Icon Composer projects are the source of truth for full application icons:
+Every app icon is the Control Plane jet. Each variant has a vector mark and a 1024px master tile (the jet on white), which are the sources of truth:
 
-- `dev/app-icon.icon`
-- `nightly/app-icon.icon`
-- `prod/app-icon.icon`
+- `dev/control-plane-dev-mark.svg`, `dev/blueprint-ios-1024.png`
+- `nightly/control-plane-nightly-mark.svg`, `nightly/nightly-ios-1024.png`
+- `prod/control-plane-mark.svg`, `prod/black-ios-1024.png`
 
-Each project uses `text.svg` for the T3 mark and `background.svg` when the background is a vector layer. Additional layers use semantic names that describe their role and placement.
+The `prod/t3-black-*` files already hold the jet; only their names are inherited.
 
-Run `vp run icons:export` from the repository root to regenerate the tracked iOS, Linux, Windows, and web assets. The development web exports are also copied to `apps/web/public` for the browser favicon and splash screen. Run `vp run icons:check` to verify that the generated assets and public copies match their sources without changing files.
+Run `vp run icons:export` from the repository root to regenerate the tracked Linux, macOS, Windows, and web assets from the masters. The development web exports are also copied to `apps/web/public` for the browser favicon and splash screen. Run `vp run icons:check` to verify that the generated assets and public copies match their masters without changing files.
 
-Exporting requires Icon Composer 2 or newer on macOS. The script selects the newest compatible exporter from Xcode or a standalone Icon Composer installation and pins design generation 26. Set `ICON_COMPOSER_TOOL` to the full path of `Icon Composer.app/Contents/Executables/ictool` to override automatic discovery.
+The macOS PNGs keep their classic pre-Tahoe tile: the rounded 824×824 body inset 100px with its shadow comes from the tracked file, and the exporter only repaints the body with the master. To start a new variant, copy an existing macOS PNG and export.
 
-## macOS exports
-
-Icon Composer's command-line exporter does not expose the `macOS pre-Tahoe` preset. A plain command-line `macOS` export is full bleed and is not suitable for the desktop app, so the export script intentionally leaves the tracked macOS PNGs unchanged and prints a reminder after every run.
-
-After changing an Icon Composer project, open it in Icon Composer and export the macOS PNG with exactly these settings:
-
-- Platform: `macOS pre-Tahoe`
-- Appearance: `Default`
-- Size: `1024pt`
-- Scale: `1×`
-
-Save the three exports to:
-
-- `dev/app-icon.icon` -> `dev/blueprint-macos-1024.png`
-- `nightly/app-icon.icon` -> `nightly/nightly-macos-1024.png`
-- `prod/app-icon.icon` -> `prod/black-macos-1024.png`
-
-The result must be a 1024×1024 PNG with the classic macOS safe area: the opaque icon body is 824×824, inset 100 pixels on every side, with only the native Icon Composer shadow extending into the surrounding transparent canvas.
-
-To have Codex perform the native exports, paste this prompt into a task opened at the repository root:
-
-```text
-Use [@Computer](plugin://computer-use@openai-bundled) and the Icon Composer app to export the three macOS app icons in this repository.
-
-For each project below, use Platform: macOS pre-Tahoe, Appearance: Default, Size: 1024pt, and Scale: 1×, then save the PNG to the exact destination:
-
-- assets/dev/app-icon.icon -> assets/dev/blueprint-macos-1024.png
-- assets/nightly/app-icon.icon -> assets/nightly/nightly-macos-1024.png
-- assets/prod/app-icon.icon -> assets/prod/black-macos-1024.png
-
-Do not resize, composite, or otherwise post-process the exported PNGs.
-
-Verify every result is 1024×1024 and has the classic macOS safe area: an 824×824 opaque body inset 100px on every side, with only Icon Composer's native shadow extending beyond it.
-```
-
-Do not edit the generated PNG or ICO files directly.
+Do not edit the generated PNG or ICO files directly. Change a master and export.
 
 ## Android launcher and splash artwork
 
 Android masks the central 72dp of a 108dp adaptive canvas, and the Android 12+ splash screen masks
-the central two thirds of a 288dp canvas, so the Icon Composer exports cannot be used directly:
-their rounded-square silhouette gets framed again and the wordmark is cropped. The Android artwork
-is instead rendered from the same Icon Composer SVG sources by `vp run icons:export:android`:
+the central two thirds of a 288dp canvas, so the square master tiles cannot be used directly. The
+Android artwork is instead rendered from the variant mark SVGs by `vp run icons:export:android`:
 
-- `apps/mobile/assets/android-icon-foreground.png`: the shared transparent wordmark, sized to stay
-  inside the safe zone
-- `apps/mobile/assets/android-icon-background-dev.png` and `-nightly.png`: full-bleed variant
-  artwork (blueprint grid and annotations; night sky and clouds). Production uses a solid color.
-- `apps/mobile/assets/android-splash-icon-*.png`: the two layers composed into one 288dp image, so
-  the splash mask reproduces the launcher icon's framing.
+- `apps/mobile/assets/android-icon-foreground-*.png`: the transparent jet, sized to stay inside
+  the safe zone over the white adaptive background color.
+- `apps/mobile/assets/android-splash-icon-*.png`: the same foreground at the full splash canvas,
+  so the splash mask frames the jet like the launcher does.
+- `apps/mobile/assets/android-icon-mark.png` and `android-notification-icon.png`: flat white
+  silhouettes for Android's monochrome themed icon and the status bar.
 
-Rerun the export after changing a layer SVG. `android-icon-mark.png` remains a flat silhouette for
-Android's monochrome themed icon.
+Rerun the export after changing a mark SVG.

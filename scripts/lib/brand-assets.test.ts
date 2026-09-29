@@ -86,13 +86,13 @@ describe("brand-assets", () => {
 
   it("keeps development, nightly, and production icon families separate", () => {
     expect([
-      BRAND_ASSET_PATHS.developmentIconComposerProject,
-      BRAND_ASSET_PATHS.nightlyIconComposerProject,
-      BRAND_ASSET_PATHS.productionIconComposerProject,
+      BRAND_ASSET_PATHS.developmentMarkSvg,
+      BRAND_ASSET_PATHS.nightlyMarkSvg,
+      BRAND_ASSET_PATHS.productionMarkSvg,
     ]).toEqual([
-      "assets/dev/app-icon.icon",
-      "assets/nightly/app-icon.icon",
-      "assets/prod/app-icon.icon",
+      "assets/dev/control-plane-dev-mark.svg",
+      "assets/nightly/control-plane-nightly-mark.svg",
+      "assets/prod/control-plane-mark.svg",
     ]);
     expect(BRAND_ASSET_PATHS.developmentDesktopIconPng).toMatch(/^assets\/dev\/blueprint-/);
     expect(BRAND_ASSET_PATHS.nightlyMacIconPng).toMatch(/^assets\/nightly\/nightly-/);

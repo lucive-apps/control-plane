@@ -34,13 +34,15 @@ function InspectorContentPane(props: {
 
 export function ThreadInspectorContentStack(props: {
   readonly Files: ComponentType;
-  readonly Git: ComponentType;
+  /** Absent where git controls are hidden (a Project's coordinator and Local agents). */
+  readonly Git?: ComponentType;
   readonly mode: ThreadInspectorMode;
   readonly Route?: ComponentType;
 }) {
   const [mountedModes, setMountedModes] = useState<ReadonlySet<ThreadInspectorMode>>(
     () => new Set([props.mode]),
   );
+  const hasGit = props.Git !== undefined;
 
   useEffect(() => {
     setMountedModes((current) => {
@@ -50,7 +52,8 @@ export function ThreadInspectorContentStack(props: {
       return new Set([...current, props.mode]);
     });
 
-    if (props.mode === "route") {
+    // Without Git there is no other chat inspector to keep warm.
+    if (props.mode === "route" || !hasGit) {
       return;
     }
 
@@ -68,7 +71,7 @@ export function ThreadInspectorContentStack(props: {
     }, INSPECTOR_PREWARM_DELAY_MS);
 
     return () => clearTimeout(timeout);
-  }, [props.mode]);
+  }, [hasGit, props.mode]);
 
   const Files = props.Files;
   const Git = props.Git;
@@ -82,12 +85,14 @@ export function ThreadInspectorContentStack(props: {
       >
         <Files />
       </InspectorContentPane>
-      <InspectorContentPane
-        mounted={mountedModes.has("git") || props.mode === "git"}
-        visible={props.mode === "git"}
-      >
-        <Git />
-      </InspectorContentPane>
+      {Git ? (
+        <InspectorContentPane
+          mounted={mountedModes.has("git") || props.mode === "git"}
+          visible={props.mode === "git"}
+        >
+          <Git />
+        </InspectorContentPane>
+      ) : null}
       {Route ? (
         <InspectorContentPane
           mounted={mountedModes.has("route") || props.mode === "route"}

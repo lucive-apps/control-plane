@@ -6,6 +6,7 @@ import {
   squashAtomCommandFailure,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
+import { scheduleDeletionWarning } from "@t3tools/client-runtime/state/schedules";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type {
   EnvironmentId,
@@ -139,16 +140,12 @@ export function useAssistantActions() {
       unarchive: (projectRef: ScopedProjectRef) =>
         updateAssistant(projectRef, { archived: false }, "Failed to unarchive Project"),
       moveToTasks: async (project: AssistantActionProject): Promise<boolean> => {
-        const scheduleCount = project.assistant?.schedules?.length ?? 0;
+        const scheduleWarning = scheduleDeletionWarning(project.assistant);
         const confirmed = await confirm(
           [
             `Move "${project.title}" to Tasks?`,
             "It becomes a plain workspace: the coordinator and agents stay as ordinary threads, and the files stay on disk.",
-            ...(scheduleCount > 0
-              ? [
-                  `${scheduleCount} ${scheduleCount === 1 ? "schedule" : "schedules"} will be deleted.`,
-                ]
-              : []),
+            ...(scheduleWarning === null ? [] : [scheduleWarning]),
           ].join("\n"),
         );
         if (!confirmed) return false;

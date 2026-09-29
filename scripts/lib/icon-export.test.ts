@@ -1,6 +1,6 @@
 import { assert, describe, it } from "@effect/vitest";
 
-import { encodePngIco, readPngDimensions } from "./icon-export.ts";
+import { encodePngIco } from "./icon-export.ts";
 
 const pngHeader = (width: number, height: number) => {
   const contents = Buffer.alloc(24);
@@ -12,10 +12,6 @@ const pngHeader = (width: number, height: number) => {
 };
 
 describe("icon export", () => {
-  it("reads dimensions from a PNG IHDR chunk", () => {
-    assert.deepEqual(readPngDimensions(pngHeader(1024, 512)), { width: 1024, height: 512 });
-  });
-
   it("encodes PNG renditions into an ICO directory", () => {
     const small = pngHeader(16, 16);
     const large = pngHeader(256, 256);

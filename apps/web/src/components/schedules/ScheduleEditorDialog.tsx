@@ -1,10 +1,16 @@
 import {
-  cronToPreset,
-  DEFAULT_SCHEDULE_PRESET,
+  buildScheduleEditorDraft,
   formatScheduleRunTime,
-  presetToCron,
-  schedulePresetError,
+  initialScheduleEditorForm,
+  resolveScheduleEditor,
+  SCHEDULE_PRESET_KINDS,
+  SCHEDULE_PRESET_LABELS,
+  SCHEDULE_WEEK_DAYS,
+  scheduleEditorChangeText,
+  switchSchedulePreset,
   type ScheduleDraft,
+  type ScheduleEditorChange,
+  type ScheduleEditorForm,
   type SchedulePreset,
   type SchedulePresetKind,
   type ScheduleTargetOption,
@@ -15,12 +21,7 @@ import {
   type ProjectSchedule,
   type ProjectScheduleTarget,
 } from "@t3tools/contracts";
-import {
-  describeCron,
-  newScheduleId,
-  nextScheduleRuns,
-  validateScheduleCron,
-} from "@t3tools/shared/schedules";
+import { describeCron } from "@t3tools/shared/schedules";
 import { useId, useState, type ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
@@ -40,25 +41,6 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import { Textarea } from "../ui/textarea";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 
-const PRESET_LABELS: Record<SchedulePresetKind, string> = {
-  daily: "Every day",
-  weekdays: "Weekdays",
-  weekly: "Weekly on",
-  hourly: "Every N hours",
-  monthly: "Monthly",
-  custom: "Custom",
-};
-const PRESET_KINDS = Object.keys(PRESET_LABELS) as SchedulePresetKind[];
-// Monday first, the way people read a week; values are cron weekdays (Sunday = 0).
-const WEEK_DAYS = [
-  [1, "Mon"],
-  [2, "Tue"],
-  [3, "Wed"],
-  [4, "Thu"],
-  [5, "Fri"],
-  [6, "Sat"],
-  [0, "Sun"],
-] as const;
 const HOUR_STEPS = Array.from({ length: 12 }, (_, index) => `${index + 1}`);
 const MONTH_DAYS = Array.from({ length: 28 }, (_, index) => `${index + 1}`);
 
@@ -76,7 +58,7 @@ export function ScheduleEditorDialog(props: {
   readonly prompt: string | undefined;
   readonly promptPending: boolean;
   readonly promptFailed: boolean;
-  readonly changed: "edited" | "deleted" | null;
+  readonly changed: ScheduleEditorChange;
   readonly targetOptions: readonly ScheduleTargetOption[];
   readonly timeZone: string;
   readonly onSave: (draft: ScheduleDraft) => Promise<boolean>;
@@ -85,52 +67,38 @@ export function ScheduleEditorDialog(props: {
 }) {
   const { schedule, targetOptions, timeZone } = props;
   const id = useId();
-  const [name, setName] = useState(schedule?.name ?? "");
-  const [target, setTarget] = useState<ProjectScheduleTarget>(schedule?.target ?? "coordinator");
-  const [typedPrompt, setTypedPrompt] = useState<string | null>(null);
-  const [preset, setPreset] = useState<SchedulePreset>(() =>
-    schedule ? cronToPreset(schedule.cron) : DEFAULT_SCHEDULE_PRESET,
-  );
-  const [cadenceTouched, setCadenceTouched] = useState(schedule === null);
+  const [form, setForm] = useState<ScheduleEditorForm>(() => initialScheduleEditorForm(schedule));
   const [isSaving, setIsSaving] = useState(false);
+  const { name, target, preset } = form;
+  const view = resolveScheduleEditor({
+    opened: schedule,
+    form,
+    storedPrompt: props.prompt,
+    targetOptions,
+    changed: props.changed,
+    saving: isSaving,
+    now: new Date(),
+    timeZone,
+  });
+  const { prompt, promptUnknown, cron, cadenceError, nextRuns, targetKnown, changed, canSave } =
+    view;
+  const update = (next: Partial<ScheduleEditorForm>) =>
+    setForm((current) => ({ ...current, ...next }));
+  const setName = (value: string) => update({ name: value });
+  const setTarget = (value: ProjectScheduleTarget) => update({ target: value });
+  const setTypedPrompt = (value: string) => update({ typedPrompt: value });
 
-  const prompt = typedPrompt ?? props.prompt ?? "";
-  // Unknown until status loads; an untouched field then saves the stored prompt.
-  const promptUnknown = schedule !== null && typedPrompt === null && props.prompt === undefined;
-  const changed = isSaving ? null : props.changed;
-  const cron = cadenceTouched || schedule === null ? presetToCron(preset) : schedule.cron;
-  const cadenceError =
-    cadenceTouched || schedule === null ? schedulePresetError(preset) : validateScheduleCron(cron);
-  const nextRuns = cadenceError === null ? nextScheduleRuns(cron, timeZone, new Date(), 3) : [];
-  const trimmedName = name.trim();
-  const targetKnown = targetOptions.some((option) => option.value === target);
-  const promptRequired = schedule === null || typedPrompt !== null;
-  const canSave =
-    !isSaving &&
-    changed === null &&
-    trimmedName.length > 0 &&
-    cadenceError === null &&
-    targetKnown &&
-    (!promptRequired || prompt.trim().length > 0);
-
-  const changePreset = (next: Partial<SchedulePreset>) => {
-    setCadenceTouched(true);
-    setPreset((current) => ({ ...current, ...next }));
-  };
+  const changePreset = (next: Partial<SchedulePreset>) =>
+    setForm((current) => ({
+      ...current,
+      cadenceTouched: true,
+      preset: { ...current.preset, ...next },
+    }));
 
   const save = async () => {
     if (!canSave) return;
     setIsSaving(true);
-    const saved = await props.onSave({
-      id: schedule?.id ?? newScheduleId(trimmedName),
-      name: trimmedName,
-      cron,
-      target,
-      enabled: schedule?.enabled ?? true,
-      // Only a new or edited prompt travels; omitted keeps the stored one.
-      ...(promptRequired ? { prompt } : {}),
-      updatedAt: schedule?.updatedAt,
-    });
+    const saved = await props.onSave(buildScheduleEditorDraft({ opened: schedule, form, view }));
     setIsSaving(false);
     if (saved) props.onClose();
   };
@@ -167,9 +135,7 @@ export function ScheduleEditorDialog(props: {
           <DialogPanel className="flex flex-col gap-4 text-base sm:text-sm">
             {changed !== null ? (
               <p role="alert" className="text-warning-foreground">
-                {changed === "deleted"
-                  ? "This schedule was deleted since you opened it."
-                  : "This schedule changed since you opened it. Close and reopen it to edit the latest version."}
+                {scheduleEditorChangeText(changed)}
               </p>
             ) : null}
             <Field label="Name" htmlFor={`${id}-name`}>
@@ -221,7 +187,7 @@ export function ScheduleEditorDialog(props: {
                 id={`${id}-prompt`}
                 rows={4}
                 maxLength={PROJECT_SCHEDULE_PROMPT_MAX}
-                disabled={schedule !== null && typedPrompt === null && props.promptPending}
+                disabled={schedule !== null && form.typedPrompt === null && props.promptPending}
                 placeholder={
                   promptUnknown && props.promptPending
                     ? "Loading…"
@@ -239,24 +205,19 @@ export function ScheduleEditorDialog(props: {
               <div className="flex flex-wrap items-center gap-2">
                 <Select
                   value={preset.kind}
-                  items={PRESET_LABELS}
+                  items={SCHEDULE_PRESET_LABELS}
                   onValueChange={(value) => {
                     if (!value) return;
-                    // Custom starts from the cadence on screen, not a stale cron.
-                    changePreset(
-                      value === "custom" && preset.kind !== "custom"
-                        ? { kind: "custom", cron }
-                        : { kind: value as SchedulePresetKind },
-                    );
+                    changePreset(switchSchedulePreset(preset, value as SchedulePresetKind, cron));
                   }}
                 >
                   <SelectTrigger id={`${id}-cadence`} className="w-auto min-w-36">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectPopup>
-                    {PRESET_KINDS.map((kind) => (
+                    {SCHEDULE_PRESET_KINDS.map((kind) => (
                       <SelectItem key={kind} value={kind}>
-                        {PRESET_LABELS[kind]}
+                        {SCHEDULE_PRESET_LABELS[kind]}
                       </SelectItem>
                     ))}
                   </SelectPopup>
@@ -270,7 +231,7 @@ export function ScheduleEditorDialog(props: {
                   value={preset.days.map(String)}
                   onValueChange={(values) => changePreset({ days: values.map(Number) })}
                 >
-                  {WEEK_DAYS.map(([day, label]) => (
+                  {SCHEDULE_WEEK_DAYS.map(([day, label]) => (
                     <Toggle key={day} value={`${day}`}>
                       {label}
                     </Toggle>

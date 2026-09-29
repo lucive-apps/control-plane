@@ -223,6 +223,18 @@
       "types": "./src/state/assistants.ts",
       "default": "./src/state/assistants.ts"
     },
+    "./state/assistant-lists": {
+      "types": "./src/state/assistantLists.ts",
+      "default": "./src/state/assistantLists.ts"
+    },
+    "./state/assistant-flows": {
+      "types": "./src/state/assistantFlows.ts",
+      "default": "./src/state/assistantFlows.ts"
+    },
+    "./state/assistant-thread-view": {
+      "types": "./src/state/assistantThreadView.ts",
+      "default": "./src/state/assistantThreadView.ts"
+    },
     "./state/schedules": {
       "types": "./src/state/schedules.ts",
       "default": "./src/state/schedules.ts"

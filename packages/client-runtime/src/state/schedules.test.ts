@@ -9,19 +9,38 @@ import {
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  buildScheduleEditorDraft,
   buildScheduleInputs,
+  buildScheduleRows,
   cronToPreset,
   DEFAULT_SCHEDULE_PRESET,
   diffScheduleRunAlerts,
+  formatScheduleClock,
+  formatScheduledMessageTime,
   formatTimeUntil,
   hasScheduleAttention,
+  initialScheduleEditorForm,
   planPauseAllSchedules,
   presetToCron,
+  resolveScheduleEditor,
+  resolveScheduleHost,
   resolveScheduleRowState,
   scheduleAuthorLabel,
+  scheduleDeletionWarning,
+  scheduleEditorChange,
+  scheduleHostProblems,
+  scheduleHostProblemText,
+  scheduleHostSummary,
   schedulePresetError,
+  scheduleRunNotice,
   scheduleTargetOptions,
+  scheduleUnsupportedText,
+  storedSchedulePrompt,
   summarizeSchedules,
+  switchSchedulePreset,
+  toggleScheduleDay,
+  type ScheduleEditorForm,
+  type ScheduleListThread,
   type SchedulePreset,
 } from "./schedules.ts";
 
@@ -480,5 +499,365 @@ describe("diffScheduleRunAlerts", () => {
       diffScheduleRunAlerts(first.seen, [projectWith(missed, { archivedAt: NOW.toISOString() })])
         .alerts,
     ).toEqual([]);
+  });
+});
+
+describe("buildScheduleRows", () => {
+  function thread(overrides: Partial<ScheduleListThread> & Pick<ScheduleListThread, "id">) {
+    return {
+      title: "Thread",
+      archivedAt: null,
+      session: null,
+      hasPendingApprovals: false,
+      hasPendingUserInput: false,
+      latestUserMessageAt: null,
+      ...overrides,
+    };
+  }
+  const threads = [
+    thread({ id: coordinatorThreadId, title: "Personal" }),
+    thread({ id: salesThreadId, title: "Sales" }),
+  ];
+  const rows = (input: {
+    schedules: ProjectSchedule[];
+    scheduleRuns?: Record<string, ProjectScheduleRun>;
+    threads?: readonly ScheduleListThread[];
+    held?: Record<string, { since: string }>;
+  }) =>
+    buildScheduleRows({
+      assistant: assistant({
+        schedules: input.schedules,
+        ...(input.scheduleRuns ? { scheduleRuns: input.scheduleRuns } : {}),
+      }),
+      projectTitle: "Personal project",
+      threads: input.threads ?? threads,
+      held: input.held,
+      now: NOW,
+      timeZone: ZONE,
+    });
+
+  it("reads cadence, target and next run in the host zone, or Paused", () => {
+    const [on, paused] = rows({
+      schedules: [
+        schedule(),
+        schedule({ id: "weekly-review", cron: "0 16 * * 5", enabled: false }),
+      ],
+    });
+    // Tuesday 9:00 in Denver; the next weekday 7:00 is 22 hours away.
+    expect(on).toMatchObject({
+      detail: "Weekdays at 7:00 · Coordinator · in 22h",
+      targetTitle: "Personal",
+      state: { text: "Not run yet" },
+      author: null,
+    });
+    expect(paused!.detail).toBe("Fridays at 16:00 · Coordinator · Paused");
+  });
+
+  it("names a standing agent target, and a missing one without failing the row", () => {
+    const toSales = schedule({ id: "pipeline", target: salesThreadId });
+    expect(
+      rows({ schedules: [toSales], held: { pipeline: { since: NOW.toISOString() } } })[0],
+    ).toMatchObject({
+      detail: "Weekdays at 7:00 · Sales · in 22h",
+      targetTitle: "Sales",
+      state: { kind: "held", text: "Queued until Sales is idle" },
+    });
+    const archived = [threads[0]!, { ...threads[1]!, archivedAt: NOW.toISOString() }];
+    expect(rows({ schedules: [toSales], threads: archived })[0]).toMatchObject({
+      detail: "Weekdays at 7:00 · Missing agent · in 22h",
+      targetTitle: "its agent",
+    });
+  });
+
+  it("falls back to the Project title before the coordinator's shell arrives", () => {
+    expect(rows({ schedules: [schedule()], threads: [] })[0]!.targetTitle).toBe("Personal project");
+  });
+
+  it("reads Running now from the target's shell, and labels an agent's schedule", () => {
+    const sent = run();
+    const [row] = rows({
+      schedules: [schedule({ createdBy: coordinatorThreadId, updatedBy: coordinatorThreadId })],
+      scheduleRuns: { [schedule().id]: sent },
+      threads: [
+        thread({
+          id: coordinatorThreadId,
+          title: "Personal",
+          session: { status: "running" },
+          latestUserMessageAt: sent.at,
+        }),
+      ],
+    });
+    expect(row).toMatchObject({ state: { kind: "running" }, author: "Created by Personal" });
+  });
+
+  it("reads the same rows on an engine without longOffset or formatToParts, as Hermes", () => {
+    // Edmonton keeps Denver's clock; no other test reads it, so no zone or run is cached yet.
+    const build = () =>
+      buildScheduleRows({
+        assistant: assistant({
+          schedules: [schedule(), schedule({ id: "weekly-review", cron: "30 16 * * 5" })],
+          scheduleRuns: {
+            [schedule().id]: run(),
+            "weekly-review": run({ at: "2026-09-25T22:30:00.000Z" }),
+          },
+        }),
+        projectTitle: "Personal project",
+        threads,
+        held: undefined,
+        now: NOW,
+        timeZone: "America/Edmonton",
+      }).map((row) => [row.detail, row.state.text]);
+
+    const realFormat = Intl.DateTimeFormat;
+    class HermesDateTimeFormat extends realFormat {
+      constructor(locales?: string | string[], options?: Intl.DateTimeFormatOptions) {
+        if (options?.timeZoneName === "longOffset") throw new RangeError("Invalid timeZoneName");
+        super(locales, options);
+      }
+      override formatToParts(date?: Date | number): Intl.DateTimeFormatPart[] {
+        return [{ type: "literal", value: this.format(date) }];
+      }
+    }
+    Intl.DateTimeFormat = HermesDateTimeFormat as typeof Intl.DateTimeFormat;
+    let hermes: ReturnType<typeof build>;
+    try {
+      hermes = build();
+    } finally {
+      Intl.DateTimeFormat = realFormat;
+    }
+
+    expect(hermes).toEqual([
+      ["Weekdays at 7:00 · Coordinator · in 22h", "Ran at 7:00"],
+      ["Fridays at 16:30 · Coordinator · in 3d", "Ran on Sep 25 at 16:30"],
+    ]);
+    expect(build()).toEqual(hermes);
+  });
+});
+
+describe("schedule editor", () => {
+  const options = [
+    { value: "coordinator" as const, label: "Coordinator" },
+    { value: salesThreadId, label: "Sales" },
+  ];
+  const editor = (input: {
+    opened: ProjectSchedule | null;
+    form?: Partial<ScheduleEditorForm>;
+    storedPrompt?: string;
+    changed?: "edited" | "deleted" | null;
+    saving?: boolean;
+  }) => {
+    const form = { ...initialScheduleEditorForm(input.opened), ...input.form };
+    const view = resolveScheduleEditor({
+      opened: input.opened,
+      form,
+      storedPrompt: input.storedPrompt,
+      targetOptions: options,
+      changed: input.changed ?? null,
+      saving: input.saving ?? false,
+      now: NOW,
+      timeZone: ZONE,
+    });
+    return { view, draft: () => buildScheduleEditorDraft({ opened: input.opened, form, view }) };
+  };
+
+  it("saves a new schedule only with a name and a prompt, switched on, with a fresh id", () => {
+    expect(editor({ opened: null }).view).toMatchObject({ canSave: false, dirty: false });
+    expect(editor({ opened: null, form: { name: "Morning brief" } }).view.canSave).toBe(false);
+    const { view, draft } = editor({
+      opened: null,
+      form: { name: " Morning brief ", typedPrompt: "Summarize." },
+    });
+    expect(view).toMatchObject({ canSave: true, dirty: true, cron: "0 9 * * 1-5" });
+    expect(view.nextRuns.map((date) => date.toISOString())).toEqual([
+      "2026-09-30T15:00:00.000Z",
+      "2026-10-01T15:00:00.000Z",
+      "2026-10-02T15:00:00.000Z",
+    ]);
+    expect(draft()).toMatchObject({
+      name: "Morning brief",
+      cron: "0 9 * * 1-5",
+      target: "coordinator",
+      enabled: true,
+      prompt: "Summarize.",
+      updatedAt: undefined,
+    });
+    expect(draft().id).toMatch(/^morning-brief-[a-z0-9]{6}$/);
+  });
+
+  it("keeps an untouched cadence and prompt, echoing the version it opened", () => {
+    const opened = schedule({ cron: "15 */2 * * *", enabled: false });
+    const { view, draft } = editor({ opened });
+    expect(view).toMatchObject({
+      promptUnknown: true,
+      promptRequired: false,
+      canSave: true,
+      dirty: false,
+    });
+    expect(draft()).toEqual({
+      id: opened.id,
+      name: "Morning brief",
+      cron: "15 */2 * * *",
+      target: "coordinator",
+      enabled: false,
+      updatedAt: opened.updatedAt,
+    });
+  });
+
+  it("sends a typed prompt, and refuses an emptied one", () => {
+    const opened = schedule();
+    expect(
+      editor({ opened, storedPrompt: "Old", form: { typedPrompt: "New" } }).draft(),
+    ).toMatchObject({ prompt: "New" });
+    expect(editor({ opened, storedPrompt: "Old", form: { typedPrompt: "Old" } }).view.dirty).toBe(
+      false,
+    );
+    expect(editor({ opened, form: { typedPrompt: "  " } }).view.canSave).toBe(false);
+  });
+
+  it("refuses to save over a schedule that changed, except while its own save lands", () => {
+    const opened = schedule();
+    expect(editor({ opened, changed: "edited" }).view).toMatchObject({
+      canSave: false,
+      changed: "edited",
+    });
+    expect(editor({ opened, changed: "edited", saving: true }).view.changed).toBeNull();
+    expect(scheduleEditorChange(opened, [opened])).toBeNull();
+    expect(
+      scheduleEditorChange(opened, [{ ...opened, updatedAt: "2026-09-29T14:00:00.000Z" }]),
+    ).toBe("edited");
+    expect(scheduleEditorChange(opened, [])).toBe("deleted");
+    expect(scheduleEditorChange(null, [])).toBeNull();
+  });
+
+  it("refuses a target no longer offered and a cadence that never runs", () => {
+    const opened = schedule({ target: ThreadId.make("unpinned") });
+    expect(editor({ opened }).view).toMatchObject({ targetKnown: false, canSave: false });
+    const never = editor({
+      opened: schedule(),
+      form: {
+        cadenceTouched: true,
+        preset: { ...DEFAULT_SCHEDULE_PRESET, kind: "custom", cron: "0 9 31 2 *" },
+      },
+    }).view;
+    expect(never).toMatchObject({
+      cadenceError: "That schedule never runs.",
+      nextRuns: [],
+      canSave: false,
+      dirty: true,
+    });
+  });
+
+  it("starts Custom from the cadence on screen and toggles weekly days in order", () => {
+    const weekly = { ...DEFAULT_SCHEDULE_PRESET, kind: "weekly" as const, days: [1] };
+    expect(switchSchedulePreset(weekly, "custom", "0 9 * * 1")).toMatchObject({
+      kind: "custom",
+      cron: "0 9 * * 1",
+      days: [1],
+    });
+    const custom = { ...weekly, kind: "custom" as const, cron: "5 4 * * *" };
+    expect(switchSchedulePreset(custom, "custom", "0 9 * * 1").cron).toBe("5 4 * * *");
+    expect(switchSchedulePreset(custom, "daily", "5 4 * * *").kind).toBe("daily");
+    expect(toggleScheduleDay([5, 1], 0)).toEqual([0, 1, 5]);
+    expect(toggleScheduleDay([0, 1, 5], 1)).toEqual([0, 5]);
+  });
+});
+
+describe("schedule host and notices", () => {
+  const host = {
+    scheduler: "launchd" as const,
+    backend: "os" as const,
+    timeZone: ZONE,
+    entry: { state: "installed" as const },
+    problems: ["backend-off" as const, "zone-mismatch" as const],
+    hostZone: "America/Boise",
+  };
+
+  it("lists host problems, leaving backend-off to the unsupported line", () => {
+    expect(scheduleHostProblems(host)).toEqual(["zone-mismatch"]);
+    expect(scheduleHostProblems(null)).toEqual([]);
+    expect(scheduleHostProblemText("zone-mismatch", host)).toBe(
+      "The host's time zone is America/Boise, but Control Plane is using America/Denver. Restart Control Plane to switch.",
+    );
+    expect(scheduleUnsupportedText(["unsupported-platform"])).toBe(
+      "Schedules aren't available on Windows yet.",
+    );
+    expect(scheduleUnsupportedText(["backend-off"])).toBe(
+      "This host doesn't run schedules. They run from the Control Plane desktop app.",
+    );
+  });
+
+  it("reads the live host over the startup capability, and replaces the list where none run", () => {
+    const capability = { scheduler: "launchd" as const, timeZone: "America/Boise" };
+    expect(resolveScheduleHost({ capability, host: null })).toEqual({
+      timeZone: "America/Boise",
+      scheduler: "launchd",
+      unsupportedText: null,
+      problems: [],
+    });
+    expect(resolveScheduleHost({ capability, host })).toEqual({
+      timeZone: ZONE,
+      scheduler: "launchd",
+      unsupportedText: null,
+      problems: [scheduleHostProblemText("zone-mismatch", host)],
+    });
+    const off = { ...host, scheduler: "none" as const, problems: ["backend-off" as const] };
+    expect(resolveScheduleHost({ capability, host: off }).unsupportedText).toBe(
+      "This host doesn't run schedules. They run from the Control Plane desktop app.",
+    );
+    expect(
+      resolveScheduleHost({ capability: { ...capability, scheduler: "none" }, host: null })
+        .unsupportedText,
+    ).toBe("This host doesn't run schedules. They run from the Control Plane desktop app.");
+  });
+
+  it("reads a stored prompt by own key only, and a preset's clock time", () => {
+    expect(storedSchedulePrompt({ brief: "Summarize." }, "brief")).toBe("Summarize.");
+    expect(storedSchedulePrompt({}, "constructor")).toBeUndefined();
+    expect(storedSchedulePrompt(undefined, "brief")).toBeUndefined();
+    expect(formatScheduleClock(7, 5)).toBe("7:05");
+    expect(formatScheduleClock(16, 30)).toBe("16:30");
+  });
+
+  it("names the host and its scheduler on the read-only line", () => {
+    expect(scheduleHostSummary({ scheduler: "launchd", backend: "os", hostLabel: "Studio" })).toBe(
+      "Runs on Studio with launchd while Control Plane is running there.",
+    );
+    expect(
+      scheduleHostSummary({ scheduler: "launchd", backend: "dry-run", hostLabel: "Studio" }),
+    ).toBe("Dry run on Studio: its launchd entry is written but never installed.");
+    expect(scheduleHostSummary({ scheduler: "none", backend: null, hostLabel: "Studio" })).toBe(
+      null,
+    );
+  });
+
+  it("says why Run now did not send", () => {
+    expect(scheduleRunNotice({ outcome: "sent" }, "Sales")).toBeNull();
+    expect(scheduleRunNotice({ outcome: "held" }, "Sales")).toEqual({
+      tone: "info",
+      title: "Queued until Sales is idle",
+    });
+    expect(scheduleRunNotice({ outcome: "missed", reason: "target-missing" }, "Sales")).toEqual({
+      tone: "warning",
+      title: "Schedule missed",
+      description: "The thread it runs in is gone. Edit the schedule to pick another.",
+    });
+  });
+
+  it("warns Move to Tasks about the schedules it deletes", () => {
+    expect(scheduleDeletionWarning(assistant())).toBeNull();
+    expect(scheduleDeletionWarning(assistant({ schedules: [schedule()] }))).toBe(
+      "1 schedule will be deleted.",
+    );
+    expect(
+      scheduleDeletionWarning(assistant({ schedules: [schedule(), schedule({ id: "b" })] })),
+    ).toBe("2 schedules will be deleted.");
+  });
+
+  it("times a scheduled prompt's label, with the day once it is not today", () => {
+    expect(formatScheduledMessageTime("2026-09-29T13:00:02.000Z", NOW, ZONE)).toBe("7:00");
+    expect(formatScheduledMessageTime("2026-09-25T22:30:00.000Z", NOW, ZONE)).toBe(
+      "Sep 25 at 16:30",
+    );
+    expect(formatScheduledMessageTime("not a date", NOW, ZONE)).toBe("");
   });
 });

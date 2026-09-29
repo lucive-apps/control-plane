@@ -1,6 +1,7 @@
 import {
   buildScheduleInputs,
   planPauseAllSchedules,
+  scheduleRunNotice,
   type ScheduleDraft,
   type ScheduleListChange,
 } from "@t3tools/client-runtime/state/schedules";
@@ -81,16 +82,12 @@ export function useScheduleActions() {
         if (reportFailure("Could not run the schedule", result) || result._tag !== "Success") {
           return;
         }
-        if (result.value.outcome === "held") {
-          toastManager.add({ type: "info", title: `Queued until ${targetTitle} is idle` });
-        } else if (result.value.outcome === "missed") {
+        const notice = scheduleRunNotice(result.value, targetTitle);
+        if (notice !== null) {
           toastManager.add({
-            type: "warning",
-            title: "Schedule missed",
-            description:
-              result.value.reason === "target-missing"
-                ? "The thread it runs in is gone. Edit the schedule to pick another."
-                : "It could not start.",
+            type: notice.tone,
+            title: notice.title,
+            ...(notice.description === undefined ? {} : { description: notice.description }),
           });
         }
       },

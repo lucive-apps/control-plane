@@ -45,7 +45,7 @@ export function createSidebarHeaderItems(input: {
     withNativeGlassHeaderItem({
       type: "menu",
       label: "",
-      accessibilityLabel: "Filter and sort threads",
+      accessibilityLabel: "Filter threads",
       icon: sfSymbolIcon(input.filterIcon),
       menu: {
         title: input.filterMenu.title,
@@ -62,14 +62,14 @@ export function createSidebarHeaderItems(input: {
   ];
 }
 
-/** Top-left Inbox back control for Working, Needs Attention, and project lists. */
-export function createHomeInboxBackHeaderItem(input: {
+/** Top-left control that clears the Environment and Workspace filters. */
+export function createClearFilterHeaderItem(input: {
   readonly onPress: () => void;
 }): NativeStackHeaderItem {
   return withNativeGlassHeaderItem({
     type: "button",
     label: "",
-    accessibilityLabel: "Back to Inbox",
+    accessibilityLabel: "Clear filter",
     icon: sfSymbolIcon("chevron.left"),
     onPress: input.onPress,
   });
@@ -81,6 +81,8 @@ export function createHomeListHeaderItems(input: {
   readonly filterMenu: HomeListFilterMenu;
   readonly onFocusSearch: () => void;
   readonly onOpenSettings: () => void;
+  /** The iPhone Home lists settled threads on their own screen. */
+  readonly onOpenSettled?: () => void;
 }): NativeStackHeaderItem[] {
   return [
     withNativeGlassHeaderItem({
@@ -96,6 +98,9 @@ export function createHomeListHeaderItems(input: {
         title: "",
         items: [
           ...toNativeHeaderMenuItems(input.filterMenu.items),
+          ...(input.onOpenSettled
+            ? [{ type: "action" as const, label: "View Settled", onPress: input.onOpenSettled }]
+            : []),
           {
             type: "action",
             label: "Settings",

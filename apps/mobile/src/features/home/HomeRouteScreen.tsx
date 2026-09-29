@@ -1,3 +1,5 @@
+import { selectWorkspaceProjects } from "@t3tools/client-runtime/state/assistants";
+import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import * as Arr from "effect/Array";
 import * as Order from "effect/Order";
 import { useNavigation } from "@react-navigation/native";
@@ -20,13 +22,10 @@ import { checkForAppUpdateOnLaunch, startAppUpdateForegroundRecheck } from "../u
 import { AndroidHomeFabLayout } from "./AndroidHomeFab";
 import { HomeScreen } from "./HomeScreen";
 import { HomeHeader } from "./HomeHeader";
-import type { HomeInboxLane } from "./HomeInbox";
 import { setAddProjectClosesSheet } from "../projects/AddProjectScreen.logic";
 import { useHomeListOptions } from "./home-list-options";
 import { useHomeThreadSelection } from "./home-thread-navigation";
 import { buildHomeProjectScopes } from "./homeThreadList";
-import { usePendingTaskListActions } from "./usePendingTaskListActions";
-import { useThreadListActions } from "./useThreadListActions";
 
 /* ─── Route screen ───────────────────────────────────────────────────── */
 
@@ -47,21 +46,11 @@ export function HomeRouteScreen() {
     startAppUpdateForegroundRecheck();
   }, []);
 
-  const {
-    archiveThread,
-    confirmDeleteThread,
-    settleThread,
-    snoozeThread,
-    unsnoozeThread,
-    pinThread,
-    unpinThread,
-    moveThread,
-    renameThread,
-    regenerateThreadTitle,
-    unsettleThread,
-  } = useThreadListActions();
   const pendingTasks = usePendingNewTasks();
-  const { openPendingTask, confirmDeletePendingTask } = usePendingTaskListActions();
+  const homePendingTasks = useMemo(
+    () => pendingTasks.filter((task) => task.kind !== "draft"),
+    [pendingTasks],
+  );
   const environments = useMemo(() => {
     const connectionStateByEnvironmentId = new Map(
       workspaceEnvironments.map(
@@ -82,31 +71,46 @@ export function HomeRouteScreen() {
     () => new Set(environments.map((environment) => environment.environmentId)),
     [environments],
   );
-  const {
-    options: listOptions,
-    setSelectedEnvironmentId,
-    setProjectSortOrder,
-    setThreadSortOrder,
-  } = useHomeListOptions(availableEnvironmentIds);
+  const { options: listOptions, setSelectedEnvironmentId } =
+    useHomeListOptions(availableEnvironmentIds);
   const selectedEnvironmentId = listOptions.selectedEnvironmentId;
   const [selectedProjectKey, setSelectedProjectKey] = useState<string | null>(null);
-  const [inboxLane, setInboxLane] = useState<HomeInboxLane>("inbox");
-  const handleBackToInbox = useCallback(() => {
-    setInboxLane("inbox");
+  const filterActive = selectedEnvironmentId !== null || selectedProjectKey !== null;
+  const handleClearFilter = useCallback(() => {
+    setSelectedEnvironmentId(null);
     setSelectedProjectKey(null);
-  }, []);
-  const inboxDrilled = inboxLane !== "inbox" || selectedProjectKey !== null;
+  }, [setSelectedEnvironmentId]);
+  // The Workspace filter lists Tasks folders only; Project folders are not workspaces.
+  const workspaceProjects = useMemo(() => selectWorkspaceProjects(projects), [projects]);
   const projectFilterOptions = useMemo(
     () =>
       buildHomeProjectScopes({
-        projects,
+        projects: workspaceProjects,
         environmentId: selectedEnvironmentId,
         projectGroupingMode: listOptions.projectGroupingMode,
       }).map((scope) => ({
         key: scope.key,
         label: scope.title,
       })),
-    [listOptions.projectGroupingMode, projects, selectedEnvironmentId],
+    [listOptions.projectGroupingMode, selectedEnvironmentId, workspaceProjects],
+  );
+  const filterTitle =
+    projectFilterOptions.find((project) => project.key === selectedProjectKey)?.label ??
+    environments.find((environment) => environment.environmentId === selectedEnvironmentId)
+      ?.label ??
+    "";
+  const openNewTaskInProject = useCallback(
+    (project: EnvironmentProject) => {
+      navigation.navigate("NewTaskSheet", {
+        screen: "NewTaskDraft",
+        params: {
+          environmentId: String(project.environmentId),
+          projectId: String(project.id),
+          title: project.title,
+        },
+      });
+    },
+    [navigation],
   );
   useEffect(() => {
     if (
@@ -180,17 +184,8 @@ export function HomeRouteScreen() {
           searchQuery={searchQuery}
           selectedEnvironmentId={selectedEnvironmentId}
           selectedProjectKey={selectedProjectKey}
-          projectSortOrder={listOptions.projectSortOrder}
-          threadSortOrder={listOptions.threadSortOrder}
-          inboxBackTitle={
-            inboxLane === "working"
-              ? "Working"
-              : inboxLane === "attention"
-                ? "Needs Attention"
-                : (projectFilterOptions.find((project) => project.key === selectedProjectKey)
-                    ?.label ?? "")
-          }
-          onBackToInbox={inboxDrilled ? handleBackToInbox : undefined}
+          filterTitle={filterTitle}
+          onClearFilter={filterActive ? handleClearFilter : undefined}
           onEnvironmentChange={setSelectedEnvironmentId}
           onProjectChange={setSelectedProjectKey}
           onOpenEnvironments={() =>
@@ -205,12 +200,14 @@ export function HomeRouteScreen() {
               params: { screen: "Settings" },
             })
           }
-          onProjectSortOrderChange={setProjectSortOrder}
+          // Android keeps the Settled shelf on Home; iOS moves it to its own screen.
+          {...(Platform.OS === "ios"
+            ? { onOpenSettled: () => navigation.navigate("Settled") }
+            : {})}
           onSearchQueryChange={setSearchQuery}
           onStartNewTask={() => navigation.navigate("NewTaskSheet", { screen: "NewTaskDraft" })}
           onStartSearch={() => setSearchOpen(true)}
           searchOpen={searchOpen}
-          onThreadSortOrderChange={setThreadSortOrder}
         />
 
         <HomeScreen
@@ -222,26 +219,6 @@ export function HomeRouteScreen() {
               params: { screen: "SettingsEnvironmentNew" },
             })
           }
-          onArchiveThread={archiveThread}
-          onDeleteThread={confirmDeleteThread}
-          onSettleThread={settleThread}
-          onSnoozeThread={snoozeThread}
-          onUnsnoozeThread={unsnoozeThread}
-          onUnsettleThread={unsettleThread}
-          onPinThread={pinThread}
-          onUnpinThread={unpinThread}
-          onMoveThread={moveThread}
-          onRenameThread={renameThread}
-          onRegenerateThreadTitle={regenerateThreadTitle}
-          onEnvironmentChange={setSelectedEnvironmentId}
-          onProjectChange={setSelectedProjectKey}
-          onOpenSettings={() =>
-            navigation.navigate("SettingsSheet", {
-              screen: "SettingsContent",
-              params: { screen: "Settings" },
-            })
-          }
-          onProjectSortOrderChange={setProjectSortOrder}
           searchOpen={searchOpen}
           onCloseSearch={() => {
             setSearchOpen(false);
@@ -249,8 +226,6 @@ export function HomeRouteScreen() {
           }}
           onSearchQueryChange={setSearchQuery}
           onSelectThread={handleSelectThread}
-          onSelectPendingTask={openPendingTask}
-          onDeletePendingTask={confirmDeletePendingTask}
           onNewThreadOnBranch={(thread) => {
             navigation.navigate("NewTaskSheet", {
               screen: "NewTaskDraft",
@@ -262,28 +237,16 @@ export function HomeRouteScreen() {
               },
             });
           }}
-          onNewThreadInProject={(project) => {
-            navigation.navigate("NewTaskSheet", {
-              screen: "NewTaskDraft",
-              params: {
-                environmentId: String(project.environmentId),
-                projectId: String(project.id),
-                title: project.title,
-              },
-            });
-          }}
-          onAddProject={() => {
+          onNewThreadInProject={openNewTaskInProject}
+          onNewAgent={openNewTaskInProject}
+          onAddWorkspace={() => {
             setAddProjectClosesSheet(true);
             navigation.navigate("NewTaskSheet", {
               screen: "AddProject",
               initial: true,
             });
           }}
-          onStartNewTask={() => navigation.navigate("NewTaskSheet", { screen: "NewTaskDraft" })}
-          onThreadSortOrderChange={setThreadSortOrder}
-          inboxLane={inboxLane}
-          onInboxLaneChange={setInboxLane}
-          pendingTasks={pendingTasks.filter((task) => task.kind !== "draft")}
+          pendingTasks={homePendingTasks}
           projectGroupingMode={listOptions.projectGroupingMode}
           projects={projects}
           projectSortOrder={listOptions.projectSortOrder}
@@ -292,7 +255,6 @@ export function HomeRouteScreen() {
           selectedEnvironmentId={selectedEnvironmentId}
           selectedProjectKey={selectedProjectKey}
           threads={threads}
-          threadSortOrder={listOptions.threadSortOrder}
         />
       </>
     </AndroidHomeFabLayout>

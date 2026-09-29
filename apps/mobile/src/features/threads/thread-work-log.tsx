@@ -56,6 +56,7 @@ import {
 } from "@t3tools/client-runtime/work-log/presentation";
 import { resolveWorkGroupScrollAnchor } from "@t3tools/client-runtime/work-log/scroll-anchor";
 import type { MarkdownImageRenderer } from "../../native/SelectableMarkdownText";
+import type { AssistantFeedTimeline } from "../projects/useAssistantThreadView";
 import Animated, {
   cancelAnimation,
   Easing,
@@ -436,6 +437,11 @@ interface ThreadWorkLogProps {
   readonly onCopyRow: (rowId: string, value: string) => void;
   readonly onToggleRow: (rowId: string, anchorKey: string) => void;
   readonly renderImage: MarkdownImageRenderer;
+  /** In a Project, "Messaged <X>" and "Started <X>" open the thread they reached. */
+  readonly assistantTimeline?: Pick<
+    AssistantFeedTimeline,
+    "projectThreadTitle" | "onOpenThread"
+  > | null;
 }
 
 export function ThreadWorkLog(props: ThreadWorkLogProps) {
@@ -453,9 +459,11 @@ export function ThreadWorkLog(props: ThreadWorkLogProps) {
         onToggleRow={props.onToggleRow}
         renderImage={props.renderImage}
         themeAppearance={props.themeAppearance}
+        assistantTimeline={props.assistantTimeline}
       />
     ),
     [
+      props.assistantTimeline,
       props.anchorKey,
       props.copiedRowId,
       props.expandedRows,
@@ -759,6 +767,17 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
   const fullDetail = expanded ? row.getFullDetail() : null;
   const viewedImagePath = workEntryViewedImagePath(row.workEntry);
   const toolPresentation = resolveWorkEntryToolPresentation(row.workEntry);
+  // Only a thread of this Project links; its title is read as the row renders.
+  const timeline = props.assistantTimeline ?? null;
+  const handoffThreadId = toolPresentation?.linkThreadId;
+  const handoffTitle =
+    timeline !== null && handoffThreadId !== undefined
+      ? timeline.projectThreadTitle(handoffThreadId)
+      : null;
+  const openHandoff =
+    timeline !== null && handoffThreadId !== undefined && handoffTitle !== null
+      ? () => timeline.onOpenThread(handoffThreadId)
+      : undefined;
   const previewText = workEntryRowLabel(row.workEntry);
   const answerPreview = row.workEntry.questionAnswer
     ? getQuestionAnswerPreview(row.workEntry.questionAnswer)
@@ -785,6 +804,12 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
             : "Long press to copy."
         }
         accessibilityState={canExpand ? { expanded } : undefined}
+        accessibilityActions={
+          openHandoff ? [{ name: "open", label: `Open ${handoffTitle}` }] : undefined
+        }
+        onAccessibilityAction={(event) => {
+          if (event.nativeEvent.actionName === "open") openHandoff?.();
+        }}
         hitSlop={4}
         onPress={() => {
           if (canExpand) {
@@ -838,7 +863,13 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(
                 )}
                 numberOfLines={expanded ? undefined : 1}
               >
-                {displayText}
+                {openHandoff ? (
+                  <Text className="text-foreground" onPress={openHandoff} suppressHighlighting>
+                    {displayText}
+                  </Text>
+                ) : (
+                  displayText
+                )}
                 {answerPreview ? (
                   <Text
                     className={

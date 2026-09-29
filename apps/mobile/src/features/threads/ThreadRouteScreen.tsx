@@ -101,6 +101,11 @@ import {
   type ThreadInspectorMode,
 } from "./thread-inspector-content-stack";
 import { threadRouteIsHydrating } from "./thread-route-hydration";
+import { assistantHeaderToolbarItems } from "../projects/assistantHeaderToolbar";
+import {
+  useAssistantFeedTimeline,
+  useAssistantThreadHeader,
+} from "../projects/useAssistantThreadView";
 
 interface ThreadInspectorSelection {
   readonly routeThreadIdentity: string | null;
@@ -296,15 +301,49 @@ function ThreadRouteContent(
   const threadId = firstRouteParam(params.threadId);
   const routeThreadIdentity =
     environmentIdRaw !== null && threadId !== null ? `${environmentIdRaw}:${threadId}` : null;
+  /* ─── Git status for native header trigger ───────────────────────── */
+  const gitStatus = useEnvironmentQuery(
+    selectedThread !== null && selectedThreadCwd !== null
+      ? vcsEnvironment.status({
+          environmentId: selectedThread.environmentId,
+          input: { cwd: selectedThreadCwd },
+        })
+      : null,
+  );
+  // A Project's coordinator and Local agents hide git and PR controls; the
+  // coordinator adds Memory and its Project menu, an agent names its Project.
+  const leaveDeletedThread = useCallback(() => {
+    if (navigation.canGoBack()) navigation.goBack();
+    else navigation.dispatch(StackActions.replace("Home"));
+  }, [navigation]);
+  const assistantHeader = useAssistantThreadHeader({
+    project: selectedThreadProject,
+    thread: selectedThread,
+    isGitRepo: gitStatus.data?.isRepo ?? true,
+    onProjectDeleted: leaveDeletedThread,
+  });
+  const { showGitControls } = assistantHeader;
+  const assistantToolbarItems = useMemo(
+    () => assistantHeaderToolbarItems(assistantHeader.iosItems),
+    [assistantHeader.iosItems],
+  );
+  const assistantTimeline = useAssistantFeedTimeline(
+    selectedThreadProject,
+    selectedThread?.id ?? null,
+  );
   const [inspectorSelection, setInspectorSelection] = useState<ThreadInspectorSelection | null>(
     () => (props.renderInspector ? { routeThreadIdentity, mode: "route" } : null),
   );
   const inspectorMode = (() => {
     if (inspectorSelection?.routeThreadIdentity === routeThreadIdentity) {
-      if (inspectorSelection.mode === "files" && selectedThreadCwd === null) {
+      // A Git pane carried to a thread without git (the split view keeps the
+      // selection across threads) shows Files instead of an empty pane.
+      const mode =
+        inspectorSelection.mode === "git" && !showGitControls ? "files" : inspectorSelection.mode;
+      if (mode === "files" && selectedThreadCwd === null) {
         return null;
       }
-      return inspectorSelection.mode;
+      return mode;
     }
     return null;
   })();
@@ -373,15 +412,6 @@ function ThreadRouteContent(
 
   /* ─── Native header theming ──────────────────────────────────────── */
   const usesNativeHeaderGlass = NATIVE_LIQUID_GLASS_SUPPORTED;
-  /* ─── Git status for native header trigger ───────────────────────── */
-  const gitStatus = useEnvironmentQuery(
-    selectedThread !== null && selectedThreadCwd !== null
-      ? vcsEnvironment.status({
-          environmentId: selectedThread.environmentId,
-          input: { cwd: selectedThreadCwd },
-        })
-      : null,
-  );
   const knownTerminalSessions = useKnownTerminalSessions({
     environmentId: selectedThread?.environmentId ?? null,
     threadId: selectedThread?.id ?? null,
@@ -531,12 +561,19 @@ function ThreadRouteContent(
       inspectorMode === null ? null : (
         <ThreadInspectorContentStack
           Files={FilesInspector}
-          Git={GitInspector}
+          Git={showGitControls ? GitInspector : undefined}
           mode={inspectorMode}
           Route={props.renderInspector ? RouteInspector : undefined}
         />
       ),
-    [FilesInspector, GitInspector, RouteInspector, inspectorMode, props.renderInspector],
+    [
+      FilesInspector,
+      GitInspector,
+      RouteInspector,
+      inspectorMode,
+      props.renderInspector,
+      showGitControls,
+    ],
   );
   const activeInspectorRenderer = inspectorMode === null ? undefined : renderInspectorStack;
   // Hand the inspector to the workspace so it renders beside the navigator,
@@ -708,6 +745,7 @@ function ThreadRouteContent(
     onRunProjectScript: handleRunProjectScript,
     onPull: gitActions.onPullSelectedThreadBranch,
     onRunAction: gitActions.onRunSelectedThreadGitAction,
+    showGitControls,
   };
   const threadCenterHeaderItems = useThreadGitCenterHeaderItems(threadGitControlProps);
   const compactRightHeaderItems = useThreadGitRightHeaderItems(threadGitControlProps);
@@ -763,6 +801,7 @@ function ThreadRouteContent(
         onPress: props.onReturnToThread,
       });
     }
+    actions.push(...assistantHeader.androidActions);
     if (selectedThreadCwd !== null) {
       const filesVisible = inspectorMode === "files" && panes.auxiliaryPaneVisible;
       actions.push({
@@ -779,13 +818,17 @@ function ThreadRouteContent(
         onPress: () => handleOpenTerminal(null),
       });
     }
-    actions.push({
-      accessibilityLabel: "Open git controls",
-      icon: "point.topleft.down.curvedto.point.bottomright.up",
-      onPress: handleOpenGitInspector,
-    });
+    if (showGitControls) {
+      actions.push({
+        accessibilityLabel: "Open git controls",
+        icon: "point.topleft.down.curvedto.point.bottomright.up",
+        onPress: handleOpenGitInspector,
+      });
+    }
     return actions;
   }, [
+    assistantHeader.androidActions,
+    showGitControls,
     inspectorMode,
     panes.auxiliaryPaneVisible,
     handleOpenFilesInspector,
@@ -977,7 +1020,11 @@ function ThreadRouteContent(
   const serverConfig = routeEnvironmentRuntime?.serverConfig ?? null;
   const renderThreadRouteBody = (showActionControls: boolean) => (
     <>
-      <ThreadGitControls {...threadGitControlProps} showActionControls={showActionControls} />
+      <ThreadGitControls
+        {...threadGitControlProps}
+        showActionControls={showActionControls}
+        leadingToolbarItems={assistantToolbarItems}
+      />
 
       <GitActionProgressOverlay progress={gitActionProgress} onDismiss={dismissGitActionResult} />
 
@@ -1042,6 +1089,7 @@ function ThreadRouteContent(
           connectionStateLabel={routeConnectionState}
           threadSyncStatus={selectedThreadDetailState.status}
           loadEarlier={loadEarlierTurns}
+          assistantTimeline={assistantTimeline}
           environmentId={selectedThread.environmentId}
           projectWorkspaceRoot={selectedThreadProject?.workspaceRoot ?? null}
           threadCwd={selectedThreadCwd}
@@ -1078,7 +1126,11 @@ function ThreadRouteContent(
     <>
       {activeInspectorRenderer ? <InspectorPaneRoleActivation /> : null}
       <NativeStackScreenOptions
-        optionsVersion={threadGitControlProps.projectScripts}
+        optionsVersion={[
+          threadGitControlProps.projectScripts,
+          showGitControls,
+          assistantHeader.iosItems,
+        ]}
         options={{
           // Android draws its own in-flow header (AndroidScreenHeader below);
           // the native stack header stays iOS-only.
@@ -1108,9 +1160,12 @@ function ThreadRouteContent(
           // reserved for future breadcrumbs/status).
           unstable_headerRightItems:
             Platform.OS === "ios"
-              ? () => (layout.usesSplitView ? threadCenterHeaderItems : compactRightHeaderItems)
+              ? () => [
+                  ...assistantHeader.iosItems,
+                  ...(layout.usesSplitView ? threadCenterHeaderItems : compactRightHeaderItems),
+                ]
               : undefined,
-          unstable_headerSubtitle: undefined,
+          unstable_headerSubtitle: assistantHeader.subtitle ?? undefined,
           contentStyle:
             Platform.OS === "android" && true ? { backgroundColor: headerColor } : undefined,
         }}
@@ -1119,7 +1174,7 @@ function ThreadRouteContent(
       {Platform.OS === "android" ? (
         <AndroidScreenHeader
           title={selectedThread.title}
-          subtitle={null}
+          subtitle={assistantHeader.subtitle}
           leading={<AndroidWorkspaceSidebarButton />}
           trailing={
             fileInspector.supported && selectedThreadCwd !== null ? (

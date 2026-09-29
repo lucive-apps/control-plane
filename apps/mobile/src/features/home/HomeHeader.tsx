@@ -1,29 +1,23 @@
-import type { EnvironmentId, SidebarThreadSortOrder } from "@t3tools/contracts";
+import type { EnvironmentId } from "@t3tools/contracts";
 import type { MenuAction } from "@react-native-menu/menu";
 
 import { NativeStackScreenOptions } from "../../native/StackHeader";
 import { useCallback, useMemo } from "react";
 import { Platform } from "react-native";
 
+import { BrandJet } from "../../components/BrandJet";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
-import { useThreadListV2Enabled } from "../threads/use-thread-list-v2-enabled";
 import { useHardwareKeyboardCommand } from "../keyboard/hardwareKeyboardCommands";
 import {
-  createHomeInboxBackHeaderItem,
+  createClearFilterHeaderItem,
   createHomeListHeaderItems,
 } from "../threads/sidebar-native-header-items";
-import type { HomeProjectSortOrder } from "./homeThreadList";
 import { MaterialThreadListToolbar } from "./MaterialThreadListToolbar";
 import {
   buildHomeListFilterMenu,
   type HomeListFilterMenuEnvironment,
   type HomeListFilterMenuProject,
 } from "./home-list-filter-menu";
-import {
-  hasCustomHomeListOptions,
-  PROJECT_SORT_OPTIONS,
-  THREAD_SORT_OPTIONS,
-} from "./home-list-options";
 
 export type HomeHeaderEnvironment = HomeListFilterMenuEnvironment;
 
@@ -33,20 +27,20 @@ export function HomeHeader(props: {
   readonly searchQuery: string;
   readonly selectedEnvironmentId: EnvironmentId | null;
   readonly selectedProjectKey: string | null;
-  readonly projectSortOrder: HomeProjectSortOrder;
-  readonly threadSortOrder: SidebarThreadSortOrder;
   readonly onSearchQueryChange: (query: string) => void;
   readonly onEnvironmentChange: (environmentId: EnvironmentId | null) => void;
   readonly onProjectChange: (projectKey: string | null) => void;
-  readonly onProjectSortOrderChange: (sortOrder: HomeProjectSortOrder) => void;
-  readonly onThreadSortOrderChange: (sortOrder: SidebarThreadSortOrder) => void;
   readonly onOpenEnvironments: () => void;
   readonly onOpenSettings: () => void;
+  /** Adds View Settled to the iOS overflow menu. */
+  readonly onOpenSettled?: () => void;
   readonly onStartNewTask: () => void;
   readonly onStartSearch: () => void;
   readonly searchOpen?: boolean;
-  readonly onBackToInbox?: () => void;
-  readonly inboxBackTitle?: string;
+  /** Set while the Environment or Workspace filter is active; clears both. */
+  readonly onClearFilter?: () => void;
+  /** Header title while filtered: the workspace, else the environment. */
+  readonly filterTitle?: string;
 }) {
   if (Platform.OS === "android") {
     return <AndroidHomeHeader {...props} />;
@@ -62,13 +56,11 @@ function checkedMenuState(checked: boolean) {
 }
 
 function AndroidHomeHeader(props: HomeHeaderProps) {
-  // Thread List v2 lays the list out in fixed creation order, so the
-  // sort/group filter controls would be silently ignored — hide them and
-  // key the "customized" icon state off the environment filter alone.
-  const threadListV2Enabled = useThreadListV2Enabled();
-  const hasCustomListOptions = threadListV2Enabled
-    ? props.selectedEnvironmentId !== null || props.selectedProjectKey !== null
-    : hasCustomHomeListOptions(props);
+  // The list uses a fixed creation order and ignores sort/group options, so
+  // the filter menu only carries the filters and the "customized" icon state
+  // keys off those alone.
+  const hasCustomListOptions =
+    props.selectedEnvironmentId !== null || props.selectedProjectKey !== null;
   const menuActions = useMemo<MenuAction[]>(
     () => [
       {
@@ -107,38 +99,8 @@ function AndroidHomeHeader(props: HomeHeaderProps) {
               ],
             },
           ] satisfies MenuAction[])),
-      ...(threadListV2Enabled
-        ? []
-        : ([
-            {
-              id: "project-sort",
-              title: "Sort workspaces",
-              subactions: PROJECT_SORT_OPTIONS.map((option) => ({
-                id: `project-sort:${option.value}`,
-                title: option.label,
-                state: checkedMenuState(props.projectSortOrder === option.value),
-              })),
-            },
-            {
-              id: "thread-sort",
-              title: "Sort threads",
-              subactions: THREAD_SORT_OPTIONS.map((option) => ({
-                id: `thread-sort:${option.value}`,
-                title: option.label,
-                state: checkedMenuState(props.threadSortOrder === option.value),
-              })),
-            },
-          ] satisfies MenuAction[])),
     ],
-    [
-      props.environments,
-      props.projectSortOrder,
-      props.projects,
-      props.selectedEnvironmentId,
-      props.selectedProjectKey,
-      props.threadSortOrder,
-      threadListV2Enabled,
-    ],
+    [props.environments, props.projects, props.selectedEnvironmentId, props.selectedProjectKey],
   );
   const handleMenuAction = useCallback(
     (event: { nativeEvent: { event: string } }) => {
@@ -171,20 +133,6 @@ function AndroidHomeHeader(props: HomeHeaderProps) {
         }
         return;
       }
-
-      const projectSort = PROJECT_SORT_OPTIONS.find(
-        (option) => id === `project-sort:${option.value}`,
-      );
-      if (projectSort) {
-        props.onProjectSortOrderChange(projectSort.value);
-        return;
-      }
-
-      const threadSort = THREAD_SORT_OPTIONS.find((option) => id === `thread-sort:${option.value}`);
-      if (threadSort) {
-        props.onThreadSortOrderChange(threadSort.value);
-        return;
-      }
     },
     [props],
   );
@@ -200,7 +148,7 @@ function AndroidHomeHeader(props: HomeHeaderProps) {
         onFilterAction={handleMenuAction}
         onOpenSettings={props.onOpenSettings}
         onOpenEnvironments={props.onOpenEnvironments}
-        onBack={props.onBackToInbox}
+        onBack={props.onClearFilter}
       />
     </>
   );
@@ -208,25 +156,20 @@ function AndroidHomeHeader(props: HomeHeaderProps) {
 
 function IosHomeHeader(props: HomeHeaderProps) {
   const iconColor = useUniwindTheme()["--color-icon"];
-  // Thread List v2 lays the list out in fixed creation order, so the
-  // sort/group filter controls would be silently ignored — hide them and
-  // key the "customized" icon state off the environment filter alone.
-  const threadListV2Enabled = useThreadListV2Enabled();
-  const hasCustomListOptions = threadListV2Enabled
-    ? props.selectedEnvironmentId !== null || props.selectedProjectKey !== null
-    : hasCustomHomeListOptions(props);
+  // The list uses a fixed creation order and ignores sort/group options, so
+  // the filter menu only carries the filters and the "customized" icon state
+  // keys off those alone.
+  const hasCustomListOptions =
+    props.selectedEnvironmentId !== null || props.selectedProjectKey !== null;
   const focusSearch = useCallback(() => {
     props.onStartSearch();
     return true;
   }, [props]);
   useHardwareKeyboardCommand("focusSearch", focusSearch);
-  const filterMenu = buildHomeListFilterMenu({
-    ...props,
-    listOrganization: !threadListV2Enabled,
-  });
+  const filterMenu = buildHomeListFilterMenu(props);
 
-  const backTitle = props.inboxBackTitle ?? "";
-  const showBack = props.onBackToInbox !== undefined;
+  const backTitle = props.filterTitle ?? "";
+  const showBack = props.onClearFilter !== undefined;
   const searchOpen = props.searchOpen === true;
 
   return (
@@ -239,9 +182,15 @@ function IosHomeHeader(props: HomeHeaderProps) {
         headerTitle: showBack && backTitle.length > 0 ? backTitle : () => null,
         title: showBack ? backTitle : "",
         unstable_headerLeftItems: () =>
-          showBack && props.onBackToInbox
-            ? [createHomeInboxBackHeaderItem({ onPress: props.onBackToInbox })]
-            : [],
+          showBack && props.onClearFilter
+            ? [createClearFilterHeaderItem({ onPress: props.onClearFilter })]
+            : [
+                {
+                  type: "custom",
+                  element: <BrandJet size={28} />,
+                  hidesSharedBackground: true,
+                },
+              ],
         unstable_headerRightItems: () =>
           createHomeListHeaderItems({
             filterIcon: hasCustomListOptions
@@ -250,6 +199,7 @@ function IosHomeHeader(props: HomeHeaderProps) {
             filterMenu,
             onFocusSearch: props.onStartSearch,
             onOpenSettings: props.onOpenSettings,
+            ...(props.onOpenSettled ? { onOpenSettled: props.onOpenSettled } : {}),
           }),
       }}
     />

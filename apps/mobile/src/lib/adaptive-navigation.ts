@@ -25,6 +25,19 @@ export function resolveThreadSelectionNavigationAction(input: {
   return isBaseThreadRoute(input.pathname) ? "set-params" : "replace";
 }
 
+function isSameThread(
+  params: object | undefined,
+  target: { readonly environmentId: string; readonly threadId: string },
+): boolean {
+  return (
+    params !== undefined &&
+    "environmentId" in params &&
+    "threadId" in params &&
+    params.environmentId === target.environmentId &&
+    params.threadId === target.threadId
+  );
+}
+
 /** Dismiss sheets and select their underlying workspace destination in one stack update. */
 export function resolveThreadSelectionOverlayState(input: {
   readonly state: NavigationState | undefined;
@@ -39,6 +52,14 @@ export function resolveThreadSelectionOverlayState(input: {
   if (workspaceIndex < 0 || workspaceIndex >= input.state.index) return null;
 
   const workspaceRoute = input.state.routes[workspaceIndex];
+  // The thread already beneath the sheets only needs them dismissed, never a second copy.
+  if (workspaceRoute?.name === "Thread" && isSameThread(workspaceRoute.params, input.params)) {
+    return {
+      ...input.state,
+      index: workspaceIndex,
+      routes: input.state.routes.slice(0, workspaceIndex + 1),
+    };
+  }
   const routes = input.state.routes.slice(0, workspaceIndex + (input.action === "push" ? 1 : 0));
   return {
     ...input.state,

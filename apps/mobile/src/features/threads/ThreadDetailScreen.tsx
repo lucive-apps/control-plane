@@ -102,7 +102,7 @@ import {
   COMPOSER_TRANSITION_DURATION_MS,
   ThreadComposer,
 } from "./ThreadComposer";
-import { ThreadFeed } from "./ThreadFeed";
+import { ThreadFeed, type ThreadFeedProps } from "./ThreadFeed";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
 import { resolveThreadFeedSubmissionAnchor } from "./thread-feed-live-follow";
 
@@ -141,6 +141,7 @@ export interface ThreadDetailScreenProps {
   readonly threadSyncStatus?: EnvironmentThreadStatus;
   /** Non-null when older turns exist beyond the loaded window. */
   readonly loadEarlier?: { readonly loading: boolean; readonly onLoadEarlier: () => void } | null;
+  readonly assistantTimeline?: ThreadFeedProps["assistantTimeline"];
   readonly environmentId: EnvironmentId;
   readonly projectWorkspaceRoot: string | null;
   readonly threadCwd: string | null;
@@ -904,6 +905,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
             skills={selectedProviderSkills}
             onUseArtifactTemplate={handleUseArtifactTemplate}
             loadEarlier={props.loadEarlier ?? null}
+            assistantTimeline={props.assistantTimeline ?? null}
           />
         </View>
       ) : (

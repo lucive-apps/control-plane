@@ -12,6 +12,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppText as Text } from "../../components/AppText";
 import { SymbolView } from "../../components/AppSymbol";
 import { scopedThreadKey } from "../../lib/scopedEntities";
+import { useProjects } from "../../state/entities";
 import { environmentServerConfigsAtom } from "../../state/server";
 import { environmentThreadShells } from "../../state/threads";
 import {
@@ -149,6 +150,18 @@ function DragHandle(props: {
 export function ThreadArrangementSheet(props: { onClose: () => void }) {
   const insets = useSafeAreaInsets();
   const threads = useAtomValue(environmentThreadShells.threadShellsAtom);
+  const projects = useProjects();
+  // Tasks only: a Project's agents are never arranged here. Their keys still
+  // bound the moves, since the move itself plans against every shell.
+  const projectFolderKeys = useMemo(
+    () =>
+      new Set(
+        projects.flatMap((project) =>
+          project.assistant != null ? [`${project.environmentId}:${project.id}`] : [],
+        ),
+      ),
+    [projects],
+  );
   const configs = useAtomValue(environmentServerConfigsAtom);
   const queuedThreadKeys = useAtomValue(queuedThreadKeysAtom);
   const pendingOrder = useAtomValue(pendingThreadOrderAtom);
@@ -187,11 +200,14 @@ export function ThreadArrangementSheet(props: { onClose: () => void }) {
         ),
       ),
     };
-    const pinned = getThreadListV2OrderedSection({ ...shared, section: "pinned" });
-    const active = getThreadListV2OrderedSection({ ...shared, section: "active" });
+    const isTask = (thread: EnvironmentThreadShell) =>
+      !projectFolderKeys.has(`${thread.environmentId}:${thread.projectId}`);
+    // Ordered over every shell so a pending move's hold still applies.
+    const pinned = getThreadListV2OrderedSection({ ...shared, section: "pinned" }).filter(isTask);
+    const active = getThreadListV2OrderedSection({ ...shared, section: "active" }).filter(isTask);
     const visible = new Set([...pinned, ...active].map(keyOf));
     const parked = threads.filter(
-      (thread) => thread.archivedAt === null && !visible.has(keyOf(thread)),
+      (thread) => thread.archivedAt === null && isTask(thread) && !visible.has(keyOf(thread)),
     );
     return {
       pinned,
@@ -199,7 +215,7 @@ export function ThreadArrangementSheet(props: { onClose: () => void }) {
       snoozed: parked.filter((thread) => effectiveSnoozed(thread, { now })),
       settled: parked.filter((thread) => !effectiveSnoozed(thread, { now })),
     };
-  }, [threads, configs, now, queuedThreadKeys, pendingOrder]);
+  }, [threads, configs, now, queuedThreadKeys, pendingOrder, projectFolderKeys]);
   const planners = useMemo(() => {
     const planner = (section: "pinned" | "active") =>
       createThreadMovePlanner({

@@ -16,6 +16,7 @@ import { useResolveClassNames } from "uniwind";
 
 import { AppText as Text } from "./components/AppText";
 import { ArchivedThreadsRouteScreen } from "./features/archive/ArchivedThreadsRouteScreen";
+import { SettledThreadsRouteScreen } from "./features/home/SettledThreadsRouteScreen";
 import { useAgentNotificationNavigation } from "./features/agent-awareness/notificationNavigation";
 import { ConnectOnboardingRouteScreen } from "./features/cloud/ConnectOnboardingRouteScreen";
 import { useConnectOnboardingNavigation } from "./features/cloud/connectOnboardingNavigation";
@@ -41,6 +42,11 @@ import { AddProjectDestinationRoute } from "./features/projects/AddProjectDestin
 import { AddProjectLocalRoute } from "./features/projects/AddProjectLocalRoute";
 import { AddProjectRepositoryRoute } from "./features/projects/AddProjectRepositoryRoute";
 import { AddProjectSourceRoute } from "./features/projects/AddProjectSourceRoute";
+import { ProjectFileScreen } from "./features/projects/ProjectFileScreen";
+import { ProjectScheduleEditorScreen } from "./features/projects/ProjectScheduleEditorScreen";
+import { ProjectSchedulesScreen } from "./features/projects/ProjectSchedulesScreen";
+import { ProjectSettingsRouteScreen } from "./features/projects/ProjectSettingsRouteScreen";
+import { ProjectSheetStack } from "./features/projects/ProjectSheetStack";
 import { NewTaskDraftRouteScreen } from "./features/threads/NewTaskDraftRouteScreen";
 import {
   NewTaskBranchPickerRouteScreen,
@@ -224,7 +230,7 @@ const SettingsContentStack = createNativeStackNavigator({
       screen: ArchivedThreadsRouteScreen,
       linking: "archive",
       options: {
-        title: "Archived Threads",
+        title: "Archived",
       },
     }),
     SettingsAppearance: createNativeStackScreen({
@@ -252,6 +258,29 @@ const SettingsContentStack = createNativeStackNavigator({
       screen: SettingsProjectOverviewRouteScreen,
       linking: "project",
       options: { title: "Workspace overview" },
+    }),
+    SettingsProject: createNativeStackScreen({
+      screen: ProjectSettingsRouteScreen,
+      linking: "projects/:environmentId/:projectId",
+      options: { title: "Project settings" },
+    }),
+    // Shared instructions push inside the Settings sheet instead of stacking
+    // the Project sheet on top of it.
+    SettingsProjectFile: createNativeStackScreen({
+      screen: ProjectFileScreen,
+      linking: "projects/:environmentId/:projectId/files/:path",
+      options: SHEET_SOLID_HEADER_OPTIONS,
+    }),
+    // Schedules push inside the Settings sheet too, like shared instructions.
+    SettingsProjectSchedules: createNativeStackScreen({
+      screen: ProjectSchedulesScreen,
+      linking: "projects/:environmentId/:projectId/schedules",
+      options: { title: "Schedules" },
+    }),
+    SettingsProjectScheduleEditor: createNativeStackScreen({
+      // No link: the editor reads the schedule it opens from a loaded list.
+      screen: ProjectScheduleEditorScreen,
+      options: { title: "Schedule" },
     }),
     SettingsKeyboard: createNativeStackScreen({
       screen: SettingsKeyboardRouteScreen,
@@ -445,6 +474,7 @@ const WORKSPACE_OVERLAY_ROUTES = new Set([
   "GitConfirm",
   "GitOverview",
   "NewTaskSheet",
+  "ProjectSheet",
   "SettingsLegal",
   "SettingsSheet",
   "ThreadReviewComment",
@@ -589,6 +619,11 @@ export const RootStack = createNativeStackNavigator({
       screen: ThreadRouteScreen,
       linking: THREAD_LINKING_PREFIX,
       options: GLASS_HEADER_OPTIONS,
+    }),
+    Settled: createNativeStackScreen({
+      screen: SettledThreadsRouteScreen,
+      linking: "settled",
+      options: { ...GLASS_HEADER_OPTIONS, title: "Settled" },
     }),
     ThreadTerminal: createNativeStackScreen({
       screen: ThreadTerminalRouteScreen,
@@ -761,6 +796,23 @@ export const RootStack = createNativeStackNavigator({
         headerShown: false,
         // Android pushes the flow as a regular full page — the draft should
         // read like a thread that just doesn't exist yet; iOS keeps the sheet.
+        ...(Platform.OS === "android"
+          ? { presentation: "card" as const }
+          : {
+              ...FORM_SHEET_PRESENTATION_OPTIONS,
+              sheetAllowedDetents: [0.92],
+              sheetGrabberVisible: true,
+            }),
+      },
+    }),
+    // Project files (Memory, shared instructions) and Schedules as a sheet over the workspace.
+    ProjectSheet: createNativeStackScreen({
+      screen: ProjectSheetStack,
+      linking: "project",
+      layout: ({ children }) => <View className="flex-1 bg-sheet-solid">{children}</View>,
+      options: {
+        gestureEnabled: true,
+        headerShown: false,
         ...(Platform.OS === "android"
           ? { presentation: "card" as const }
           : {
