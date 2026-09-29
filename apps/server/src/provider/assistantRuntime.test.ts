@@ -131,6 +131,39 @@ describe("buildAssistantRuntimeBlock", () => {
     }
   });
 
+  it("tells the coordinator to send agents to the built-in browser, and every agent to use it", () => {
+    const project = makeProject();
+    const build = (thread: ReturnType<typeof makeThread>) =>
+      buildAssistantRuntimeBlock({ project, thread, memory: "", roleFile: "" });
+    const coordinatorRule =
+      "When you delegate, tell each agent to use the built-in Control Plane browser (the preview_* tools) for browsing, testing and screenshots, and not the user's own browser.";
+    const agentRule =
+      "Use the built-in Control Plane browser (the preview_* tools) for browsing, testing and screenshots. Do not launch or drive the user's desktop browsers. Only when a task explicitly needs the user's logged-in session, open the URL in their default browser with `open <url>`.";
+
+    const coordinator = build(makeThread("coordinator"));
+    expect(coordinator?.inline).toContain(coordinatorRule);
+    expect(coordinator?.pointer).toContain(coordinatorRule);
+    expect(coordinator?.inline).not.toContain(agentRule);
+
+    for (const agent of [
+      build(makeThread("agent", { title: "Research", pinnedAt: PINNED_AT })),
+      build(makeThread("agent")),
+    ]) {
+      expect(agent?.inline).toContain(agentRule);
+      // Cursor, Grok and Antigravity see only the pointer.
+      expect(agent?.pointer).toContain(agentRule);
+      expect(agent?.inline).not.toContain(coordinatorRule);
+    }
+    for (const block of [
+      coordinator,
+      build(makeThread("agent", { title: "Research", pinnedAt: PINNED_AT })),
+      build(makeThread("agent")),
+    ]) {
+      expect(block?.inline).not.toMatch(/chrome|safari|helium|firefox/i);
+      expect(block?.inline).not.toContain("\u2014");
+    }
+  });
+
   it("grants the agents capability to the coordinator and standing agents only", () => {
     const project = makeProject();
     const agentsOf = (thread: ReturnType<typeof makeThread>) =>
