@@ -7,6 +7,8 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 
+import { orderItemsByPreferredIds } from "../Sidebar.logic";
+
 // Fork-owned. Web-only helpers behind the sidebar's Projects section. The list
 // helpers shared with mobile live in client-runtime and are re-exported here.
 
@@ -21,6 +23,20 @@ export {
   type AssistantAgentRow,
   type SidebarRollupStatus,
 } from "@t3tools/client-runtime/state/assistant-lists";
+
+/**
+ * Applies the saved manual order of the Projects section. Projects without a
+ * saved place (new ones) keep their default order after the ordered ones, and
+ * saved keys with no Project are ignored.
+ */
+export function orderAssistantsByPreference<T extends { readonly key: string }>(
+  models: readonly T[],
+  order: readonly string[],
+): readonly T[] {
+  return order.length === 0
+    ? models
+    : orderItemsByPreferredIds({ items: models, preferredIds: order, getId: (model) => model.key });
+}
 
 interface ScopedThreadLike {
   readonly environmentId: EnvironmentId;

@@ -14,6 +14,8 @@ import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/model
 import { hasScheduleAttention } from "@t3tools/client-runtime/state/schedules";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId, ScopedProjectRef, ServerConfig } from "@t3tools/contracts";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { ChevronRightIcon, PlusIcon } from "lucide-react";
 import {
   useCallback,
@@ -36,11 +38,12 @@ import {
 import { AssistantStatusDot } from "../assistants/AssistantStatusDot";
 import { useAssistantProjectMenu } from "../assistants/useAssistantActions";
 import { ProjectFavicon } from "../ProjectFavicon";
-import type { SidebarSection } from "../Sidebar.logic";
+import { animateSidebarLayoutChanges, type SidebarSection } from "../Sidebar.logic";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   assistantExpansionKey,
   isAssistantExpanded,
+  orderAssistantsByPreference,
   rollupAssistantsStatus,
   rollupThreadGroupStatus,
   visibleAssistantAgentRows,
@@ -97,7 +100,8 @@ export function useSidebarAssistants(input: {
   readonly snoozeWakeTick: number;
 }) {
   const { entries, serverConfigs, nowMinute, snoozeWakeTick } = input;
-  const models = useMemo((): readonly SidebarAssistantModel[] => {
+  const assistantOrder = useUiStateStore((state) => state.assistantOrder);
+  const unorderedModels = useMemo((): readonly SidebarAssistantModel[] => {
     void nowMinute;
     void snoozeWakeTick;
     if (entries.length === 0) return EMPTY_MODELS;
@@ -131,6 +135,10 @@ export function useSidebarAssistants(input: {
       ];
     });
   }, [entries, nowMinute, serverConfigs, snoozeWakeTick]);
+  const models = useMemo(
+    () => orderAssistantsByPreference(unorderedModels, assistantOrder),
+    [assistantOrder, unorderedModels],
+  );
   const coordinatorKeys = useMemo(
     () => new Set(models.map((model) => model.coordinatorKey)),
     [models],
@@ -225,6 +233,12 @@ export function SidebarAssistantsSection(props: {
   readonly renderJumpHint: (coordinatorKey: string) => ReactNode;
   readonly renderDrafts: (snapshot: SidebarProjectSnapshot) => ReactNode;
   readonly renderThreadRow: (thread: EnvironmentThreadShell, section: SidebarSection) => ReactNode;
+  /** Rows are draggable (the sidebar's DndContext owns the drag). */
+  readonly sortable: boolean;
+  /** True once after a drag, so the click that ends it does not open the Project. */
+  readonly consumeDragSuppression: () => boolean;
+  /** Alt+Arrow on a focused row: move it one place. */
+  readonly onMove: (key: string, direction: -1 | 1) => void;
 }) {
   const setProjectExpanded = useUiStateStore((state) => state.setProjectExpanded);
   const openProjectMenu = useAssistantProjectMenu();
@@ -284,6 +298,9 @@ export function SidebarAssistantsSection(props: {
             onCancelRename={() => setRenamingKey(null)}
             renderDrafts={props.renderDrafts}
             renderThreadRow={props.renderThreadRow}
+            sortable={props.sortable && props.models.length > 1}
+            consumeDragSuppression={props.consumeDragSuppression}
+            onMove={props.onMove}
           />
         );
       })}
@@ -312,8 +329,16 @@ function SidebarAssistantRow(props: {
   readonly onCancelRename: () => void;
   readonly renderDrafts: (snapshot: SidebarProjectSnapshot) => ReactNode;
   readonly renderThreadRow: (thread: EnvironmentThreadShell, section: SidebarSection) => ReactNode;
+  readonly sortable: boolean;
+  readonly consumeDragSuppression: () => boolean;
+  readonly onMove: (key: string, direction: -1 | 1) => void;
 }) {
   const { model, expanded, onSetExpanded } = props;
+  const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: model.key,
+    disabled: !props.sortable || props.isRenaming,
+    animateLayoutChanges: animateSidebarLayoutChanges,
+  });
   const { project } = model.entry;
   const status = useUiStateStore((state) =>
     rollupAssistantsStatus([model], state.threadLastVisitedAtById),
@@ -331,11 +356,17 @@ function SidebarAssistantRow(props: {
   }, [expanded, model.key, onSetExpanded, props.containsRoute]);
 
   const handleClick = (event: ReactMouseEvent) => {
+    if (props.consumeDragSuppression()) return;
     if ((event.target as HTMLElement).closest("button, input")) return;
     props.onOpen(project);
   };
   const handleKeyDown = (event: ReactKeyboardEvent) => {
     if (event.target !== event.currentTarget) return;
+    if (props.sortable && event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+      event.preventDefault();
+      props.onMove(model.key, event.key === "ArrowUp" ? -1 : 1);
+      return;
+    }
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
     props.onOpen(project);
@@ -350,12 +381,19 @@ function SidebarAssistantRow(props: {
     : { rows: [] };
 
   return (
-    <li className="list-none" data-testid="sidebar-assistant">
+    <li
+      ref={setNodeRef}
+      className={cn("list-none", isDragging && "z-20 opacity-80")}
+      data-testid="sidebar-assistant"
+      style={{ transform: CSS.Translate.toString(transform), transition }}
+    >
       <div
+        {...(props.sortable ? listeners : undefined)}
         role="button"
         tabIndex={0}
         aria-current={props.isActive ? "page" : undefined}
         aria-label={`Open ${project.title}`}
+        aria-keyshortcuts={props.sortable ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
         className={cn(
           "group/assistant relative flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left text-[length:1em] leading-tight text-sidebar-foreground outline-none select-none focus-visible:ring-2 focus-visible:ring-ring",
           props.isActive ? "bg-sidebar-row-active" : "hover:bg-sidebar-row-hover",
