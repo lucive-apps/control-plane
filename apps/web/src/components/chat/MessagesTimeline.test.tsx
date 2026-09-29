@@ -1916,18 +1916,70 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    // Images report their size like every other attachment chip.
-    expect(markup).toContain('aria-label="Image attachment, shot.png, 1 KB"');
-    // Selection copy re-emits chips as their canonical links.
+    // The picture shows as a thumbnail above the bubble, so the prose carries no second chip
+    // for it, only the marker selection copy re-emits as the canonical link.
+    expect(markup).not.toContain('aria-label="Image attachment, shot.png, 1 KB"');
     expect(markup).toContain('data-markdown-copy="![shot.png](t3-context://v1/image/img-1)"');
+    expect(markup.indexOf(">shot.png</div>")).toBeGreaterThan(-1);
+    expect(markup.indexOf(">shot.png</div>")).toBeLessThan(
+      markup.indexOf('data-user-message-body="true"'),
+    );
     expect(markup).toContain('aria-label="File attachment, notes.txt, 1 KB"');
     expect(markup).toContain(">1 KB</span>");
     expect(markup).not.toContain('aria-label="Download notes.txt"');
     expect(markup).toContain("legacy.txt");
     expect(markup).not.toContain('href="t3-context://');
-    // A picture keeps its tile even though it also has a chip: the chip names it, the tile is
-    // the only way to see it. A plain file's row is what a chip replaces.
-    expect(markup).toContain("grid-cols-2");
+  });
+
+  it("renders an image-only message as thumbnails without an empty bubble", () => {
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        timelineEntries={[
+          {
+            id: "entry-image-only",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            message: {
+              id: MessageId.make("message-image-only"),
+              role: "user",
+              text: "![shot.png](t3-context://v1/image/img-1) ",
+              attachments: [
+                {
+                  type: "image",
+                  id: "thread-1-aaa",
+                  name: "shot.png",
+                  mimeType: "image/png",
+                  sizeBytes: 3,
+                },
+              ],
+              context: {
+                version: 1,
+                records: [
+                  {
+                    version: 1,
+                    contextId: "img-1" as never,
+                    kind: "image",
+                    label: "shot.png",
+                    attachmentId: "thread-1-aaa",
+                    name: "shot.png",
+                    mimeType: "image/png",
+                    sizeBytes: 3,
+                  },
+                ],
+              },
+              turnId: null,
+              createdAt: "2026-03-17T19:12:28.000Z",
+              updatedAt: "2026-03-17T19:12:28.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain(">shot.png</div>");
+    expect(markup).not.toContain("data-user-message-body");
   });
 
   it("resolves an annotation screenshot through its image context record", () => {
