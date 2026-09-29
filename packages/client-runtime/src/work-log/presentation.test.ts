@@ -319,6 +319,8 @@ describe("resolveWorkEntryToolPresentation", () => {
     ["t3_thread_read", "Reading a Control Plane thread", "Read a Control Plane thread"],
     ["t3_thread_send", "messaging agent", "messaged agent"],
     ["cp_thread_send", "messaging agent", "messaged agent"],
+    ["cp_agent_list", "Listing agents", "Listed agents"],
+    ["cp_agent_read", "Reading an agent", "Read an agent"],
     [
       "t3_worktree_handoff",
       "Handing off thread to a git worktree",
@@ -439,6 +441,59 @@ describe("resolveWorkEntryToolPresentation", () => {
       expect(presentation).toEqual({
         displayName: "Failed to message Sales",
         icon: "message-circle",
+      });
+    });
+  });
+
+  describe("agent tools", () => {
+    const agentThreadId = "5f13b410-5497-44d6-af9c-6bfad3804593";
+    const agentResult = (fields: Record<string, unknown>) => ({
+      content: [{ type: "text", text: JSON.stringify({ threadId: agentThreadId, ...fields }) }],
+    });
+
+    it("names the started agent from its title and links it from the result", () => {
+      const toolData = {
+        toolName: "mcp__cplane__cp_agent_create",
+        input: { title: "WAL drawbacks", message: "List three drawbacks of WAL mode." },
+        result: agentResult({ title: "WAL drawbacks", runtimeMode: "full-access", created: true }),
+      };
+      expect(
+        resolveWorkEntryToolPresentation({
+          label: "MCP tool call",
+          toolLifecycleStatus: "completed",
+          toolData,
+        }),
+      ).toEqual({
+        displayName: "Started WAL drawbacks",
+        icon: "t3-code",
+        linkThreadId: ThreadId.make(agentThreadId),
+      });
+      expect(
+        resolveWorkEntryToolPresentation({
+          label: "MCP tool call",
+          toolLifecycleStatus: "inProgress",
+          toolData: { toolName: toolData.toolName, input: toolData.input },
+        }),
+      ).toEqual({ displayName: "Starting WAL drawbacks", icon: "t3-code" });
+    });
+
+    it.each([
+      ["a title", "Research", "Stopped Research"],
+      ["an opaque id", agentThreadId, "Stopped an agent"],
+    ])("names a stopped agent addressed by %s", (_case, agent, displayName) => {
+      expect(
+        resolveWorkEntryToolPresentation({
+          label: "cplane.cp_agent_stop",
+          toolLifecycleStatus: "completed",
+          toolData: {
+            arguments: { agent },
+            result: agentResult({ stopped: true, archived: false }),
+          },
+        }),
+      ).toEqual({
+        displayName,
+        icon: "t3-code",
+        linkThreadId: ThreadId.make(agentThreadId),
       });
     });
   });

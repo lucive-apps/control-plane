@@ -54,11 +54,70 @@ describe("buildAssistantRuntimeBlock", () => {
     );
     expect(block?.inline).toContain(`Your memory is ${memoryPath}.`);
     expect(block?.inline).toContain("<memory>\n- Route billing to Sales\n</memory>");
-    expect(block?.inline).toContain("cp_thread_send");
-    expect(block?.inline).not.toMatch(/cp_agent_|schedule/i);
+    expect(block?.inline).not.toMatch(/schedule/i);
     expect(block?.pointer).toContain(`Read \`${memoryPath}\` before acting and keep it current.`);
     expect(block?.pointer).toContain("Do not reply to acknowledgements.");
     expect(block?.pointer).not.toContain("Route billing");
+  });
+
+  it("teaches each role the agent tools it may use", () => {
+    const project = makeProject();
+    const build = (thread: ReturnType<typeof makeThread>) =>
+      buildAssistantRuntimeBlock({ project, thread, memory: "", roleFile: "" });
+    const coordinator = build(makeThread("coordinator"));
+    const standing = build(makeThread("agent", { title: "Research", pinnedAt: PINNED_AT }));
+    const oneOff = build(makeThread("agent"));
+
+    for (const tool of ["cp_agent_create", "cp_agent_list", "cp_agent_read", "cp_agent_stop"]) {
+      expect(coordinator?.inline).toContain(tool);
+    }
+    expect(coordinator?.inline).toContain("cp_thread_send");
+    expect(coordinator?.inline).toContain(
+      `first write its role to \`${NodePath.join(project.workspaceRoot, "<slug>", "AGENTS.md")}\``,
+    );
+    expect(coordinator?.inline).toContain("At most 4 agents run at once in this Project.");
+    expect(coordinator?.pointer).toContain(
+      "Delegate with cp_agent_create; results arrive as messages, so end your turn after delegating.",
+    );
+    // Cursor, Grok and Antigravity see only the pointer, so it keeps each role's delivery rules.
+    expect(coordinator?.pointer).toContain(
+      `write the agent's role to \`${NodePath.join(project.workspaceRoot, "<slug>", "AGENTS.md")}\``,
+    );
+
+    expect(standing?.inline).toContain(
+      "You are a standing agent in the Control Plane Project Acme Ops.",
+    );
+    expect(standing?.inline).toContain("cp_agent_create (never standing ones)");
+    const sendCombined =
+      "send the combined result to the coordinator (threadId coordinator) with cp_thread_send.";
+    expect(standing?.inline).toContain(`After your agents report back, ${sendCombined}`);
+    expect(standing?.inline).not.toMatch(/cp_agent_(list|read|stop)/);
+    expect(standing?.pointer).toContain(
+      "You may start one-off agents with cp_agent_create; you count toward the Project's 4 running agents.",
+    );
+    expect(standing?.pointer).toContain(
+      `Only turns the coordinator asked for report back automatically; after your agents report, ${sendCombined}`,
+    );
+
+    expect(oneOff?.inline).toContain(
+      "your final message goes back to it automatically, so do not also send it with cp_thread_send.",
+    );
+    expect(oneOff?.inline).not.toContain("cp_agent_");
+    // Cursor, Grok and Antigravity see only the pointer, and must not send their result twice.
+    expect(oneOff?.pointer).toContain("so do not also send it with cp_thread_send.");
+    expect(oneOff?.pointer).not.toContain("coordinator (threadId");
+    expect(oneOff?.pointer).not.toContain("cp_agent_");
+  });
+
+  it("grants the agents capability to the coordinator and standing agents only", () => {
+    const project = makeProject();
+    const agentsOf = (thread: ReturnType<typeof makeThread>) =>
+      buildAssistantRuntimeBlock({ project, thread, memory: "", roleFile: "" })?.agents;
+
+    expect(agentsOf(makeThread("coordinator"))).toBe(true);
+    expect(agentsOf(makeThread("agent", { pinnedAt: PINNED_AT }))).toBe(true);
+    expect(agentsOf(makeThread("agent", { title: "営業", pinnedAt: PINNED_AT }))).toBe(true);
+    expect(agentsOf(makeThread("agent"))).toBe(false);
   });
 
   it("caps Memory on a UTF-8 boundary and points to the file for the rest", () => {
@@ -80,7 +139,7 @@ describe("buildAssistantRuntimeBlock", () => {
     expect(block?.inline).not.toContain("�");
   });
 
-  it("tells a one-off agent to end its turn with a question for the user", () => {
+  it("tells a one-off agent to end its turn with its result or a question for the user", () => {
     const block = buildAssistantRuntimeBlock({
       project: makeProject(),
       thread: makeThread("agent"),
@@ -89,7 +148,7 @@ describe("buildAssistantRuntimeBlock", () => {
     });
 
     expect(block?.inline).toContain(
-      "You are an agent in the Control Plane Project Acme Ops. When you need the user, end your turn with the question.",
+      "You are an agent in the Control Plane Project Acme Ops. End your turn with your result, or with your question when you need the user.",
     );
     expect(block?.inline).not.toContain("<role");
     expect(block?.inline).not.toContain("MEMORY.md");
@@ -167,13 +226,13 @@ describe("assistantRoleKey", () => {
 
   it("changes on pin and unpin, and on a Project retitle", () => {
     const project = makeProject();
-    const task = makeThread("agent", { title: "Sales" });
+    const oneOff = makeThread("agent", { title: "Sales" });
     const standing = makeThread("agent", { title: "Sales", pinnedAt: PINNED_AT });
-    const taskKey = assistantRoleKey({ project, thread: task });
+    const oneOffKey = assistantRoleKey({ project, thread: oneOff });
 
-    expect(assistantRoleKey({ project, thread: standing })).not.toBe(taskKey);
-    expect(assistantRoleKey({ project: { ...project, title: "Acme" }, thread: task })).not.toBe(
-      taskKey,
+    expect(assistantRoleKey({ project, thread: standing })).not.toBe(oneOffKey);
+    expect(assistantRoleKey({ project: { ...project, title: "Acme" }, thread: oneOff })).not.toBe(
+      oneOffKey,
     );
     expect(
       assistantRoleKey({
@@ -181,6 +240,32 @@ describe("assistantRoleKey", () => {
         thread: makeThread("coordinator"),
       }),
     ).not.toBe(assistantRoleKey({ project, thread: makeThread("coordinator") }));
+  });
+
+  it("changes a standing agent's key, and no one-off agent's, on Set as coordinator", () => {
+    const project = makeProject();
+    const promoted = { ...project, assistant: { coordinatorThreadId: ThreadId.make("promoted") } };
+    const standing = makeThread("agent", { title: "Sales", pinnedAt: PINNED_AT });
+    const oneOff = makeThread("agent", { title: "Sales" });
+
+    // A standing agent's text names the coordinator by threadId.
+    expect(assistantRoleKey({ project: promoted, thread: standing })).not.toBe(
+      assistantRoleKey({ project, thread: standing }),
+    );
+    expect(assistantRoleKey({ project: promoted, thread: oneOff })).toBe(
+      assistantRoleKey({ project, thread: oneOff }),
+    );
+  });
+
+  it("changes on pin and unpin for a standing agent whose title has no slug", () => {
+    const project = makeProject();
+    const oneOff = assistantRoleKey({ project, thread: makeThread("agent", { title: "営業" }) });
+    const standing = assistantRoleKey({
+      project,
+      thread: makeThread("agent", { title: "営業", pinnedAt: PINNED_AT }),
+    });
+
+    expect(standing).not.toBe(oneOff);
   });
 
   it("leaves a one-off agent's key alone when its own title changes", () => {

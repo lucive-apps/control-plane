@@ -1835,6 +1835,86 @@ const make = Effect.gen(function* () {
           ? yield* getSourceProposedPlanReferenceForAcceptedTurnStart(thread.id, eventTurnId)
           : null;
 
+      // Finalize the turn's buffered text before the session-set below ends it, so
+      // anything that reads the result when the session leaves running sees all of it.
+      if (isTerminalTurn) {
+        const turnId = toTurnId(event.turnId);
+        if (turnId) {
+          const userInputActivities =
+            yield* projectionThreadActivityRepository.listUserInputLifecycleByThreadId({
+              threadId: thread.id,
+            });
+          const pendingRequestIds = new Set<string>();
+          for (const activity of userInputActivities) {
+            const payload =
+              typeof activity.payload === "object" && activity.payload !== null
+                ? (activity.payload as Record<string, unknown>)
+                : null;
+            const requestId = payload?.requestId;
+            if (typeof requestId !== "string") continue;
+            if (
+              activity.kind === "user-input.requested" &&
+              activity.turnId === turnId &&
+              payload?.responseMode !== "message"
+            ) {
+              pendingRequestIds.add(requestId);
+            } else if (activity.kind === "user-input.resolved") {
+              pendingRequestIds.delete(requestId);
+            }
+          }
+          // A terminal turn cannot accept native callback answers. Message-mode
+          // questions may outlive that turn and still accept a later user message.
+          for (const requestId of pendingRequestIds) {
+            yield* orchestrationEngine.dispatch({
+              type: "thread.activity.append",
+              commandId: yield* providerCommandId(event, "terminal-user-input-resolved"),
+              threadId: thread.id,
+              activity: {
+                id: EventId.make(`${event.eventId}:user-input-resolved:${requestId}`),
+                createdAt: now,
+                tone: "info",
+                kind: "user-input.resolved",
+                summary: "User input dismissed",
+                payload: { requestId },
+                turnId,
+              },
+              createdAt: now,
+            });
+          }
+          const assistantMessageIds = yield* getAssistantMessageIdsForTurn(thread.id, turnId);
+          yield* Effect.forEach(
+            assistantMessageIds,
+            (assistantMessageId) =>
+              getThreadMessageById(thread.id, assistantMessageId).pipe(
+                Effect.flatMap((existingMessage) =>
+                  finalizeAssistantMessage({
+                    event,
+                    threadId: thread.id,
+                    messageId: assistantMessageId,
+                    turnId,
+                    createdAt: now,
+                    commandTag: "assistant-complete-finalize",
+                    finalDeltaCommandTag: "assistant-delta-finalize-fallback",
+                    hasProjectedMessage: existingMessage !== undefined,
+                  }),
+                ),
+              ),
+            { concurrency: 1 },
+          ).pipe(Effect.asVoid);
+          yield* clearAssistantMessageIdsForTurn(thread.id, turnId);
+          yield* clearAssistantSegmentStateForTurn(thread.id, turnId);
+          yield* clearAssistantSegmentStateForTurn(thread.id, turnId, "reasoning");
+
+          yield* finalizeBufferedProposedPlan({
+            event,
+            threadId: thread.id,
+            planId: proposedPlanIdForTurn(thread.id, turnId),
+            turnId,
+            updatedAt: now,
+          });
+        }
+      }
+
       if (
         event.type === "session.started" ||
         event.type === "session.state.changed" ||
@@ -2316,84 +2396,6 @@ const make = Effect.gen(function* () {
           fallbackMarkdown: proposedPlanCompletion.planMarkdown,
           updatedAt: now,
         });
-      }
-
-      if (isTerminalTurn) {
-        const turnId = toTurnId(event.turnId);
-        if (turnId) {
-          const userInputActivities =
-            yield* projectionThreadActivityRepository.listUserInputLifecycleByThreadId({
-              threadId: thread.id,
-            });
-          const pendingRequestIds = new Set<string>();
-          for (const activity of userInputActivities) {
-            const payload =
-              typeof activity.payload === "object" && activity.payload !== null
-                ? (activity.payload as Record<string, unknown>)
-                : null;
-            const requestId = payload?.requestId;
-            if (typeof requestId !== "string") continue;
-            if (
-              activity.kind === "user-input.requested" &&
-              activity.turnId === turnId &&
-              payload?.responseMode !== "message"
-            ) {
-              pendingRequestIds.add(requestId);
-            } else if (activity.kind === "user-input.resolved") {
-              pendingRequestIds.delete(requestId);
-            }
-          }
-          // A terminal turn cannot accept native callback answers. Message-mode
-          // questions may outlive that turn and still accept a later user message.
-          for (const requestId of pendingRequestIds) {
-            yield* orchestrationEngine.dispatch({
-              type: "thread.activity.append",
-              commandId: yield* providerCommandId(event, "terminal-user-input-resolved"),
-              threadId: thread.id,
-              activity: {
-                id: EventId.make(`${event.eventId}:user-input-resolved:${requestId}`),
-                createdAt: now,
-                tone: "info",
-                kind: "user-input.resolved",
-                summary: "User input dismissed",
-                payload: { requestId },
-                turnId,
-              },
-              createdAt: now,
-            });
-          }
-          const assistantMessageIds = yield* getAssistantMessageIdsForTurn(thread.id, turnId);
-          yield* Effect.forEach(
-            assistantMessageIds,
-            (assistantMessageId) =>
-              getThreadMessageById(thread.id, assistantMessageId).pipe(
-                Effect.flatMap((existingMessage) =>
-                  finalizeAssistantMessage({
-                    event,
-                    threadId: thread.id,
-                    messageId: assistantMessageId,
-                    turnId,
-                    createdAt: now,
-                    commandTag: "assistant-complete-finalize",
-                    finalDeltaCommandTag: "assistant-delta-finalize-fallback",
-                    hasProjectedMessage: existingMessage !== undefined,
-                  }),
-                ),
-              ),
-            { concurrency: 1 },
-          ).pipe(Effect.asVoid);
-          yield* clearAssistantMessageIdsForTurn(thread.id, turnId);
-          yield* clearAssistantSegmentStateForTurn(thread.id, turnId);
-          yield* clearAssistantSegmentStateForTurn(thread.id, turnId, "reasoning");
-
-          yield* finalizeBufferedProposedPlan({
-            event,
-            threadId: thread.id,
-            planId: proposedPlanIdForTurn(thread.id, turnId),
-            turnId,
-            updatedAt: now,
-          });
-        }
       }
 
       if (event.type === "session.exited") {

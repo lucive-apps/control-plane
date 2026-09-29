@@ -3,7 +3,6 @@ import * as NodePath from "node:path";
 
 import {
   assistantSlug,
-  assistantThreadRole,
   isStandingAgent,
   type ProjectAssistant,
   type ThreadId,
@@ -11,6 +10,7 @@ import {
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
+import { AGENT_RUNNING_CAP, capUtf8 } from "../orchestration/agentProtocol.ts";
 import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 
 // Fork-owned. The role block a Project's coordinator and agents receive.
@@ -50,20 +50,35 @@ export interface AssistantRuntimeBlock {
   readonly inline: string;
   /** A short pointer to the files, for Cursor, Grok and Antigravity, which resend it every prompt. */
   readonly pointer: string;
+  /**
+   * Grants the `agents` MCP capability: coordinators and standing agents.
+   * Always set by the builder; absent reads as false.
+   */
+  readonly agents?: boolean;
 }
 
 type AssistantRole =
   | { readonly kind: "coordinator" }
-  /** `slug` names a standing agent's `<slug>/AGENTS.md`; null for one-off agents and empty slugs. */
-  | { readonly kind: "agent"; readonly slug: string | null };
+  | {
+      readonly kind: "agent";
+      readonly standing: boolean;
+      /** Names a standing agent's `<slug>/AGENTS.md`; null for one-off agents and empty slugs. */
+      readonly slug: string | null;
+      readonly coordinatorThreadId: ThreadId;
+    };
 
 function resolveAssistantRole({ project, thread }: AssistantRuntimeTarget): AssistantRole | null {
-  if (!project || !thread) return null;
-  const role = assistantThreadRole(project, thread.id);
-  if (role === null) return null;
-  if (role === "coordinator") return { kind: "coordinator" };
-  const slug = isStandingAgent(project, thread) ? assistantSlug(thread.title) : "";
-  return { kind: "agent", slug: slug || null };
+  const assistant = project?.assistant;
+  if (!project || !thread || assistant == null) return null;
+  if (assistant.coordinatorThreadId === thread.id) return { kind: "coordinator" };
+  const standing = isStandingAgent(project, thread);
+  const slug = standing ? assistantSlug(thread.title) : "";
+  return {
+    kind: "agent",
+    standing,
+    slug: slug || null,
+    coordinatorThreadId: assistant.coordinatorThreadId,
+  };
 }
 
 const roleFileOf = (slug: string) => `${slug}/${ROLE_FILE}`;
@@ -110,8 +125,11 @@ function fileEpoch(root: string, relativePath: string): number {
 
 /**
  * Everything the block's text depends on. Agents use the Project title, never
- * their own, so first-turn auto-titling does not restart every new agent; a
- * standing agent's slug is in the key because it names its role file.
+ * their own, so first-turn auto-titling does not restart every new agent. A
+ * standing agent's key has its slug, which names its role file, and the
+ * coordinator's id, which its text names. Standing and one-off keys always
+ * differ, even without a slug, so Pin and Unpin restart the session and
+ * re-mint the `agents` capability.
  */
 export function assistantRoleKey(input: AssistantRuntimeTarget): string {
   const role = resolveAssistantRole(input);
@@ -121,8 +139,10 @@ export function assistantRoleKey(input: AssistantRuntimeTarget): string {
   if (role.kind === "coordinator") {
     return `coordinator:${base}:${fileEpoch(project.workspaceRoot, MEMORY_FILE)}`;
   }
-  if (role.slug === null) return `agent:${base}:-`;
-  return `agent:${base}:${role.slug}:${fileEpoch(project.workspaceRoot, roleFileOf(role.slug))}`;
+  if (!role.standing) return `agent:${base}:one-off`;
+  const standing = `agent:${base}:standing:${role.coordinatorThreadId}`;
+  if (role.slug === null) return `${standing}:-:-`;
+  return `${standing}:${role.slug}:${fileEpoch(project.workspaceRoot, roleFileOf(role.slug))}`;
 }
 
 export function buildAssistantRuntimeBlock(
@@ -146,13 +166,16 @@ export function buildAssistantRuntimeBlock(
 
   if (role.kind === "coordinator") {
     const memoryPath = NodePath.join(folder, MEMORY_FILE);
+    const roleFilePattern = NodePath.join(folder, "<slug>", ROLE_FILE);
     const inline = [
       open,
       "You coordinate this Control Plane Project. The other threads in its folder are its agents.",
       `Your memory is ${memoryPath}. Keep it current. The copy below was read when this session started, and the user may have changed the file since, so re-read it from disk before relying on it and edit it in place. Never silently rewrite rules the user wrote.`,
       `The root ${ROLE_FILE} is shared by you and every agent. Coordinator-only routing and user preferences go in ${MEMORY_FILE}.`,
       "Do not reply to acknowledgements.",
-      "You may message an agent with cp_thread_send. Its result returns the agent's threadId. Pass that threadId on later sends, since titles can match threads outside this Project.",
+      `Delegate work to agents with cp_agent_create. An agent is one-off by default and settles after it reports. Pass standing: true only for a role you will reuse, and first write its role to \`${roleFilePattern}\` (slug: its title in lowercase with dashes).`,
+      "When an agent you started or messaged finishes, its final message arrives here as a message from it, including any question it has for the user. Nothing polls: after delegating, end your turn. Relay an agent's question to the user, then send the answer with cp_thread_send and the agent's threadId.",
+      `At most ${AGENT_RUNNING_CAP} agents run at once in this Project. Use cp_agent_list, cp_agent_read and cp_agent_stop to check on them or stop them. A message to a busy agent waits until its turn ends; stop it first to redirect it. Pass threadId to cp_thread_send, since titles can match threads outside this Project.`,
       input.memory.trim()
         ? `<memory>\n${capInline(input.memory, memoryPath)}\n</memory>`
         : `<memory>(${MEMORY_FILE} is empty)</memory>`,
@@ -162,13 +185,25 @@ export function buildAssistantRuntimeBlock(
       open,
       `You coordinate the Control Plane Project ${name}. The other threads in its folder are its agents.`,
       `Read \`${memoryPath}\` before acting and keep it current.`,
+      "Delegate with cp_agent_create; results arrive as messages, so end your turn after delegating.",
+      `Before passing standing: true, write the agent's role to \`${roleFilePattern}\` (slug: its title in lowercase with dashes).`,
       "Do not reply to acknowledgements. When you message an agent with cp_thread_send, pass the threadId its result returns on later sends.",
       close,
     ].join("\n");
-    return { roleKey, inline, pointer };
+    return { roleKey, inline, pointer, agents: true };
   }
 
-  const roleSentence = `You are an agent in the Control Plane Project ${name}. When you need the user, end your turn with the question.`;
+  const endTurn = "End your turn with your result, or with your question when you need the user.";
+  const opening = role.standing
+    ? `You are a standing agent in the Control Plane Project ${name}. ${endTurn}`
+    : `You are an agent in the Control Plane Project ${name}. ${endTurn}`;
+  const oneOffGuidance =
+    "When another thread asked for the work, your final message goes back to it automatically, so do not also send it with cp_thread_send.";
+  // By id: an agent can share the coordinator's title (the Project's name).
+  const sendCombined = `send the combined result to the coordinator (threadId ${role.coordinatorThreadId}) with cp_thread_send.`;
+  const guidance = role.standing
+    ? `You may start one-off agents with cp_agent_create (never standing ones); their final messages come back to you, and you count toward the Project's limit of ${AGENT_RUNNING_CAP} running agents. Your final message reaches the coordinator automatically only for turns it asked for. After your agents report back, ${sendCombined}`
+    : oneOffGuidance;
   // A missing or empty role file is left out; saving it later restarts the agent.
   const rolePath =
     role.slug !== null && input.roleFile.trim()
@@ -176,7 +211,8 @@ export function buildAssistantRuntimeBlock(
       : null;
   const inline = [
     open,
-    roleSentence,
+    opening,
+    guidance,
     ...(rolePath
       ? [
           `<role file="${escapeAttribute(rolePath)}">\n${capInline(input.roleFile, rolePath)}\n</role>`,
@@ -186,11 +222,16 @@ export function buildAssistantRuntimeBlock(
   ].join("\n");
   const pointer = [
     open,
-    roleSentence,
+    opening,
+    // Each role keeps its delivery rule: a one-off agent's own send would arrive
+    // twice, and a standing agent's combined result would never arrive.
+    role.standing
+      ? `You may start one-off agents with cp_agent_create; you count toward the Project's ${AGENT_RUNNING_CAP} running agents. Only turns the coordinator asked for report back automatically; after your agents report, ${sendCombined}`
+      : oneOffGuidance,
     ...(rolePath ? [`Your role file: \`${rolePath}\``] : []),
     close,
   ].join("\n");
-  return { roleKey, inline, pointer };
+  return { roleKey, inline, pointer, agents: role.standing };
 }
 
 /**
@@ -257,13 +298,11 @@ export const prepareAssistantRuntime = (input: {
 
 /** Absolute `path` in the marker: a worktree agent's cwd has its own copy of the file. */
 function capInline(text: string, path: string): string {
-  const trimmed = text.trimEnd();
-  const bytes = Buffer.from(trimmed, "utf8");
-  if (bytes.length <= ASSISTANT_INLINE_CAP_BYTES) return trimmed;
-  let cut = ASSISTANT_INLINE_CAP_BYTES;
-  // Step back off UTF-8 continuation bytes (10xxxxxx) so no character is split.
-  while (cut > 0 && ((bytes[cut] ?? 0) & 0xc0) === 0x80) cut -= 1;
-  return `${bytes.subarray(0, cut).toString("utf8")}\n[truncated: read ${path} for the rest]`;
+  return capUtf8(
+    text.trimEnd(),
+    ASSISTANT_INLINE_CAP_BYTES,
+    `\n[truncated: read ${path} for the rest]`,
+  );
 }
 
 function toSingleLine(value: string): string {

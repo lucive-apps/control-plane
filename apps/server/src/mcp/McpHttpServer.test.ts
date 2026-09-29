@@ -15,8 +15,11 @@ import { HttpBody, HttpClient, HttpRouter, HttpServerResponse } from "effect/uns
 
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
+import { makeProviderRegistryLayer } from "../provider/testUtils/providerRegistryMock.ts";
 import * as ServerConfig from "../config.ts";
 import * as McpHttpServer from "./McpHttpServer.ts";
+import { AgentsToolkitRegistrationLive } from "./toolkits/agents/handlers.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import * as PreviewAutomationBroker from "./PreviewAutomationBroker.ts";
 
@@ -78,6 +81,19 @@ const ThreadsTestLayer = McpHttpServer.ThreadsToolkitRegistrationLive.pipe(
           }),
       }),
       Layer.mock(OrchestrationEngineService)({}),
+      NodeServices.layer,
+      SqlitePersistenceMemory,
+    ),
+  ),
+);
+const AgentsTestLayer = AgentsToolkitRegistrationLive.pipe(
+  Layer.provideMerge(McpServer.McpServer.layer),
+  Layer.provide(
+    Layer.mergeAll(
+      Layer.mock(ProjectionSnapshotQuery)({}),
+      Layer.mock(OrchestrationEngineService)({}),
+      makeProviderRegistryLayer(),
+      SqlitePersistenceMemory,
       NodeServices.layer,
     ),
   ),
@@ -424,6 +440,32 @@ it.effect("registers the threads toolkit", () =>
     const server = yield* McpServer.McpServer;
     expect(server.tools.map(({ tool }) => tool.name)).toContain("cp_thread_send");
   }).pipe(Effect.provide(ThreadsTestLayer)),
+);
+
+it.effect(
+  "registers the agents toolkit and refuses a credential without the agents capability",
+  () =>
+    Effect.gen(function* () {
+      const server = yield* McpServer.McpServer;
+      expect(server.tools.map(({ tool }) => tool.name)).toEqual(
+        expect.arrayContaining([
+          "cp_agent_create",
+          "cp_agent_list",
+          "cp_agent_read",
+          "cp_agent_stop",
+        ]),
+      );
+
+      const denied = yield* server.callTool({ name: "cp_agent_list", arguments: {} }).pipe(
+        // A one-off agent's credential: the tools are listed, but the call is refused.
+        Effect.provideService(McpInvocationContext.McpInvocationContext, invocation),
+        Effect.provideService(McpSchema.McpServerClient, client),
+      );
+      expect(denied.isError).toBe(true);
+      expect(denied.content).toEqual([
+        { type: "text", text: "MCP credential does not grant the agents capability." },
+      ]);
+    }).pipe(Effect.provide(AgentsTestLayer)),
 );
 
 it.effect("keeps the snapshot text under the agent's output ceiling", () =>

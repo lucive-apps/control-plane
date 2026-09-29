@@ -131,6 +131,8 @@ function EnvironmentNotifications({
             ? "completion"
             : null;
       if (!kind) continue;
+      // A manager asked for this turn. Its result goes to the manager, whose reply alerts instead.
+      if (kind === "completion" && thread.latestTurn?.replyTo) continue;
       const title =
         kind === "completion"
           ? "Thread completed"

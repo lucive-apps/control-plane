@@ -139,7 +139,7 @@ it.effect("auto-settlement skips coordinators and standing agents only", () =>
         threads: [
           makeThread(COORDINATOR, PROJECT_ID),
           makeThread("standing-agent", PROJECT_ID, { pinnedAt: "2026-08-02T00:00:00.000Z" }),
-          makeThread("task-agent", PROJECT_ID),
+          makeThread("one-off-agent", PROJECT_ID),
           makeThread("pinned-task", WORKSPACE_ID, { pinnedAt: "2026-08-02T00:00:00.000Z" }),
         ],
         updatedAt: NOW,
@@ -152,7 +152,7 @@ it.effect("auto-settlement skips coordinators and standing agents only", () =>
         yield* reactor.drain;
         assert.deepStrictEqual(
           [...(yield* Ref.get(fixture.settled))].sort((left, right) => left.localeCompare(right)),
-          [ThreadId.make("pinned-task"), ThreadId.make("task-agent")],
+          [ThreadId.make("one-off-agent"), ThreadId.make("pinned-task")],
         );
       }).pipe(Effect.provide(fixture.layer));
     }),

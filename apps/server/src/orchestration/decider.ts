@@ -5,6 +5,7 @@ import {
   MessageId,
   ThreadLinkedPullRequest,
   UserInputRequestedPayload,
+  isAgentPushMessageId,
   isImportedAgentSessionMessageId,
   type OrchestrationCommand,
   type OrchestrationEvent,
@@ -46,7 +47,9 @@ import {
 } from "./commandInvariants.ts";
 import {
   decideAssistantMetaUpdate,
+  requireAgentCreator,
   requireNotCoordinator,
+  requireReplyTo,
   requireSettleable,
   resolveCoordinatorMetaUpdate,
 } from "./assistantDecider.ts";
@@ -385,6 +388,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      yield* requireAgentCreator(readModel, command);
       return {
         ...(yield* withEventBase({
           aggregateKind: "thread",
@@ -405,6 +409,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           worktreePath: command.worktreePath,
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
+          ...(command.createdByThreadId !== undefined
+            ? { createdByThreadId: command.createdByThreadId }
+            : {}),
         },
       };
     }
@@ -1417,6 +1424,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           message.role === "user" &&
           message.turnId === null,
       );
+      yield* requireReplyTo(
+        readModel,
+        command.threadId,
+        persistedUserMessage ? null : command.message,
+        command.type,
+      );
       const userMessageEvent: Omit<OrchestrationEvent, "sequence"> | null = persistedUserMessage
         ? null
         : {
@@ -1487,7 +1500,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           },
         });
       }
-      if (targetThread.snoozedUntil != null) {
+      if (targetThread.snoozedUntil != null && !isAgentPushMessageId(command.message.messageId)) {
         lifecycleResetEvents.push({
           ...(yield* withEventBase({
             aggregateKind: "thread",
@@ -1522,6 +1535,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      yield* requireReplyTo(readModel, command.threadId, command.message, command.type);
       if (thread.messages.some((message) => message.id === command.message.messageId)) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,

@@ -41,8 +41,10 @@ checkouts stay under Tasks.
 
 ## Agents
 
-Any thread you start inside a Project is an agent. New agents start Local in the Project folder
-and use the Project's default model.
+Every thread in a Project other than the coordinator is an agent. Start one yourself, or ask the
+coordinator to start it for you (see [Delegate to agents](#delegate-to-agents)). New agents start
+Local in the Project folder and use the Project's default model, unless you ask the coordinator
+for another.
 
 Pin an agent to make it a standing agent: a reused role that never settles. Unpin it to turn it
 back into a one-off agent that you can settle when its work is done. Snoozing keeps the pin.
@@ -54,6 +56,28 @@ is the agent's title in lowercase with dashes. An agent titled `Sales Ops` uses
 The coordinator's title always matches the Project name, and renaming the Project renames it.
 To replace a stuck coordinator, choose **Set as coordinator** on a Local agent. The old
 coordinator stays as a pinned agent, so you can switch back.
+
+## Delegate to agents
+
+Ask the coordinator to hand work to agents, for example "Start two agents: one lists the
+advantages of SQLite WAL mode, the other its drawbacks." It starts them and ends its turn. When
+an agent finishes, its final message comes back to the coordinator on its own, including any
+question it has for you. The result shows in the coordinator right away as a reply from that
+agent, even while the coordinator is busy, and the coordinator picks it up when its turn ends.
+Notifications come from the coordinator's reply, not from each agent finishing work it was asked
+to do.
+
+- A one-off agent settles after it reports. Message it to bring it back.
+- A standing agent can start its own one-off agents. Their results go to the standing agent,
+  which passes on the combined answer.
+- The coordinator and standing agents can't start another agent while 4 are running in the
+  Project.
+- After 6 results in a row reach one thread, the rest wait until you message that thread. A
+  notice in the coordinator says which thread.
+- A message the coordinator sends to a busy agent waits until that agent's turn ends.
+- To stop an agent, choose **Stop agent** from its menu or ask the coordinator. If you stop an
+  agent that was working for the coordinator, the coordinator hears that it stopped before
+  finishing. Message a stopped agent to start it again.
 
 ## Memory
 

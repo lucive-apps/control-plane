@@ -14,7 +14,8 @@ coordinator, and expand it to see its agents: standing agents first, then one-of
 agents. Settled agents stay under their Project instead of the Settled view; expand them ten
 at a time. Hover a Project and click **+** to start an agent, or right-click it for Rename,
 Settings, Archive, Move to Tasks and Delete. Each Project shows its number of running agents
-and one dot for its most urgent thread.
+and one dot for its most urgent thread. Its unread dot comes only from the coordinator, which
+receives the results of work it hands out. Each agent still shows unread on its own row.
 
 Click **Projects** or **Tasks** to collapse that section. A collapsed section or workspace also
 shows one dot for its most urgent thread. Filtering the list to one workspace from a thread's

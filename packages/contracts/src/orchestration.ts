@@ -558,6 +558,8 @@ export const OrchestrationAgentMessageSource = Schema.Struct({
   kind: Schema.Literal("agent"),
   threadId: Schema.optional(ThreadId),
   threadTitle: Schema.optional(TrimmedNonEmptyString),
+  /** The thread this request's result goes to. Absent: nothing is sent back. */
+  replyTo: Schema.optional(ThreadId),
 });
 export type OrchestrationAgentMessageSource = typeof OrchestrationAgentMessageSource.Type;
 
@@ -741,6 +743,8 @@ export const OrchestrationLatestTurn = Schema.Struct({
   completedAt: Schema.NullOr(IsoDateTime),
   assistantMessageId: Schema.NullOr(MessageId),
   sourceProposedPlan: Schema.optional(SourceProposedPlanReference),
+  /** Set when this turn's starting message was a request from a manager. */
+  replyTo: Schema.optional(ThreadId),
 });
 export type OrchestrationLatestTurn = typeof OrchestrationLatestTurn.Type;
 
@@ -1184,6 +1188,8 @@ const ThreadCreateCommand = Schema.Struct({
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   createdAt: IsoDateTime,
   historyImport: Schema.optional(Schema.Literal(true)),
+  /** The manager that started this agent. Kept on the thread.created event only. */
+  createdByThreadId: Schema.optional(ThreadId),
 });
 
 const ThreadDeleteCommand = Schema.Struct({
@@ -1821,6 +1827,7 @@ export const ThreadCreatedPayload = Schema.Struct({
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
+  createdByThreadId: Schema.optional(ThreadId),
 });
 
 export const ThreadDeletedPayload = Schema.Struct({

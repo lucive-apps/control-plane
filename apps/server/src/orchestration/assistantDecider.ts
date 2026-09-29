@@ -4,7 +4,10 @@
  */
 import {
   assistantThreadRole,
+  isAgentPushMessageId,
   isStandingAgent,
+  type MessageId,
+  type OrchestrationAgentMessageSource,
   type OrchestrationCommand,
   type OrchestrationProject,
   type OrchestrationReadModel,
@@ -19,6 +22,7 @@ import type * as PlatformError from "effect/PlatformError";
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
 import { withEventBase, type PlannedOrchestrationEvent } from "./eventBase.ts";
 
+type ThreadCreateCommand = Extract<OrchestrationCommand, { type: "thread.create" }>;
 type ProjectMetaUpdateCommand = Extract<OrchestrationCommand, { type: "project.meta.update" }>;
 type ThreadMetaUpdateCommand = Extract<OrchestrationCommand, { type: "thread.meta.update" }>;
 
@@ -72,6 +76,80 @@ export function requireSettleable(
   }
   if (isStandingAgent(project, thread)) {
     return Effect.fail(invariant(commandType, "Standing agents do not settle. Unpin to settle."));
+  }
+  return Effect.void;
+}
+
+/** An agent's creator is a live thread of the same Project. */
+export function requireAgentCreator(
+  readModel: OrchestrationReadModel,
+  command: ThreadCreateCommand,
+): Effect.Effect<void, OrchestrationCommandInvariantError> {
+  const creatorId = command.createdByThreadId;
+  if (creatorId === undefined) return Effect.void;
+  const project = readModel.projects.find((entry) => entry.id === command.projectId);
+  if (project?.assistant == null) {
+    return Effect.fail(invariant(command.type, "Only a Project's threads can create agents."));
+  }
+  const creator = findThread(readModel, creatorId);
+  if (
+    creator === undefined ||
+    creator.projectId !== command.projectId ||
+    creator.deletedAt !== null ||
+    creator.archivedAt !== null
+  ) {
+    return Effect.fail(
+      invariant(
+        command.type,
+        `An agent's creator must be a live thread in its Project; '${creatorId}' is not.`,
+      ),
+    );
+  }
+  return Effect.void;
+}
+
+/**
+ * A request names the thread its result goes to: another live thread of the
+ * target's Project. A coordinator never owes a result, so it takes no requests,
+ * and a pushed result is never a request, so a pushed turn never pushes onward.
+ * Pass `null` when the command reuses a stored message: it was checked when it
+ * was appended.
+ */
+export function requireReplyTo(
+  readModel: OrchestrationReadModel,
+  threadId: ThreadId,
+  message: {
+    readonly messageId: MessageId;
+    readonly source?: OrchestrationAgentMessageSource | undefined;
+  } | null,
+  commandType: OrchestrationCommand["type"],
+): Effect.Effect<void, OrchestrationCommandInvariantError> {
+  const replyTo = message?.source?.replyTo;
+  if (message === null || replyTo === undefined) return Effect.void;
+  if (isAgentPushMessageId(message.messageId)) {
+    return Effect.fail(invariant(commandType, "A pushed result cannot be a request."));
+  }
+  const target = findThread(readModel, threadId);
+  const project = target === undefined ? undefined : findThreadProject(readModel, target);
+  if (target === undefined || project?.assistant == null) {
+    return Effect.fail(invariant(commandType, "Only a Project's agents take requests."));
+  }
+  if (assistantThreadRole(project, threadId) === "coordinator") {
+    return Effect.fail(invariant(commandType, "The coordinator does not take requests."));
+  }
+  const recipient = findThread(readModel, replyTo);
+  if (
+    recipient === undefined ||
+    recipient.deletedAt !== null ||
+    recipient.projectId !== target.projectId ||
+    recipient.id === threadId
+  ) {
+    return Effect.fail(
+      invariant(
+        commandType,
+        `A request's result must go to another live thread in its Project; '${replyTo}' is not.`,
+      ),
+    );
   }
   return Effect.void;
 }

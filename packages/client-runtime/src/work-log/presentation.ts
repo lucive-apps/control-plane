@@ -2,6 +2,7 @@ import {
   agentMessageDisplayName,
   agentMessageToolLabel,
   agentThreadNameFromUnknown,
+  isOpaqueThreadId,
   isToolLifecycleItemType,
   type AssetResource,
   type RuntimeItemStatus,
@@ -95,6 +96,10 @@ const T3_MCP_TOOL_LABELS: Record<
   t3_thread_read: ["Read", "Reading", "Read", "a Control Plane thread"],
   cp_thread_send: ["Message", "Messaging", "Messaged", "agent"],
   t3_thread_send: ["Message", "Messaging", "Messaged", "agent"],
+  cp_agent_create: ["Start", "Starting", "Started", "an agent"],
+  cp_agent_list: ["List", "Listing", "Listed", "agents"],
+  cp_agent_read: ["Read", "Reading", "Read", "an agent"],
+  cp_agent_stop: ["Stop", "Stopping", "Stopped", "an agent"],
   t3_thread_wait: ["Wait", "Waiting", "Waited", "for a Control Plane thread"],
   t3_thread_interrupt: ["Interrupt", "Interrupting", "Interrupted", "a Control Plane thread"],
   t3_worktree_handoff: ["Hand off", "Handing off", "Handed off", "thread to a git worktree"],
@@ -139,7 +144,10 @@ export interface WorkEntryToolPresentation {
   readonly displayName: string;
   readonly icon: "message-circle" | "browser" | "device" | "pull-request" | "t3-code";
   readonly action?: ToolGroupAction | undefined;
-  /** The thread a `cp_thread_send` reached, so a client can link to it. */
+  /**
+   * The thread a `cp_thread_send`, `cp_agent_create` or `cp_agent_stop`
+   * reached, so a client can link to it.
+   */
   readonly linkThreadId?: ThreadId;
 }
 
@@ -195,6 +203,16 @@ function resolveT3McpToolPresentation(
       displayName,
       icon: "message-circle" as const,
       action: undefined,
+      ...(linkThreadId ? { linkThreadId } : {}),
+    };
+  }
+  if (name === "cp_agent_create" || name === "cp_agent_stop") {
+    // "Started <title>" and "Stopped <agent>"; an agent named by its id reads as "an agent".
+    const agent = nonEmptyString(name === "cp_agent_create" ? input?.title : input?.agent)?.trim();
+    const linkThreadId = sentThreadIdFromToolData(payload, input);
+    return {
+      displayName: `${verb} ${agent && !isOpaqueThreadId(agent) ? agent : detail}`,
+      icon: "t3-code" as const,
       ...(linkThreadId ? { linkThreadId } : {}),
     };
   }
@@ -271,9 +289,10 @@ function nonEmptyString(value: unknown): string | null {
 const SENT_THREAD_ID_PATTERN = /"threadId"\s*:\s*"([^"\\]+)"/;
 
 /**
- * The thread a `cp_thread_send` reached. Its result names the target
- * (`{threadId, threadTitle}`) even when the call addressed it by title only;
- * a call that never returned falls back to the `threadId` argument.
+ * The thread a `cp_thread_send`, `cp_agent_create` or `cp_agent_stop`
+ * reached. Each result names it (`threadId`) even when the call addressed it
+ * by title only; a call that never returned falls back to the `threadId`
+ * argument.
  */
 function sentThreadIdFromToolData(
   payload: Record<string, unknown> | null,

@@ -1,6 +1,7 @@
 import {
   agentMessageDisplayName,
   isAgentOriginatedUserMessage,
+  isAgentPushMessageId,
   type AssistantThreadRole,
   type OrchestrationAgentMessageSource,
   type ThreadId,
@@ -46,7 +47,7 @@ export function showsTurnMinimap(role: AssistantThreadRole | null): boolean {
   return role !== "coordinator";
 }
 
-/** The Project a timeline belongs to, for handoff rows between its coordinator and agents. */
+/** The Project a timeline belongs to, for handoff rows between its threads. */
 export interface AssistantTimeline {
   readonly role: AssistantThreadRole;
   readonly coordinatorThreadId: ThreadId;
@@ -57,13 +58,19 @@ export interface AssistantTimeline {
 }
 
 export type AgentMessagePresentation =
-  /** A coordinator message in an agent thread: a user bubble attributed to the Project. */
+  /**
+   * A manager's message in an agent thread: a user bubble attributed to the
+   * Project (from the coordinator) or to the standing agent that asked.
+   */
   | {
       readonly kind: "attributed-user";
       readonly displayName: string;
       readonly linkThreadId: ThreadId;
     }
-  /** An agent's message in its coordinator's thread: "<Agent> replied", name linked. */
+  /**
+   * An agent's message in its coordinator's thread, or an agent's result in
+   * the thread that asked for it: "<Agent> replied", name linked.
+   */
   | { readonly kind: "replied"; readonly displayName: string; readonly linkThreadId: ThreadId }
   | { readonly kind: "default" };
 
@@ -71,11 +78,13 @@ const DEFAULT_PRESENTATION: AgentMessagePresentation = { kind: "default" };
 
 /**
  * How a user-role message renders in a Project thread. Only handoffs between
- * this Project's coordinator and its agents change; everything else keeps the
- * default presentation.
+ * this Project's threads change: the coordinator and its agents, and in an
+ * agent's thread, requests from its manager and results pushed to it. A
+ * peer's plain message keeps the default presentation.
  */
 export function resolveAgentMessagePresentation(input: {
   readonly message: {
+    readonly id: string;
     readonly role: string;
     readonly source?: OrchestrationAgentMessageSource | undefined;
   };
@@ -92,23 +101,26 @@ export function resolveAgentMessagePresentation(input: {
     return DEFAULT_PRESENTATION;
   }
   const senderThreadId = source.threadId;
-  if (timeline.role === "agent" && senderThreadId === timeline.coordinatorThreadId) {
-    return {
-      kind: "attributed-user",
-      displayName: timeline.project.title,
-      linkThreadId: senderThreadId,
-    };
-  }
-  if (timeline.role !== "coordinator" || senderThreadId === timeline.coordinatorThreadId) {
-    return DEFAULT_PRESENTATION;
+  // A pushed result stays a reply even after Set as coordinator promotes its sender.
+  const isResult = isAgentPushMessageId(message.id);
+  if (!isResult && senderThreadId === timeline.coordinatorThreadId) {
+    return timeline.role === "agent"
+      ? {
+          kind: "attributed-user",
+          displayName: timeline.project.title,
+          linkThreadId: senderThreadId,
+        }
+      : DEFAULT_PRESENTATION;
   }
   const senderTitle = timeline.projectThreadTitle(senderThreadId);
   if (senderTitle === null) return DEFAULT_PRESENTATION;
-  return {
-    kind: "replied",
-    // The live title, so a reply sent before the agent's auto-title landed
-    // (or before a rename) names the agent as it is now.
-    displayName: agentMessageDisplayName({ ...source, threadTitle: senderTitle }),
-    linkThreadId: senderThreadId,
-  };
+  // The live title, so a message sent before the sender's auto-title landed
+  // (or before a rename) names the sender as it is now.
+  const displayName = agentMessageDisplayName({ ...source, threadTitle: senderTitle });
+  if (isResult || timeline.role === "coordinator") {
+    return { kind: "replied", displayName, linkThreadId: senderThreadId };
+  }
+  return source.replyTo === undefined
+    ? DEFAULT_PRESENTATION
+    : { kind: "attributed-user", displayName, linkThreadId: senderThreadId };
 }
