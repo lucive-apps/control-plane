@@ -59,8 +59,6 @@ export interface AgentResult {
   readonly outcome: AgentResultOutcome;
   /** The agent's last complete reply after the request, or null. */
   readonly text: string | null;
-  /** No user message reached the agent after the request. */
-  readonly isLatestRequest: boolean;
 }
 
 /**
@@ -100,7 +98,6 @@ const AgentResultRow = Schema.Struct({
   startFailed: Schema.BooleanFromBit,
   startFailureDetail: Schema.NullOr(Schema.String),
   text: Schema.NullOr(Schema.String),
-  isLatestRequest: Schema.BooleanFromBit,
 });
 
 const AgentDeliveryRow = Schema.Struct({
@@ -284,7 +281,7 @@ export function makeAgentPushQueries(sql: SqlClient.SqlClient) {
     Result: AgentResultRow,
     execute: ({ agentThreadId, turnId }) => sql`
       WITH reply AS (
-        SELECT am.text AS text, am.rowid AS message_row
+        SELECT am.text AS text
         FROM projection_thread_messages am
         WHERE am.thread_id = ${agentThreadId} AND am.role = 'assistant'
           AND am.turn_id = ${turnId}
@@ -307,12 +304,7 @@ export function makeAgentPushQueries(sql: SqlClient.SqlClient) {
         ) AS "lastError",
         0 AS "startFailed",
         NULL AS "startFailureDetail",
-        (SELECT text FROM reply) AS "text",
-        NOT EXISTS (
-          SELECT 1 FROM projection_thread_messages u, reply
-          WHERE u.thread_id = ${agentThreadId} AND u.role = 'user'
-            AND u.rowid > reply.message_row
-        ) AS "isLatestRequest"
+        (SELECT text FROM reply) AS "text"
     `,
   });
 
@@ -375,12 +367,7 @@ export function makeAgentPushQueries(sql: SqlClient.SqlClient) {
             )
           ORDER BY am.rowid DESC
           LIMIT 1
-        ) AS "text",
-        NOT EXISTS (
-          SELECT 1 FROM projection_thread_messages u
-          WHERE u.thread_id = ${agentThreadId} AND u.role = 'user'
-            AND u.rowid > request.message_row
-        ) AS "isLatestRequest"
+        ) AS "text"
       FROM request
     `,
   });
@@ -536,7 +523,6 @@ export function makeAgentPushQueries(sql: SqlClient.SqlClient) {
           onSome: (row): AgentResult => ({
             outcome: resultOutcome(row),
             text: row.text,
-            isLatestRequest: row.isLatestRequest,
           }),
         }),
       ),

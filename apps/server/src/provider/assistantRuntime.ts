@@ -30,7 +30,7 @@ const SCHEDULE_RULE =
 
 /** Coordinator only: cp_agent_settle refuses every other caller. */
 const COORDINATOR_SETTLE_RULE =
-  "Settle agents with cp_agent_settle once their work is complete and merged, or when they are one-off and have reported. It fails while an agent is working; a settled agent wakes on a new message.";
+  "Settle agents with cp_agent_settle once their work is complete (for example, merged) and no follow-ups remain. Reporting a result does not settle an agent. It fails while an agent is working; a settled agent wakes on a new message.";
 
 const COORDINATOR_BROWSER_RULE =
   "When you delegate, tell each agent to use its own thread's built-in Control Plane browser with the preview_* tools. Each coordinator and agent has its own browser tabs; do not send browser work to another coordinator or reuse another thread's browser.";
@@ -194,7 +194,7 @@ export function buildAssistantRuntimeBlock(
       `Your memory is ${memoryPath}. Keep it current. The copy below was read when this session started, and the user may have changed the file since, so re-read it from disk before relying on it and edit it in place. Never silently rewrite rules the user wrote.`,
       `The root ${ROLE_FILE} is shared by you and every agent. Coordinator-only routing and user preferences go in ${MEMORY_FILE}.`,
       "Do not reply to acknowledgements.",
-      `Delegate work to agents with cp_agent_create. An agent is one-off by default and settles after it reports. Pass standing: true only for a role you will reuse, and first write its role to \`${roleFilePattern}\` (slug: its title in lowercase with dashes).`,
+      `Delegate work to agents with cp_agent_create. An agent is one-off by default and stays available for follow-ups after it reports. Pass standing: true only for a role you will reuse, and first write its role to \`${roleFilePattern}\` (slug: its title in lowercase with dashes).`,
       "When an agent you started or messaged finishes, its final message arrives here as a message from it, including any question it has for the user. Nothing polls: after delegating, end your turn. Relay an agent's question to the user, then send the answer with cp_thread_send and the agent's threadId.",
       `At most ${AGENT_RUNNING_CAP} agents run at once in this Project. Use cp_agent_list, cp_agent_read and cp_agent_stop to check on them or stop them. A message to a busy agent waits until its turn ends; stop it first to redirect it. Pass threadId to cp_thread_send, since titles can match threads outside this Project.`,
       COORDINATOR_SETTLE_RULE,

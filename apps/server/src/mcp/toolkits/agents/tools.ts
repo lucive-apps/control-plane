@@ -226,7 +226,7 @@ export type AgentCreateResult = typeof AgentCreateResult.Type;
 
 export const AgentListInput = Schema.Struct({
   includeSettled: Schema.optional(
-    Schema.Boolean.annotate({ description: "Also list agents that settled after reporting." }),
+    Schema.Boolean.annotate({ description: "Also list agents that have been settled." }),
   ),
 });
 export type AgentListInput = typeof AgentListInput.Type;
@@ -379,7 +379,7 @@ export type ScheduleDeleteResult = typeof ScheduleDeleteResult.Type;
 
 const AgentCreateTool = Tool.make("cp_agent_create", {
   description:
-    "Start an agent in this Project with a first message. Its final message comes back to you.",
+    "Start an agent in this Project with a first message. Its final message comes back to you, and it stays available for follow-ups. Only the coordinator settles a one-off agent with cp_agent_settle once its work is complete and no follow-ups remain.",
   parameters: AgentCreateInput,
   success: AgentCreateResult,
   failure: AgentToolError,
