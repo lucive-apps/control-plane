@@ -1550,6 +1550,47 @@ describe("AgentCompletionReactor with scheduled prompts", () => {
   );
 
   test(
+    "settles a nudged agent again once the reply of its continuation turn is delivered",
+    Effect.gen(function* () {
+      const f = yield* makeFixture;
+      yield* f.createProject;
+      const agent = A("agent-nudged-settle");
+      yield* f.createThread(agent, "Nudged", { createdBy: COORDINATOR });
+      yield* f.request(agent, M("request-1"), COORDINATOR);
+
+      yield* f.withReactor((drain) =>
+        Effect.gen(function* () {
+          yield* f.finishTurn(agent, T("turn-1"), "Waiting on the tests.");
+          yield* drain;
+          assert.isTrue(yield* f.settled(agent));
+
+          // The coordinator nudges it. That turn ends empty and the reactor
+          // settles the agent on the empty result.
+          yield* f.request(agent, M("request-nudge"), COORDINATOR);
+          assert.isFalse(yield* f.settled(agent));
+          yield* f.finishTurn(agent, T("turn-nudge"), "");
+          yield* drain;
+          assert.isTrue(yield* f.settled(agent));
+
+          // The agent carries on in a turn nothing started: real activity wakes it.
+          yield* f.beginTurn(agent, T("turn-reply"));
+          assert.isFalse(yield* f.settled(agent));
+
+          // Its final report is delivered, and that settles it for good.
+          yield* f.endTurn(agent, T("turn-reply"), "Merged, PR #42.");
+          yield* drain;
+          assert.isTrue(yield* f.settled(agent));
+        }),
+      );
+
+      assert.include(
+        (yield* f.userMessages(COORDINATOR)).map((message) => message.text),
+        resultText("Nudged", agent, "finished", "Merged, PR #42."),
+      );
+    }),
+  );
+
+  test(
     "does not deliver a continuation twice when its reply reached the request's own result",
     Effect.gen(function* () {
       const f = yield* makeFixture;
