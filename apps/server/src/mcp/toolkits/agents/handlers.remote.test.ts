@@ -47,6 +47,7 @@ import {
   AgentCreateResult,
   AgentListResult,
   AgentReadResult,
+  AgentSettleResult,
   AgentStopResult,
   AgentsToolkit,
 } from "./tools.ts";
@@ -234,6 +235,8 @@ const makeHarness = Effect.fn("makeRemoteAgentsHarness")(function* (input: Harne
       run(toolkit.handle("cp_agent_read", params), AgentReadResult),
     stop: (params: Parameters<typeof toolkit.handle<"cp_agent_stop">>[1]) =>
       run(toolkit.handle("cp_agent_stop", params), AgentStopResult),
+    settle: (params: Parameters<typeof toolkit.handle<"cp_agent_settle">>[1]) =>
+      run(toolkit.handle("cp_agent_settle", params), AgentSettleResult),
   };
 });
 
@@ -654,6 +657,46 @@ describe("cp_agent_list, cp_agent_read and cp_agent_stop with remote agents", ()
       expect(stopped).toEqual({ threadId: "remote-1", stopped: true, archived: false });
       expect(types(h.peer.commands)).toEqual(["thread.turn.interrupt", "thread.session.stop"]);
       expect(types(h.commands)).toEqual([]);
+    }),
+  );
+
+  it.effect("settles an idle remote agent on its machine and archives on request", () =>
+    Effect.gen(function* () {
+      const h = yield* seededHarness();
+      yield* h.seedRecord({ lastPhase: "completed" });
+      const settled = yield* h.settle({ agent: "Pricing", archive: true });
+      expect(settled).toEqual({ threadId: "remote-1", settled: true, archived: true });
+      expect(types(h.peer.commands)).toEqual(["thread.settle", "thread.archive"]);
+      expect(types(h.commands)).toEqual([]);
+      expect((yield* h.records)[0]?.state).toBe("settled");
+    }),
+  );
+
+  it.effect("refuses to settle a remote agent with a request in flight", () =>
+    Effect.gen(function* () {
+      const h = yield* seededHarness();
+      yield* h.seedRecord({
+        lastPhase: "running",
+        inFlight: {
+          messageId: "m",
+          replyTo: "coordinator",
+          sentAt: TEST_NOW,
+          baselineTurnId: null,
+          suppressed: false,
+        },
+      });
+      const error = yield* Effect.flip(h.settle({ agent: "Pricing" }));
+      expect(error._tag).toBe("AgentBusyError");
+      expect(h.peer.commands).toEqual([]);
+    }),
+  );
+
+  it.effect("leaves settling to the coordinator", () =>
+    Effect.gen(function* () {
+      const h = yield* seededHarness(STANDING_ID);
+      yield* h.seedRecord({ creatorThreadId: "standing" });
+      const error = yield* Effect.flip(h.settle({ agent: "Pricing" }));
+      expect(error._tag).toBe("SettleCoordinatorOnlyError");
     }),
   );
 

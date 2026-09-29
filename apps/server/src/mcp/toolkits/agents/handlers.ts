@@ -825,7 +825,23 @@ const make = Effect.gen(function* () {
         // Settling is the coordinator's call: a standing agent manages one-offs
         // it started, but does not decide when their work is done.
         if (manager.role !== "coordinator") return yield* new SettleCoordinatorOnlyError();
-        const agent = yield* requireAgent(manager, input.agent);
+        const target = yield* requireTarget(manager, input.agent);
+        if (target.kind === "remote") {
+          const { record } = target;
+          // A request in flight is the peer's agent still working.
+          if (record.inFlight !== null && !record.inFlight.suppressed) {
+            return yield* new AgentBusyError({ agent: input.agent, phase: record.lastPhase });
+          }
+          const settled = yield* remote
+            .settle(record, { archive: input.archive === true })
+            .pipe(Effect.mapError(toolFailed));
+          return {
+            threadId: ThreadId.make(record.threadId),
+            settled: true as const,
+            archived: settled.archived,
+          };
+        }
+        const agent = target.thread;
         if (isStandingAgent(manager.project, agent)) {
           return yield* new AgentToolFailedError({
             detail: `'${input.agent}' is a standing agent, and standing agents do not settle.`,

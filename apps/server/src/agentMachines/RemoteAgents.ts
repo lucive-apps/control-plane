@@ -136,6 +136,11 @@ export interface RemoteAgentsShape {
     record: RemoteAgentRecord,
     options: { readonly archive: boolean },
   ) => Effect.Effect<{ readonly stopped: boolean; readonly archived: boolean }, RemoteAgentError>;
+  /** Settles an idle remote agent on its machine, and archives it on request. */
+  readonly settle: (
+    record: RemoteAgentRecord,
+    options: { readonly archive: boolean },
+  ) => Effect.Effect<{ readonly archived: boolean }, RemoteAgentError>;
   /** Starts the message when the agent is idle, else queues it for the bridge. */
   readonly send: (
     record: RemoteAgentRecord,
@@ -436,6 +441,40 @@ const make = Effect.gen(function* () {
       return { stopped: working || dropped > 0, archived: options.archive };
     });
 
+  const settle: RemoteAgentsShape["settle"] = (record, options) =>
+    Effect.gen(function* () {
+      const createdAt = yield* nowIso;
+      const key = `${record.threadId}:${createdAt}`;
+      yield* send(
+        {
+          type: "thread.settle",
+          commandId: CommandId.make(`cp-remote-settle:${key}`),
+          threadId: ThreadId.make(record.threadId),
+        },
+        record,
+      );
+      if (options.archive) {
+        yield* send(
+          {
+            type: "thread.archive",
+            commandId: CommandId.make(`cp-remote-archive:${key}`),
+            threadId: ThreadId.make(record.threadId),
+          },
+          record,
+        );
+      }
+      yield* store
+        .update(record.threadId, (current) => ({
+          ...current,
+          state: "settled",
+          endedAt: createdAt,
+          inFlight: null,
+          queuedSends: [],
+        }))
+        .pipe(Effect.mapError(storeFailed));
+      return { archived: options.archive };
+    });
+
   const sendMessage: RemoteAgentsShape["send"] = (record, input) =>
     Effect.gen(function* () {
       const createdAt = yield* nowIso;
@@ -536,6 +575,7 @@ const make = Effect.gen(function* () {
       ),
     read,
     stop,
+    settle,
     send: sendMessage,
     startQueued,
   } satisfies RemoteAgentsShape;
