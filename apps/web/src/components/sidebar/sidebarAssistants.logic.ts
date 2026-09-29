@@ -42,7 +42,6 @@ export interface AssistantJumpEntry<T> {
 export function flattenAssistantJumpOrder<T extends ScopedThreadLike>(
   entries: readonly AssistantJumpEntry<T>[],
   expandedKeys: ReadonlySet<string>,
-  settledCounts: ReadonlyMap<string, number>,
   routeThreadKey: string | null = null,
 ): T[] {
   const ordered: T[] = [];
@@ -50,7 +49,7 @@ export function flattenAssistantJumpOrder<T extends ScopedThreadLike>(
     if (entry.coordinator !== null) ordered.push(entry.coordinator);
     if (!expandedKeys.has(entry.key)) continue;
     const { rows } = visibleAssistantAgentRows(entry.sections, {
-      settledCount: settledCounts.get(entry.key) ?? 0,
+      settledCount: 0,
       routeThreadKey,
     });
     for (const row of rows) ordered.push(row.thread);
