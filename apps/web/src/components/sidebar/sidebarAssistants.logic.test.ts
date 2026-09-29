@@ -6,6 +6,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   assistantExpansionKey,
   flattenAssistantJumpOrder,
+  orderAssistantsByPreference,
   selectableThreadKeys,
   settleableSelection,
 } from "./sidebarAssistants.logic";
@@ -70,32 +71,35 @@ describe("flattenAssistantJumpOrder", () => {
   };
 
   it("puts each coordinator first and skips the agents of collapsed Projects", () => {
-    expect(ids(flattenAssistantJumpOrder([personal, work], new Set(), new Map()))).toEqual([
+    expect(ids(flattenAssistantJumpOrder([personal, work], new Set()))).toEqual([
       "personal-coordinator",
       "work-coordinator",
     ]);
-    expect(
-      ids(flattenAssistantJumpOrder([personal, work], new Set([work.key]), new Map())),
-    ).toEqual(["personal-coordinator", "work-coordinator", "research"]);
+    expect(ids(flattenAssistantJumpOrder([personal, work], new Set([work.key])))).toEqual([
+      "personal-coordinator",
+      "work-coordinator",
+      "research",
+    ]);
   });
 
-  it("follows the rendered order: standing, active, snoozed, then the settled page", () => {
+  it("follows the rendered order and leaves settled agents to the settled view", () => {
+    expect(ids(flattenAssistantJumpOrder([personal], new Set([personal.key])))).toEqual([
+      "personal-coordinator",
+      "sales",
+      "flights",
+      "later",
+    ]);
+  });
+
+  it("keeps the open settled agent in the list", () => {
     expect(
-      ids(
-        flattenAssistantJumpOrder(
-          [personal],
-          new Set([personal.key]),
-          new Map([[personal.key, 2]]),
-        ),
-      ),
-    ).toEqual(["personal-coordinator", "sales", "flights", "later", "settled-1", "settled-2"]);
+      ids(flattenAssistantJumpOrder([personal], new Set([personal.key]), "env:settled-3")),
+    ).toEqual(["personal-coordinator", "sales", "flights", "later", "settled-3"]);
   });
 
   it("lists the agents of a Project whose coordinator shell has not arrived", () => {
     expect(
-      ids(
-        flattenAssistantJumpOrder([{ ...work, coordinator: null }], new Set([work.key]), new Map()),
-      ),
+      ids(flattenAssistantJumpOrder([{ ...work, coordinator: null }], new Set([work.key]))),
     ).toEqual(["research"]);
   });
 });
@@ -140,5 +144,26 @@ describe("settleableSelection", () => {
       "pinned-task",
       "task",
     ]);
+  });
+});
+
+describe("orderAssistantsByPreference", () => {
+  const rows = ["a", "b", "c"].map((key) => ({ key }));
+  const keys = (list: readonly { key: string }[]) => list.map((row) => row.key);
+
+  it("keeps the default order without a saved order", () => {
+    expect(orderAssistantsByPreference(rows, [])).toBe(rows);
+  });
+
+  it("follows the saved order and drops stale keys", () => {
+    expect(keys(orderAssistantsByPreference(rows, ["c", "gone", "a", "b"]))).toEqual([
+      "c",
+      "a",
+      "b",
+    ]);
+  });
+
+  it("puts Projects without a saved place after the ordered ones", () => {
+    expect(keys(orderAssistantsByPreference(rows, ["c", "b"]))).toEqual(["c", "b", "a"]);
   });
 });

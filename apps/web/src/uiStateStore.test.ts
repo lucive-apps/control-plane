@@ -9,6 +9,7 @@ import {
   PERSISTED_STATE_KEY,
   type PersistedUiState,
   persistState,
+  reorderAssistants,
   reorderProjects,
   resolveProjectExpanded,
   resolveSectionExpanded,
@@ -26,6 +27,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
   return {
     projectExpandedById: {},
     projectOrder: [],
+    assistantOrder: [],
     sidebarProjectScopeKey: null,
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
@@ -126,6 +128,17 @@ describe("uiStateStore pure functions", () => {
     expect(next.projectOrder).toEqual([project2, project3, project1]);
   });
 
+  it("reorders the Projects section without touching the Tasks order", () => {
+    const order = ["a", "b", "c"];
+    const state = makeUiState({ projectOrder: ["x", "y"] });
+
+    expect(reorderAssistants(state, order, "a", "c").assistantOrder).toEqual(["b", "c", "a"]);
+    expect(reorderAssistants(state, order, "c", "a").assistantOrder).toEqual(["c", "a", "b"]);
+    expect(reorderAssistants(state, order, "a", "c").projectOrder).toBe(state.projectOrder);
+    expect(reorderAssistants(state, order, "a", "a")).toBe(state);
+    expect(reorderAssistants(state, order, "a", "missing")).toBe(state);
+  });
+
   it("moves grouped project members together", () => {
     const keyALocal = "env-local:proj-a";
     const keyARemote = "env-remote:proj-a";
@@ -209,6 +222,7 @@ describe("parsePersistedState", () => {
         invalid: "no" as unknown as boolean,
       },
       projectOrder: ["physical-b", "", "physical-a", "physical-b"],
+      assistantOrder: ["sidebar-assistant:env:b", "", "sidebar-assistant:env:a"],
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
         invalid: "not-a-date",
@@ -228,6 +242,7 @@ describe("parsePersistedState", () => {
         logical: false,
       },
       projectOrder: ["physical-b", "physical-a"],
+      assistantOrder: ["sidebar-assistant:env:b", "sidebar-assistant:env:a"],
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },
@@ -344,6 +359,7 @@ describe("uiStateStore persistence", () => {
         logical: false,
       },
       projectOrder: ["physical-b", "physical-a"],
+      assistantOrder: ["sidebar-assistant:env:b", "sidebar-assistant:env:a"],
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },
@@ -366,6 +382,7 @@ describe("uiStateStore persistence", () => {
         logical: false,
       },
       projectOrder: ["physical-b", "physical-a"],
+      assistantOrder: ["sidebar-assistant:env:b", "sidebar-assistant:env:a"],
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },
