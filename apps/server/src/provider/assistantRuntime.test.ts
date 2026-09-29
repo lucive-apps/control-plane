@@ -170,10 +170,14 @@ describe("buildAssistantRuntimeBlock", () => {
     const build = (thread: ReturnType<typeof makeThread>) =>
       buildAssistantRuntimeBlock({ project, thread, memory: "", roleFile: "" });
     const rule =
-      "Settle agents with cp_agent_settle once their work is complete and merged, or when they are one-off and have reported. It fails while an agent is working; a settled agent wakes on a new message.";
+      "Settle agents with cp_agent_settle once their work is complete (for example, merged) and no follow-ups remain. Reporting a result does not settle an agent. It fails while an agent is working; a settled agent wakes on a new message.";
 
     const coordinator = build(makeThread("coordinator"));
     expect(coordinator?.inline).toContain(rule);
+    expect(coordinator?.inline).toContain(
+      "An agent is one-off by default and stays available for follow-ups after it reports.",
+    );
+    expect(coordinator?.inline).not.toContain("settles after it reports");
     // Cursor, Grok and Antigravity see only the pointer.
     expect(coordinator?.pointer).toContain(rule);
     for (const agent of [

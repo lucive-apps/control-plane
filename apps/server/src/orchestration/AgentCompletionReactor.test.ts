@@ -367,7 +367,7 @@ const A = (id: string) => ThreadId.make(id);
 
 describe("AgentCompletionReactor", () => {
   test(
-    "pushes a coordinator's request into the coordinator, starts it, and settles the agent",
+    "pushes a coordinator's request into the coordinator, starts it, and leaves the agent unsettled",
     Effect.gen(function* () {
       const f = yield* makeFixture;
       yield* f.createProject;
@@ -399,7 +399,8 @@ describe("AgentCompletionReactor", () => {
         replyTo: null,
       });
       assert.deepStrictEqual(yield* f.receipts("cp-start:"), [`accepted cp-start:${pushId}`]);
-      assert.isTrue(yield* f.settled(agent));
+      assert.isFalse(yield* f.settled(agent));
+      assert.deepStrictEqual(yield* f.receipts("cp-push-settle:"), []);
     }),
   );
 
@@ -426,6 +427,7 @@ describe("AgentCompletionReactor", () => {
       );
       assert.deepStrictEqual(yield* f.receipts("cp-start:"), [`accepted cp-start:${pushId}`]);
       assert.isFalse(yield* f.settled(standing));
+      assert.deepStrictEqual(yield* f.receipts("cp-push-settle:"), []);
     }),
   );
 
@@ -849,7 +851,7 @@ describe("AgentCompletionReactor", () => {
         texts.get(pushIdOf(agent, followUp)),
         resultText("Counter", agent, "finished", "Printed done."),
       );
-      assert.isTrue(yield* f.settled(agent));
+      assert.isFalse(yield* f.settled(agent));
     }),
   );
 
@@ -886,7 +888,7 @@ describe("AgentCompletionReactor", () => {
   );
 
   test(
-    "carries an open message-mode question and dismisses it when the agent settles",
+    "carries an open message-mode question without dismissing it after reporting",
     Effect.gen(function* () {
       const f = yield* makeFixture;
       yield* f.createProject;
@@ -919,12 +921,10 @@ describe("AgentCompletionReactor", () => {
           `${resultText("Haiku", agent, "finished", "(no final message)")}\n\nQuestions for the user:\n- Which city?`,
         ],
       );
-      assert.isTrue(yield* f.settled(agent));
+      assert.isFalse(yield* f.settled(agent));
+      assert.deepStrictEqual(yield* f.receipts("cp-push-settle:"), []);
       const resolved = yield* f.activities(agent, "user-input.resolved");
-      assert.deepStrictEqual(
-        resolved.map((row) => row.requestId),
-        ["question-city"],
-      );
+      assert.deepStrictEqual(resolved, []);
     }),
   );
 
@@ -1550,11 +1550,11 @@ describe("AgentCompletionReactor with scheduled prompts", () => {
   );
 
   test(
-    "settles a nudged agent again once the reply of its continuation turn is delivered",
+    "keeps a nudged agent available after its initial, empty and continuation reports",
     Effect.gen(function* () {
       const f = yield* makeFixture;
       yield* f.createProject;
-      const agent = A("agent-nudged-settle");
+      const agent = A("agent-nudged-follow-ups");
       yield* f.createThread(agent, "Nudged", { createdBy: COORDINATOR });
       yield* f.request(agent, M("request-1"), COORDINATOR);
 
@@ -1562,24 +1562,24 @@ describe("AgentCompletionReactor with scheduled prompts", () => {
         Effect.gen(function* () {
           yield* f.finishTurn(agent, T("turn-1"), "Waiting on the tests.");
           yield* drain;
-          assert.isTrue(yield* f.settled(agent));
+          assert.isFalse(yield* f.settled(agent));
 
-          // The coordinator nudges it. That turn ends empty and the reactor
-          // settles the agent on the empty result.
+          // The coordinator nudges it. Its empty result leaves it available.
           yield* f.request(agent, M("request-nudge"), COORDINATOR);
           assert.isFalse(yield* f.settled(agent));
           yield* f.finishTurn(agent, T("turn-nudge"), "");
           yield* drain;
-          assert.isTrue(yield* f.settled(agent));
+          assert.isFalse(yield* f.settled(agent));
 
-          // The agent carries on in a turn nothing started: real activity wakes it.
+          // The agent carries on in a turn nothing started.
           yield* f.beginTurn(agent, T("turn-reply"));
           assert.isFalse(yield* f.settled(agent));
 
-          // Its final report is delivered, and that settles it for good.
+          // Even a report that the PR merged leaves room for follow-ups.
           yield* f.endTurn(agent, T("turn-reply"), "Merged, PR #42.");
           yield* drain;
-          assert.isTrue(yield* f.settled(agent));
+          assert.isFalse(yield* f.settled(agent));
+          assert.deepStrictEqual(yield* f.receipts("cp-push-settle:"), []);
         }),
       );
 
