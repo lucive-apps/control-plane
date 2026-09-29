@@ -12,12 +12,14 @@ import { EnvironmentRow, environmentTransportLabel } from "./EnvironmentRow";
 import { FoldedSettingsSection } from "./FoldedSettingsSection";
 import { searchableSetting } from "./settingsSearch";
 
-const preferences = [
+/** Shared with Agent machines, whose server-side preferences use the same four values. */
+export const loadPreferences = [
   { value: 100, label: "Prefer" },
   { value: 50, label: "Normal" },
   { value: 25, label: "Less often" },
   { value: 0, label: "Manual only" },
 ] as const;
+const preferences = loadPreferences;
 
 type LoadPreference = (typeof preferences)[number]["value"];
 

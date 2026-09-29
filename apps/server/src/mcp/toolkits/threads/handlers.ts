@@ -5,7 +5,7 @@ import {
   canManageAgent,
   type OrchestrationAgentMessageSource,
   type OrchestrationThreadShell,
-  type ThreadId,
+  ThreadId,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
@@ -14,6 +14,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 
+import { RemoteAgents } from "../../../agentMachines/RemoteAgents.ts";
 import { AgentLineage } from "../../../orchestration/agentLineage.ts";
 import { agentSendId } from "../../../orchestration/agentProtocol.ts";
 import { isDeliveryIdle } from "../../../orchestration/agentPushes.ts";
@@ -38,6 +39,7 @@ const make = Effect.gen(function* () {
   const turns = yield* ProjectionTurnRepository;
   const lineage = yield* AgentLineage;
   const crypto = yield* Crypto.Crypto;
+  const remote = yield* RemoteAgents;
 
   const randomUuid = crypto.randomUUIDv4.pipe(Effect.orDie);
   const mintId = (tag: string, threadId: ThreadId) =>
@@ -103,6 +105,51 @@ const make = Effect.gen(function* () {
     };
   });
 
+  /**
+   * A send to an agent the sender started on a linked machine. Null when the
+   * target is not one of those, so the local path runs. An agent the sender
+   * does not manage reads as not found, as a thread in another Project would.
+   */
+  const sendToRemoteAgent = Effect.fn("ThreadsToolkit.sendToRemoteAgent")(function* (
+    input: ThreadSendInput,
+    sender: OrchestrationThreadShell,
+    localMatchExists: boolean,
+  ) {
+    const ref = input.threadId ?? input.threadTitle?.trim();
+    if (ref === undefined || ref.length === 0) return null;
+    if (input.threadId === undefined && localMatchExists) return null;
+    const found = yield* remote.find({ projectId: sender.projectId, ref });
+    if (found.length === 0) return null;
+    const project = Option.getOrUndefined(
+      yield* snapshots
+        .getProjectShellById(sender.projectId)
+        .pipe(Effect.mapError((cause) => new ThreadSendFailedError({ cause }))),
+    );
+    const managed = found.filter(
+      (record) =>
+        project !== undefined &&
+        record.homeProjectId === project.id &&
+        canManageAgent(project, sender, {
+          id: ThreadId.make(record.threadId),
+          projectId: project.id,
+          pinnedAt: null,
+          createdByThreadId: ThreadId.make(record.creatorThreadId),
+        }),
+    );
+    if (managed.length === 0) return yield* new ThreadSendTargetNotFoundError({ query: ref });
+    if (managed.length > 1) return yield* new ThreadSendTargetAmbiguousError({ title: ref });
+    const record = managed[0]!;
+    const { queued } = yield* remote
+      .send(record, {
+        text: input.message,
+        sender: { id: sender.id, title: sender.title },
+        replyTo: sender.id,
+        runtimeMode: record.runtimeMode,
+      })
+      .pipe(Effect.mapError((cause) => new ThreadSendFailedError({ cause })));
+    return { threadId: ThreadId.make(record.threadId), threadTitle: record.title, queued };
+  });
+
   const toSendFailure = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     effect.pipe(
       Effect.catchCause((cause) =>
@@ -124,6 +171,22 @@ const make = Effect.gen(function* () {
             cause: new Error("Sender thread was not found."),
           });
         }
+        const localTitleMatch =
+          input.threadId === undefined && input.threadTitle !== undefined
+            ? (yield* snapshots
+                .getShellSnapshot()
+                .pipe(
+                  Effect.mapError((cause) => new ThreadSendFailedError({ cause })),
+                )).threads.some(
+                (thread) =>
+                  thread.projectId === sender.value.projectId &&
+                  thread.title.localeCompare(input.threadTitle!.trim(), undefined, {
+                    sensitivity: "accent",
+                  }) === 0,
+              )
+            : false;
+        const remoteSent = yield* sendToRemoteAgent(input, sender.value, localTitleMatch);
+        if (remoteSent !== null) return remoteSent;
         const target: OrchestrationThreadShell = yield* resolveTarget(input, sender.value);
         if (target.id === sender.value.id) {
           return yield* new ThreadSendSelfError({});

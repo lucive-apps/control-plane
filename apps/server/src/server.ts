@@ -85,6 +85,10 @@ import { ProviderCommandReactorLive } from "./orchestration/Layers/ProviderComma
 import { CheckpointReactorLive } from "./orchestration/Layers/CheckpointReactor.ts";
 import { ThreadDeletionReactorLive } from "./orchestration/Layers/ThreadDeletionReactor.ts";
 import * as ThreadSettlementReactor from "./orchestration/ThreadSettlementReactor.ts";
+import { AgentMachinesLive } from "./agentMachines/AgentMachines.ts";
+import { RemoteAgentBridgeLive } from "./agentMachines/RemoteAgentBridge.ts";
+import { RemoteAgentsLive } from "./agentMachines/RemoteAgents.ts";
+import { RemoteAgentStoreLive } from "./agentMachines/RemoteAgentStore.ts";
 import * as AgentCompletionReactor from "./orchestration/AgentCompletionReactor.ts";
 import * as ScheduleHost from "./schedules/ScheduleHost.ts";
 import * as ScheduleRunner from "./schedules/ScheduleRunner.ts";
@@ -257,6 +261,11 @@ const ReactorLayerLive = Layer.empty.pipe(
   Layer.provideMerge(StorageCleanup.layer),
   Layer.provideMerge(ThreadDeletionReactorLive),
   Layer.provideMerge(ThreadSettlementReactor.layer),
+  // Agents on linked machines: the bridge needs the reactor below it.
+  Layer.provideMerge(RemoteAgentBridgeLive),
+  Layer.provideMerge(RemoteAgentsLive),
+  Layer.provideMerge(AgentMachinesLive.pipe(Layer.provide(ServerSecretStore.layer))),
+  Layer.provideMerge(RemoteAgentStoreLive),
   Layer.provideMerge(AgentCompletionReactor.layer),
   Layer.provideMerge(ScheduleService.layer),
   Layer.provideMerge(ScheduleHost.layer),

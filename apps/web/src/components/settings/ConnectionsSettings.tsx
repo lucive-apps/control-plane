@@ -76,6 +76,7 @@ import {
   formatDesktopSshTarget,
 } from "./EnvironmentRow";
 import { FoldedSettingsSection } from "./FoldedSettingsSection";
+import { AgentMachinesSettings } from "./AgentMachinesSettings";
 import { LoadBalancingSettings } from "./LoadBalancingSettings";
 import { GitHubRoutingSettings } from "./GitHubRoutingSettings";
 import { Input } from "../ui/input";
@@ -3784,6 +3785,7 @@ export function ConnectionsSettings() {
         />
       </SettingsSection>
       <LoadBalancingSettings environments={loadBalancingEnvironments} />
+      <AgentMachinesSettings />
       <GitHubRoutingSettings environments={loadBalancingEnvironments} />
     </SettingsPageContainer>
   );

@@ -799,6 +799,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
+    id: "agent-machines",
+    title: "Agent machines",
+    to: "/settings/connections",
+    searchTerms: [
+      "coordinator agents other machine remote link pair mac mini balance placement fallback where new agents run",
+    ],
+  },
+  {
     id: "github-routing",
     title: "GitHub sharing",
     to: "/settings/connections",

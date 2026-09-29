@@ -965,3 +965,86 @@ it("validates remote device hosts and rejects ambiguous host ids", () => {
   ).toThrow();
   expect(() => decodeDeviceHostSettings({ deviceHosts: [{ ...host, port: 0 }] })).toThrow();
 });
+
+describe("ServerSettings.agentPlacement", () => {
+  it("defaults to this machine only for existing installations", () => {
+    const expected = {
+      mode: "local",
+      singleMachineId: null,
+      localPreference: 50,
+      allowLocalFallback: true,
+      machines: {},
+    };
+    expect(DEFAULT_SERVER_SETTINGS.agentPlacement).toEqual(expected);
+    expect(decodeServerSettings({}).agentPlacement).toEqual(expected);
+    expect(decodeServerSettings({ agentPlacement: {} }).agentPlacement).toEqual(expected);
+  });
+
+  it("decodes a machine entry with enabled and Normal preference by default", () => {
+    const settings = decodeServerSettings({
+      agentPlacement: {
+        mode: "balanced",
+        machines: {
+          "env-mini": { label: " Mac Mini ", baseUrl: "http://mini.tailnet.ts.net:3773" },
+        },
+      },
+    });
+    expect(settings.agentPlacement.mode).toBe("balanced");
+    expect(settings.agentPlacement.machines).toEqual({
+      "env-mini": {
+        label: "Mac Mini",
+        baseUrl: "http://mini.tailnet.ts.net:3773",
+        enabled: true,
+        preference: 50,
+      },
+    });
+  });
+
+  it("round-trips through encode", () => {
+    const settings = decodeServerSettings({
+      agentPlacement: {
+        mode: "single",
+        singleMachineId: "env-mini",
+        localPreference: 0,
+        machines: {
+          "env-mini": {
+            label: "Mac Mini",
+            baseUrl: "http://mini.tailnet.ts.net:3773",
+            enabled: false,
+            preference: 25,
+          },
+        },
+      },
+    });
+    expect(decodeServerSettings(encodeServerSettings(settings)).agentPlacement).toEqual(
+      settings.agentPlacement,
+    );
+  });
+
+  it("rejects preferences outside the Load balancing vocabulary and unknown modes", () => {
+    expect(() => decodeServerSettings({ agentPlacement: { localPreference: 30 } })).toThrow();
+    expect(() => decodeServerSettings({ agentPlacement: { mode: "random" } })).toThrow();
+    expect(() =>
+      decodeServerSettings({
+        agentPlacement: {
+          machines: { "env-mini": { label: "Mini", baseUrl: "http://m", preference: 75 } },
+        },
+      }),
+    ).toThrow();
+    expect(() =>
+      decodeServerSettings({
+        agentPlacement: { machines: { "env-mini": { label: " ", baseUrl: "http://m" } } },
+      }),
+    ).toThrow();
+    expect(() => decodeServerSettingsPatch({ agentPlacement: { localPreference: 10 } })).toThrow();
+  });
+
+  it("patches decode partially, with null removing a machine entry", () => {
+    expect(decodeServerSettingsPatch({ agentPlacement: { mode: "balanced" } })).toEqual({
+      agentPlacement: { mode: "balanced" },
+    });
+    expect(
+      decodeServerSettingsPatch({ agentPlacement: { machines: { "env-mini": null } } }),
+    ).toEqual({ agentPlacement: { machines: { "env-mini": null } } });
+  });
+});
