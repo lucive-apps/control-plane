@@ -2144,12 +2144,11 @@ function sidebarProjectExpansionKeys(project: SidebarProjectSnapshot | null, pro
 
 // Clicking the title collapses the section. The chevron shows on hover and
 // stays while collapsed, next to the section's one static rolled-up dot. The
-// action shows on hover unless `actionAlwaysVisible` (an empty section).
+// action shows on hover.
 function SidebarListSectionHeader({
   title,
   actionLabel,
   onAction,
-  actionAlwaysVisible = false,
   collapsed,
   onToggleCollapsed,
   rollupStatus,
@@ -2158,7 +2157,6 @@ function SidebarListSectionHeader({
   title: string;
   actionLabel: string;
   onAction: (() => void) | null;
-  actionAlwaysVisible?: boolean;
   collapsed: boolean;
   onToggleCollapsed: () => void;
   rollupStatus: SidebarRollupStatus;
@@ -2192,11 +2190,7 @@ function SidebarListSectionHeader({
           ) : null}
         </button>
         {onAction !== null ? (
-          <SidebarSectionIconButton
-            label={actionLabel}
-            onClick={onAction}
-            alwaysVisible={actionAlwaysVisible}
-          >
+          <SidebarSectionIconButton label={actionLabel} onClick={onAction}>
             {children}
           </SidebarSectionIconButton>
         ) : null}
@@ -2208,12 +2202,10 @@ function SidebarListSectionHeader({
 function SidebarSectionIconButton({
   label,
   onClick,
-  alwaysVisible,
   children,
 }: {
   label: string;
   onClick: () => void;
-  alwaysVisible: boolean;
   children: ReactNode;
 }) {
   return (
@@ -2225,8 +2217,7 @@ function SidebarSectionIconButton({
             aria-label={label}
             className={cn(
               "inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none transition-opacity hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring",
-              !alwaysVisible &&
-                "opacity-0 pointer-events-none focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/section:pointer-events-auto group-hover/section:opacity-100",
+              "opacity-0 pointer-events-none focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/section:pointer-events-auto group-hover/section:opacity-100",
             )}
             onClick={(event) => {
               event.stopPropagation();
@@ -5124,7 +5115,6 @@ export default function Sidebar() {
                               title="Projects"
                               actionLabel="New Project"
                               onAction={canCreateAssistants ? handleNewAssistant : null}
-                              actionAlwaysVisible={assistantModels.length === 0}
                               collapsed={!assistantsSectionExpanded}
                               onToggleCollapsed={toggleAssistantsSection}
                               rollupStatus={assistantsRollupStatus}

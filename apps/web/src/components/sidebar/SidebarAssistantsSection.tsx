@@ -201,25 +201,21 @@ function useAssistantSectionRollup(
 }
 
 /**
- * The Projects section with no Projects: one quiet row, styled like the Tasks
- * section's "No workspaces yet". Without `onNewProject` it is only the line.
+ * The Projects section with no Projects: one quiet "Add project" row that opens
+ * the New Project dialog. Renders nothing where Projects can't be created.
  */
 export function SidebarAssistantsEmptyRow(props: { readonly onNewProject: (() => void) | null }) {
+  if (props.onNewProject === null) return null;
   return (
     <li className="list-none" data-testid="sidebar-assistants-empty">
-      <div className="flex h-8 items-center gap-2 px-2 text-xs text-muted-foreground/60">
-        <span className="min-w-0 flex-1 truncate">No Projects yet</span>
-        {props.onNewProject !== null ? (
-          <button
-            type="button"
-            onClick={props.onNewProject}
-            className="inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-sidebar-border px-2.5 py-1 text-[11px] font-medium text-sidebar-muted-foreground transition-colors hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
-          >
-            <PlusIcon className="-mx-0.5 size-3" />
-            New Project
-          </button>
-        ) : null}
-      </div>
+      <button
+        type="button"
+        onClick={props.onNewProject}
+        className="flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left text-sidebar-muted-foreground outline-none transition-colors hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <PlusIcon aria-hidden className="size-3.5 shrink-0" />
+        <span className="min-w-0 flex-1 truncate">Add project</span>
+      </button>
     </li>
   );
 }
