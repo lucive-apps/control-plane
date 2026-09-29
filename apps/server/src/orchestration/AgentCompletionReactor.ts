@@ -5,7 +5,8 @@
  * A pass over a Project has two phases:
  * 1. Every finished request whose result is still owed is appended into its
  *    recipient at once (frozen when the agent finished), and a one-off agent
- *    settles.
+ *    settles. A request that ended with no reply, and was answered by a later
+ *    turn no message started, owes that reply once more.
  * 2. Each idle thread starts its oldest appended delivery: a pushed result, a
  *    `cp_thread_send` that was held for it, or a Project schedule's prompt.
  *    Pushes pause after a budget until the user, a manager or a schedule
@@ -370,6 +371,16 @@ export const make = Effect.gen(function* () {
       for (const owed of yield* queries.listOwedResults(projectId)) {
         yield* deliverResult(project, owed).pipe(
           warnOnFailure("agent result not delivered", {
+            agentThreadId: owed.agentThreadId,
+            requestId: owed.requestId,
+          }),
+        );
+      }
+      // After the requests: a continuation is owed only once its request's own
+      // (empty) result is appended.
+      for (const owed of yield* queries.listOwedContinuations(projectId)) {
+        yield* deliverResult(project, owed).pipe(
+          warnOnFailure("agent continuation result not delivered", {
             agentThreadId: owed.agentThreadId,
             requestId: owed.requestId,
           }),

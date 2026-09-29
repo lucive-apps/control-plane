@@ -100,6 +100,7 @@ const T3_MCP_TOOL_LABELS: Record<
   cp_agent_list: ["List", "Listing", "Listed", "agents"],
   cp_agent_read: ["Read", "Reading", "Read", "an agent"],
   cp_agent_stop: ["Stop", "Stopping", "Stopped", "an agent"],
+  cp_agent_settle: ["Settle", "Settling", "Settled", "an agent"],
   cp_schedule_list: ["List", "Listing", "Listed", "schedules"],
   cp_schedule_create: ["Create", "Creating", "Created", "a schedule"],
   cp_schedule_update: ["Update", "Updating", "Updated", "a schedule"],
@@ -210,8 +211,8 @@ function resolveT3McpToolPresentation(
       ...(linkThreadId ? { linkThreadId } : {}),
     };
   }
-  if (name === "cp_agent_create" || name === "cp_agent_stop") {
-    // "Started <title>" and "Stopped <agent>"; an agent named by its id reads as "an agent".
+  if (name === "cp_agent_create" || name === "cp_agent_stop" || name === "cp_agent_settle") {
+    // "Started <title>", "Stopped <agent>" and "Settled <agent>"; an agent named by its id reads as "an agent".
     const agent = nonEmptyString(name === "cp_agent_create" ? input?.title : input?.agent)?.trim();
     const linkThreadId = sentThreadIdFromToolData(payload, input);
     return {

@@ -138,7 +138,7 @@ describe("buildAssistantRuntimeBlock", () => {
     const coordinatorRule =
       "When you delegate, tell each agent to use the built-in Control Plane browser (the preview_* tools) for browsing, testing and screenshots, and not the user's own browser.";
     const agentRule =
-      "Use the built-in Control Plane browser (the preview_* tools) for browsing, testing and screenshots. Do not launch or drive the user's desktop browsers. Only when a task explicitly needs the user's logged-in session, open the URL in their default browser with `open <url>`.";
+      "Use the built-in Control Plane browser (the preview_* tools) for browsing, testing and screenshots. If the preview_* tools are not loaded yet, load them, then call preview_status or preview_open before concluding the built-in browser is unavailable. Do not launch or drive the user's desktop browsers. Only when a task explicitly needs the user's logged-in session, open the URL in their default browser with `open <url>`.";
 
     const coordinator = build(makeThread("coordinator"));
     expect(coordinator?.inline).toContain(coordinatorRule);
@@ -162,6 +162,54 @@ describe("buildAssistantRuntimeBlock", () => {
       expect(block?.inline).not.toMatch(/chrome|safari|helium|firefox/i);
       expect(block?.inline).not.toContain("\u2014");
     }
+  });
+
+  it("tells the coordinator to settle finished agents with cp_agent_settle, and no agent to", () => {
+    const project = makeProject();
+    const build = (thread: ReturnType<typeof makeThread>) =>
+      buildAssistantRuntimeBlock({ project, thread, memory: "", roleFile: "" });
+    const rule =
+      "Settle agents with cp_agent_settle once their work is complete and merged, or when they are one-off and have reported. It fails while an agent is working; a settled agent wakes on a new message.";
+
+    const coordinator = build(makeThread("coordinator"));
+    expect(coordinator?.inline).toContain(rule);
+    // Cursor, Grok and Antigravity see only the pointer.
+    expect(coordinator?.pointer).toContain(rule);
+    for (const agent of [
+      build(makeThread("agent", { title: "Research", pinnedAt: PINNED_AT })),
+      build(makeThread("agent")),
+    ]) {
+      expect(agent?.inline).not.toContain("cp_agent_settle");
+      expect(agent?.pointer).not.toContain("cp_agent_settle");
+    }
+  });
+
+  it("tells every agent never to end its turn just to wait, and no coordinator", () => {
+    const project = makeProject();
+    const build = (thread: ReturnType<typeof makeThread>) =>
+      buildAssistantRuntimeBlock({ project, thread, memory: "", roleFile: "" });
+    const rule =
+      "Never end your turn just to wait for a command, test run, or sub-agent. Run it in the foreground or keep polling until it finishes. Your turn ending is what reports back to the coordinator, so end only with your final report or a question for the user.";
+    const exception =
+      "The exception is agents you start with cp_agent_create: end your turn after starting them, and their results arrive as messages.";
+
+    const standing = build(makeThread("agent", { title: "Research", pinnedAt: PINNED_AT }));
+    const oneOff = build(makeThread("agent"));
+    for (const agent of [standing, oneOff]) {
+      expect(agent?.inline).toContain(rule);
+      // Cursor, Grok and Antigravity see only the pointer.
+      expect(agent?.pointer).toContain(rule);
+      expect(agent?.inline).not.toContain("\u2014");
+    }
+    // Only a standing agent starts agents, so only it needs the exception.
+    expect(standing?.inline).toContain(exception);
+    expect(standing?.pointer).toContain(exception);
+    expect(oneOff?.inline).not.toContain(exception);
+    expect(oneOff?.pointer).not.toContain(exception);
+
+    const coordinator = build(makeThread("coordinator"));
+    expect(coordinator?.inline).not.toContain(rule);
+    expect(coordinator?.pointer).not.toContain(rule);
   });
 
   it("grants the agents capability to the coordinator and standing agents only", () => {

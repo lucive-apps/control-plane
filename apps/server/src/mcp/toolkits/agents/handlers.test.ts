@@ -30,6 +30,7 @@ import { AgentLineage } from "../../../orchestration/agentLineage.ts";
 import {
   OrchestrationCommandInvariantError,
   OrchestrationCommandPreviouslyRejectedError,
+  OrchestrationThreadSettleBlockedError,
 } from "../../../orchestration/Errors.ts";
 import { AGENT_RUNNING_CAP } from "../../../orchestration/agentProtocol.ts";
 import {
@@ -54,6 +55,7 @@ import {
   AgentCreateResult,
   AgentListResult,
   AgentReadResult,
+  AgentSettleResult,
   AgentStopResult,
   AgentsToolkit,
 } from "./tools.ts";
@@ -216,6 +218,8 @@ interface HarnessInput {
   readonly failOnce?: OrchestrationCommand["type"];
   /** Rejects this command type once; like the engine, its id then stays rejected. */
   readonly rejectOnce?: OrchestrationCommand["type"];
+  /** Rejects every `thread.settle` as the engine does for a thread that became busy. */
+  readonly blockSettle?: boolean;
   /** Holds `thread.create` until the gate opens; `reached` fires when it gets there. */
   readonly createGate?: {
     readonly reached: Deferred.Deferred<void>;
@@ -267,6 +271,9 @@ const makeHarness = Effect.fn("makeAgentsToolkitHarness")(function* (input: Harn
       if (command.type === "thread.create" && input.createGate) {
         yield* Deferred.succeed(input.createGate.reached, undefined);
         yield* Deferred.await(input.createGate.open);
+      }
+      if (command.type === "thread.settle" && input.blockSettle === true) {
+        return yield* new OrchestrationThreadSettleBlockedError({ threadId: command.threadId });
       }
       if (command.type === failOnce) {
         failOnce = undefined;
@@ -398,6 +405,8 @@ const makeHarness = Effect.fn("makeAgentsToolkitHarness")(function* (input: Harn
       run(toolkit.handle("cp_agent_read", params), AgentReadResult),
     stop: (params: Parameters<typeof toolkit.handle<"cp_agent_stop">>[1]) =>
       run(toolkit.handle("cp_agent_stop", params), AgentStopResult),
+    settle: (params: Parameters<typeof toolkit.handle<"cp_agent_settle">>[1]) =>
+      run(toolkit.handle("cp_agent_settle", params), AgentSettleResult),
   };
 });
 
@@ -1176,6 +1185,150 @@ describe("cp_agent_stop", () => {
         "thread.session.stop",
         "thread.archive",
       ]);
+    }),
+  );
+});
+
+describe("cp_agent_settle", () => {
+  const helper = makeThread("helper", { title: "Helper" });
+  const foreign = makeThread("foreign", { projectId: OTHER_PROJECT_ID, title: "Foreign" });
+
+  it.effect("settles an idle agent with the same command the Settle button sends", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        caller: COORDINATOR_ID,
+        threads: [coordinator, helper],
+      });
+
+      const result = yield* harness.settle({ agent: "helper" });
+
+      expect(result).toEqual({ threadId: "helper", settled: true, archived: false });
+      expect(harness.commands).toEqual([
+        {
+          type: "thread.settle",
+          commandId: expect.stringMatching(/^mcp-agent-settle:helper:/),
+          threadId: "helper",
+        },
+      ]);
+    }),
+  );
+
+  it.effect("settles an agent whose turn completed, and archives on request", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        caller: COORDINATOR_ID,
+        threads: [coordinator, helper],
+        messages: {
+          helper: [agentRequest("request-1"), makeMessage("result-1", "assistant", "Done.")],
+        },
+        turns: {
+          helper: [
+            {
+              turnId: "turn-1",
+              request: "request-1",
+              result: "result-1",
+              state: "completed",
+              requestedAt: "2026-09-01T00:00:00.000Z",
+            },
+          ],
+        },
+      });
+
+      const result = yield* harness.settle({ agent: helper.id, archive: true });
+
+      expect(result).toEqual({ threadId: "helper", settled: true, archived: true });
+      expect(commandTypes(harness.commands)).toEqual(["thread.settle", "thread.archive"]);
+    }),
+  );
+
+  it.effect("refuses a busy agent with a clear error and dispatches nothing", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        caller: COORDINATOR_ID,
+        threads: [coordinator, running("helper", { title: "Helper" })],
+      });
+
+      const error = yield* harness.settle({ agent: "helper" }).pipe(Effect.flip);
+
+      expect(error._tag).toBe("AgentBusyError");
+      expect(error.message).toContain("cannot be settled while it has work in flight");
+      expect(error.message).toContain("cp_agent_stop");
+      expect(harness.commands).toEqual([]);
+    }),
+  );
+
+  it.effect("refuses an agent with a first message the provider has not picked up yet", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({ caller: COORDINATOR_ID, threads: [coordinator] });
+      const created = yield* harness.create({ title: "Pricing", message: "Compare plans." });
+      const before = harness.commands.length;
+
+      const error = yield* harness.settle({ agent: created.threadId }).pipe(Effect.flip);
+
+      expect(error._tag).toBe("AgentBusyError");
+      expect(harness.commands).toHaveLength(before);
+    }),
+  );
+
+  it.effect("reports a busy agent when the engine blocks the settle after the read", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        caller: COORDINATOR_ID,
+        threads: [coordinator, helper],
+        blockSettle: true,
+      });
+
+      const error = yield* harness.settle({ agent: "helper" }).pipe(Effect.flip);
+
+      expect(error._tag).toBe("AgentBusyError");
+    }),
+  );
+
+  it.effect("refuses an agent the caller does not manage", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        caller: COORDINATOR_ID,
+        threads: [coordinator, foreign],
+      });
+
+      const other = yield* harness.settle({ agent: foreign.id }).pipe(Effect.flip);
+      const self = yield* harness.settle({ agent: COORDINATOR_ID }).pipe(Effect.flip);
+      const missing = yield* harness.settle({ agent: "Nobody" }).pipe(Effect.flip);
+
+      expect(other._tag).toBe("NotYourAgentError");
+      expect(self._tag).toBe("NotYourAgentError");
+      expect(missing._tag).toBe("AgentNotFoundError");
+      expect(harness.commands).toEqual([]);
+    }),
+  );
+
+  it.effect("is coordinator only: a standing agent cannot settle its own one-off agents", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        caller: RESEARCH_ID,
+        threads: [coordinator, research, helper],
+        creators: { helper: RESEARCH_ID },
+      });
+
+      const error = yield* harness.settle({ agent: "helper" }).pipe(Effect.flip);
+
+      expect(error._tag).toBe("SettleCoordinatorOnlyError");
+      expect(harness.commands).toEqual([]);
+    }),
+  );
+
+  it.effect("refuses a standing agent, which never settles", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        caller: COORDINATOR_ID,
+        threads: [coordinator, research],
+      });
+
+      const error = yield* harness.settle({ agent: "Research" }).pipe(Effect.flip);
+
+      expect(error._tag).toBe("AgentToolFailedError");
+      expect(error.message).toContain("standing");
+      expect(harness.commands).toEqual([]);
     }),
   );
 });

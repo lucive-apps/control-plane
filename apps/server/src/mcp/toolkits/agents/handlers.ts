@@ -31,7 +31,10 @@ import {
   agentDeliveryStartId,
   agentStopId,
 } from "../../../orchestration/agentProtocol.ts";
-import { OrchestrationCommandPreviouslyRejectedError } from "../../../orchestration/Errors.ts";
+import {
+  OrchestrationCommandPreviouslyRejectedError,
+  OrchestrationThreadSettleBlockedError,
+} from "../../../orchestration/Errors.ts";
 import * as OrchestrationEngine from "../../../orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { threadHasQueuedTurnStart } from "../../../orchestration/ThreadSettlementPolicy.ts";
@@ -58,6 +61,7 @@ import {
 import { makeScheduleHandlers } from "./scheduleHandlers.ts";
 import {
   AgentAmbiguousError,
+  AgentBusyError,
   AgentNotFoundError,
   AgentsToolkit,
   AgentsUnavailableError,
@@ -65,6 +69,7 @@ import {
   ClientRequestIdConflictError,
   ConcurrencyLimitError,
   NotYourAgentError,
+  SettleCoordinatorOnlyError,
   StandingAgentNotAllowedError,
   UnknownModelError,
   type AgentPhase,
@@ -82,6 +87,7 @@ const readFailed = (cause: unknown) =>
 
 const START_FAILED = "Could not start the agent.";
 const isPreviouslyRejected = Schema.is(OrchestrationCommandPreviouslyRejectedError);
+const isSettleBlocked = Schema.is(OrchestrationThreadSettleBlockedError);
 
 /** Keeps interrupts as interrupts; any other dispatch failure becomes a tool error. */
 const dispatchFailed =
@@ -585,6 +591,64 @@ const make = Effect.gen(function* () {
           stopped: working || held.length > 0,
           archived: input.archive === true,
         };
+      }),
+
+    cp_agent_settle: (input) =>
+      Effect.gen(function* () {
+        const manager = yield* requireManager();
+        // Settling is the coordinator's call: a standing agent manages one-offs
+        // it started, but does not decide when their work is done.
+        if (manager.role !== "coordinator") return yield* new SettleCoordinatorOnlyError();
+        const agent = yield* requireAgent(manager, input.agent);
+        if (isStandingAgent(manager.project, agent)) {
+          return yield* new AgentToolFailedError({
+            detail: `'${input.agent}' is a standing agent, and standing agents do not settle.`,
+          });
+        }
+        const turns = yield* turnRows
+          .listByThreadId({ threadId: agent.id })
+          .pipe(Effect.mapError(readFailed));
+        const phase = phaseOf(manager, agent, yield* nowIso);
+        const busy =
+          phase === "starting" ||
+          phase === "running" ||
+          phase === "waiting_for_approval" ||
+          phase === "waiting_for_input";
+        if (busy || hasPendingTurnStart(turns)) {
+          return yield* new AgentBusyError({
+            agent: input.agent,
+            phase: busy ? phase : "starting",
+          });
+        }
+        // The same command the Settle button sends. The decider re-checks that
+        // the agent is idle, so a turn that began after the read above blocks it.
+        yield* engine
+          .dispatch({
+            type: "thread.settle",
+            commandId: CommandId.make(`mcp-agent-settle:${agent.id}:${yield* randomUuid}`),
+            threadId: agent.id,
+          })
+          .pipe(
+            Effect.catchCause(
+              (cause): Effect.Effect<never, AgentBusyError | AgentToolFailedError> => {
+                const error = Cause.findErrorOption(cause);
+                return Option.isSome(error) && isSettleBlocked(error.value)
+                  ? Effect.fail(new AgentBusyError({ agent: input.agent, phase: "busy" }))
+                  : dispatchFailed("Could not settle the agent.")(cause);
+              },
+            ),
+          );
+        if (input.archive === true) {
+          yield* dispatch(
+            {
+              type: "thread.archive",
+              commandId: CommandId.make(`mcp-agent-archive:${agent.id}:${yield* randomUuid}`),
+              threadId: agent.id,
+            },
+            "Settled the agent, but could not archive it.",
+          );
+        }
+        return { threadId: agent.id, settled: true as const, archived: input.archive === true };
       }),
   });
 });
