@@ -23,9 +23,9 @@ const CHEVRON_OPEN_STYLE = { transform: [{ rotate: "90deg" }] } as const;
 
 export const TaskFolderHeader = memo(function TaskFolderHeader(props: {
   readonly pane: "screen" | "sidebar";
-  /** A row of the grouped Home's Tasks card (iOS phone): chevron, outline
-      folder (never the favicon) and name, with the dot only while collapsed.
-      New thread stays on long-press. */
+  /** A row of the iPhone Home's Tasks section: outline folder (never the
+      favicon), name, count, the dot only while collapsed, and a trailing
+      chevron. New thread stays on long-press. */
   readonly grouped?: boolean;
   readonly collapseKey: string;
   readonly title: string;
@@ -102,19 +102,11 @@ export const TaskFolderHeader = memo(function TaskFolderHeader(props: {
   const groupedToggle = (
     <Pressable
       {...toggleAccessibility}
-      className="min-h-[52px] flex-row items-center gap-3 bg-card px-4 py-2"
+      className="min-h-[54px] flex-row items-center gap-3 px-5 py-2"
       // Not `disabled`, which would also block the long-press menu on Android.
       onPress={props.forcedOpen ? undefined : () => props.onToggle(props.collapseKey)}
       style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
     >
-      <SymbolView
-        name="chevron.right"
-        size={14}
-        style={props.collapsed ? undefined : CHEVRON_OPEN_STYLE}
-        tintColorClassName="accent-icon-subtle"
-        type="monochrome"
-        weight="semibold"
-      />
       {/* Every workspace shows the same outline folder here, never its favicon. */}
       <SymbolView
         name={{ ios: "folder", android: "folder" }}
@@ -125,7 +117,18 @@ export const TaskFolderHeader = memo(function TaskFolderHeader(props: {
       <Text className="flex-1 text-[17px] text-foreground" numberOfLines={1}>
         {props.title}
       </Text>
+      {props.count > 0 ? (
+        <Text className="text-[17px] tabular-nums text-foreground-muted">{props.count}</Text>
+      ) : null}
       {dotColor !== null ? <ThreadStatusDot color={dotColor} grouped /> : null}
+      <SymbolView
+        name="chevron.right"
+        size={14}
+        style={props.collapsed ? undefined : CHEVRON_OPEN_STYLE}
+        tintColorClassName="accent-icon-subtle"
+        type="monochrome"
+        weight="semibold"
+      />
     </Pressable>
   );
 

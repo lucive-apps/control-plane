@@ -28,7 +28,7 @@ const CHEVRON_OPEN_STYLE = { transform: [{ rotate: "90deg" }] } as const;
 
 export const ProjectListRow = memo(function ProjectListRow(props: {
   readonly pane: "screen" | "sidebar";
-  /** A row of the grouped Home's Projects card (iOS phone). */
+  /** A row of the iPhone Home's Projects section: icon, title, count, trailing chevron. */
   readonly grouped?: boolean;
   readonly project: EnvironmentProject;
   readonly expansionKey: string;
@@ -61,7 +61,7 @@ export const ProjectListRow = memo(function ProjectListRow(props: {
 
   if (props.grouped === true && !sidebarPane) {
     return (
-      <View className="flex-row items-center bg-card">
+      <View className="flex-row items-center">
         <ControlPillMenu
           actions={menuActions}
           onPressAction={({ nativeEvent }) => {
@@ -76,7 +76,7 @@ export const ProjectListRow = memo(function ProjectListRow(props: {
             accessibilityRole="button"
             onPress={() => props.onOpen(project)}
           >
-            <View className="min-h-[52px] flex-row items-center gap-3 py-2 pl-4">
+            <View className="min-h-[54px] flex-row items-center gap-3 py-2 pl-5">
               <ProjectFavicon
                 environmentId={project.environmentId}
                 faviconPath={project.faviconPath}
@@ -90,11 +90,9 @@ export const ProjectListRow = memo(function ProjectListRow(props: {
                 {project.title}
               </Text>
               {running > 0 ? (
-                <Text className="text-[13px] tabular-nums text-foreground-muted">
-                  {running} running
-                </Text>
+                <Text className="text-[17px] tabular-nums text-foreground-muted">{running}</Text>
               ) : null}
-              <ThreadStatusDot color={dotColor} grouped />
+              {dotColor !== null ? <ThreadStatusDot color={dotColor} grouped /> : null}
             </View>
           </RowPressable>
         </ControlPillMenu>
@@ -102,7 +100,7 @@ export const ProjectListRow = memo(function ProjectListRow(props: {
           accessibilityLabel={`${expanded ? "Hide" : "Show"} agents in ${project.title}`}
           accessibilityRole="button"
           accessibilityState={{ expanded, disabled: forcedOpen }}
-          className="min-h-[52px] items-center justify-center pr-4 pl-3"
+          className="min-h-[54px] items-center justify-center pr-5 pl-3"
           disabled={forcedOpen}
           hitSlop={{ left: 8 }}
           onPress={() => props.onToggleExpanded(props.expansionKey)}

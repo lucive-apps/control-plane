@@ -32,6 +32,8 @@ export function HomeHeader(props: {
   readonly onProjectChange: (projectKey: string | null) => void;
   readonly onOpenEnvironments: () => void;
   readonly onOpenSettings: () => void;
+  /** Adds View Settled to the iOS overflow menu. */
+  readonly onOpenSettled?: () => void;
   readonly onStartNewTask: () => void;
   readonly onStartSearch: () => void;
   readonly searchOpen?: boolean;
@@ -197,6 +199,7 @@ function IosHomeHeader(props: HomeHeaderProps) {
             filterMenu,
             onFocusSearch: props.onStartSearch,
             onOpenSettings: props.onOpenSettings,
+            ...(props.onOpenSettled ? { onOpenSettled: props.onOpenSettled } : {}),
           }),
       }}
     />

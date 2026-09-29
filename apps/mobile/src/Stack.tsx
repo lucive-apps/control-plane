@@ -16,6 +16,7 @@ import { useResolveClassNames } from "uniwind";
 
 import { AppText as Text } from "./components/AppText";
 import { ArchivedThreadsRouteScreen } from "./features/archive/ArchivedThreadsRouteScreen";
+import { SettledThreadsRouteScreen } from "./features/home/SettledThreadsRouteScreen";
 import { useAgentNotificationNavigation } from "./features/agent-awareness/notificationNavigation";
 import { ConnectOnboardingRouteScreen } from "./features/cloud/ConnectOnboardingRouteScreen";
 import { useConnectOnboardingNavigation } from "./features/cloud/connectOnboardingNavigation";
@@ -618,6 +619,11 @@ export const RootStack = createNativeStackNavigator({
       screen: ThreadRouteScreen,
       linking: THREAD_LINKING_PREFIX,
       options: GLASS_HEADER_OPTIONS,
+    }),
+    Settled: createNativeStackScreen({
+      screen: SettledThreadsRouteScreen,
+      linking: "settled",
+      options: { ...GLASS_HEADER_OPTIONS, title: "Settled" },
     }),
     ThreadTerminal: createNativeStackScreen({
       screen: ThreadTerminalRouteScreen,

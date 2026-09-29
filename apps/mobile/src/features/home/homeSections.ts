@@ -159,6 +159,12 @@ export interface HomeTaskThreadItem {
   readonly moveDown: FolderMoveDestination | null;
 }
 
+export interface HomeSectionActionItem {
+  readonly type: "section-action";
+  readonly key: string;
+  readonly action: "new-project" | "add-workspace";
+}
+
 export interface HomeShowMoreItem {
   readonly type: "v2-show-more";
   readonly key: "v2-show-more";
@@ -179,7 +185,8 @@ export type HomeSectionItem =
   | ThreadListV2PendingListItem
   | ThreadListV2SnoozedShelfListItem
   | ThreadListV2SettledShelfListItem
-  | HomeShowMoreItem;
+  | HomeShowMoreItem
+  | HomeSectionActionItem;
 
 export interface HomeSectionsInput {
   readonly partition: AssistantPartition<EnvironmentProject, EnvironmentThreadShell>;
@@ -211,6 +218,8 @@ export interface HomeSectionsInput {
   readonly settledLimit?: number;
   readonly snoozedShelfExpanded: boolean;
   readonly settledShelfExpanded: boolean;
+  /** False drops the Settled shelf and its rows (the iPhone lists them on the Settled screen). */
+  readonly settledShelf?: boolean;
   /** Collapsed section and folder keys. */
   readonly collapsedKeys: ReadonlySet<string>;
   readonly expandedAssistantKeys: ReadonlySet<string>;
@@ -787,7 +796,11 @@ export function buildHomeSections(input: HomeSectionsInput): HomeSections {
       pushShelfRow(item);
     }
   }
-  if (layout.settledShelfHeaderIndex !== null && layout.settledCount > 0) {
+  if (
+    input.settledShelf !== false &&
+    layout.settledShelfHeaderIndex !== null &&
+    layout.settledCount > 0
+  ) {
     taskItems.push({
       type: "v2-settled-shelf",
       key: "v2-settled-shelf",
@@ -942,39 +955,52 @@ export function homeSectionItemsAreEqual(
       );
     case "v2-show-more":
       return item.type === "v2-show-more" && previous.hiddenCount === item.hiddenCount;
+    case "section-action":
+      return item.type === "section-action" && previous.action === item.action;
   }
 }
 
-/** Where a row sits in its rounded card, on the grouped (iOS phone) Home. */
-export type HomeCardEdge = "none" | "top" | "middle" | "bottom" | "only";
-
-export interface HomeCardRow {
-  readonly key: string;
-  readonly item: HomeSectionItem;
-  readonly edge: HomeCardEdge;
+/** Which trailing action rows a list shows, decided by its caller. */
+export interface HomeSectionActions {
+  /** New Project, unless the server predates Projects. */
+  readonly newProject: boolean;
+  readonly addWorkspace: boolean;
 }
 
-/** Headers, shelf labels and Show more sit between cards; everything else is inside one. */
-function sitsInCard(item: HomeSectionItem | undefined): boolean {
-  if (item === undefined) return false;
-  switch (item.type) {
-    case "section":
-    case "v2-snoozed-shelf":
-    case "v2-settled-shelf":
-    case "v2-show-more":
-      return false;
-    default:
-      return true;
+const isSectionEnd = (item: HomeSectionItem) =>
+  item.type === "section" || item.type === "v2-snoozed-shelf" || item.type === "v2-settled-shelf";
+
+/**
+ * Closes each open section with its action row (the iPhone Home's New Project
+ * and Add Repo), before the Tasks shelves. Collapsed sections get none.
+ */
+export function withSectionActions(
+  items: readonly HomeSectionItem[],
+  actions: HomeSectionActions,
+): HomeSectionItem[] {
+  const result: HomeSectionItem[] = [];
+  let pending: HomeSectionActionItem | null = null;
+  const flush = () => {
+    if (pending !== null) result.push(pending);
+    pending = null;
+  };
+  for (const item of items) {
+    if (isSectionEnd(item)) flush();
+    if (item.type === "section") {
+      pending = item.collapsed
+        ? null
+        : item.section === "projects"
+          ? actions.newProject
+            ? { type: "section-action", key: "section-action:projects", action: "new-project" }
+            : null
+          : actions.addWorkspace
+            ? { type: "section-action", key: "section-action:tasks", action: "add-workspace" }
+            : null;
+    }
+    // A server that predates Projects cannot take a new one.
+    if (item.type === "projects-empty" && item.unsupported) pending = null;
+    result.push(item);
   }
-}
-
-/** Each run of rows between headers becomes one card, rounded at its ends. */
-export function homeCardRows(items: readonly HomeSectionItem[]): HomeCardRow[] {
-  return items.map((item, index) => {
-    if (!sitsInCard(item)) return { key: item.key, item, edge: "none" };
-    const top = !sitsInCard(items[index - 1]);
-    const bottom = !sitsInCard(items[index + 1]);
-    const edge = top && bottom ? "only" : top ? "top" : bottom ? "bottom" : "middle";
-    return { key: item.key, item, edge };
-  });
+  flush();
+  return result;
 }

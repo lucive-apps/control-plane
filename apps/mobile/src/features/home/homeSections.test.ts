@@ -21,11 +21,12 @@ import {
   folderMoveDestination,
   HOME_PROJECTS_SECTION_KEY,
   HOME_TASKS_SECTION_KEY,
-  homeCardRows,
   homeSectionItemsAreEqual,
+  withSectionActions,
   type HomeSectionItem,
   type HomeSectionsInput,
 } from "./homeSections";
+import { buildSettledWorkspaceGroups } from "./settledThreads";
 
 const env = EnvironmentId.make("env-1");
 const otherEnv = EnvironmentId.make("env-2");
@@ -812,19 +813,83 @@ describe("homeSectionItemsAreEqual", () => {
   });
 });
 
-describe("homeCardRows", () => {
-  it("rounds each run of rows between headers into one card", () => {
+describe("withSectionActions", () => {
+  const both = { newProject: true, addWorkspace: true };
+
+  it("closes each open section, before the Tasks shelves", () => {
     const { items } = buildHomeSections(input({ workspaceKey: websiteFilterKey }));
-    expect(homeCardRows(items).map((row) => `${trace([row.item])[0]} ${row.edge}`)).toEqual([
-      "section:tasks none",
-      "folder:website top",
-      "task:site-pinned middle",
-      "task:site-b middle",
-      "task:site-a bottom",
-      "v2-snoozed-shelf none",
-      "task:site-snoozed only",
-      "v2-settled-shelf none",
-      "task:site-settled only",
+    expect(trace(withSectionActions(items, both))).toEqual([
+      "section:tasks",
+      "folder:website",
+      "task:site-pinned",
+      "task:site-b",
+      "task:site-a",
+      "section-action",
+      "v2-snoozed-shelf",
+      "task:site-snoozed",
+      "v2-settled-shelf",
+      "task:site-settled",
+    ]);
+  });
+
+  it("skips collapsed sections and actions the caller withholds", () => {
+    const { items } = buildHomeSections(
+      input({ collapsedKeys: new Set([HOME_TASKS_SECTION_KEY]) }),
+    );
+    const withActions = withSectionActions(items, { newProject: true, addWorkspace: true });
+    expect(withActions.filter((item) => item.type === "section-action")).toEqual([
+      { type: "section-action", key: "section-action:projects", action: "new-project" },
+    ]);
+    expect(
+      withSectionActions(items, { newProject: false, addWorkspace: true }).some(
+        (item) => item.type === "section-action",
+      ),
+    ).toBe(false);
+  });
+
+  it("offers no New Project when the server predates Projects", () => {
+    const { items } = buildHomeSections(
+      input({
+        projects: [website],
+        threads: [thread("site-a", "website")],
+        assistantsEnvironmentIds: new Set(),
+        assistantsUnsupportedEnvironmentIds: new Set([env]),
+      }),
+    );
+    expect(trace(withSectionActions(items, both)).slice(0, 3)).toEqual([
+      "section:projects",
+      "projects-empty",
+      "section:tasks",
+    ]);
+  });
+});
+
+describe("Settled off Home", () => {
+  it("drops the Settled shelf and its rows", () => {
+    const { items } = buildHomeSections(input({ settledShelf: false }));
+    const traced = trace(items);
+    expect(traced).not.toContain("v2-settled-shelf");
+    expect(traced).not.toContain("task:site-settled");
+    expect(traced).toContain("v2-snoozed-shelf");
+  });
+
+  it("groups settled Tasks threads under their workspace, newest first", () => {
+    const groups = buildSettledWorkspaceGroups({
+      projects: [website, api],
+      threads: [
+        thread("site-a", "website"),
+        thread("site-old", "website", settled),
+        thread("api-new", "api", { settledOverride: "settled", settledAt: LATER }),
+        thread("site-new", "website", { settledOverride: "settled", settledAt: LATER }),
+      ],
+      projectGroupingMode: "separate",
+      now: LATER,
+    });
+    expect(
+      groups.map((group) => [group.title, group.threads.map((item) => String(item.id))]),
+    ).toEqual([
+      ["api", ["api-new"]],
+      ["website", ["site-new", "site-old"]],
     ]);
   });
 });

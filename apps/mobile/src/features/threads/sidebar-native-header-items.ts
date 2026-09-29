@@ -81,6 +81,8 @@ export function createHomeListHeaderItems(input: {
   readonly filterMenu: HomeListFilterMenu;
   readonly onFocusSearch: () => void;
   readonly onOpenSettings: () => void;
+  /** The iPhone Home lists settled threads on their own screen. */
+  readonly onOpenSettled?: () => void;
 }): NativeStackHeaderItem[] {
   return [
     withNativeGlassHeaderItem({
@@ -96,6 +98,9 @@ export function createHomeListHeaderItems(input: {
         title: "",
         items: [
           ...toNativeHeaderMenuItems(input.filterMenu.items),
+          ...(input.onOpenSettled
+            ? [{ type: "action" as const, label: "View Settled", onPress: input.onOpenSettled }]
+            : []),
           {
             type: "action",
             label: "Settings",

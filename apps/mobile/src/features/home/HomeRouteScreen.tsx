@@ -200,6 +200,10 @@ export function HomeRouteScreen() {
               params: { screen: "Settings" },
             })
           }
+          // Android keeps the Settled shelf on Home; iOS moves it to its own screen.
+          {...(Platform.OS === "ios"
+            ? { onOpenSettled: () => navigation.navigate("Settled") }
+            : {})}
           onSearchQueryChange={setSearchQuery}
           onStartNewTask={() => navigation.navigate("NewTaskSheet", { screen: "NewTaskDraft" })}
           onStartSearch={() => setSearchOpen(true)}

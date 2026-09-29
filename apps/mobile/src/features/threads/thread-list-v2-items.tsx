@@ -91,12 +91,12 @@ const LEGACY_MENU_ACTIONS: MenuAction[] = [
 /** Rounded-row radius shared with the v1 sidebar rows. */
 const SIDEBAR_V2_ROW_RADIUS = 12;
 
-/** Child rows of the grouped Home cards start under their parent row's title. */
-export const GROUPED_CHILD_INSET = 48;
-/** A grouped row swipes inside its inset, so the card's left margin stays put. */
+/** Child rows of the iPhone Home start under their parent row's title: 20pt edge, 20pt icon, 12pt gap. */
+export const GROUPED_CHILD_INSET = 52;
+/** A grouped row swipes inside its inset, so the title column stays put. */
 const GROUPED_SWIPE_CONTAINER_STYLE = { marginLeft: GROUPED_CHILD_INSET } as const;
-/** Screen width outside a grouped row's swipe area: card margins plus the inset. */
-const GROUPED_SWIPE_OUTSET = 40 + GROUPED_CHILD_INSET;
+/** Screen width outside a grouped row's swipe area: the inset. */
+const GROUPED_SWIPE_OUTSET = GROUPED_CHILD_INSET;
 
 function ThreadListV2Section(props: {
   readonly label: string;
@@ -256,7 +256,7 @@ export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props
   /** Drawn beside the label; ignored while the label is null. */
   readonly environmentMachine?: EnvironmentMachineKind;
   readonly pane?: "screen" | "sidebar";
-  /** A child row of a grouped Home card: inset, 44pt, on the card surface. */
+  /** A child row of the iPhone Home: inset under the title column, 44pt. */
   readonly grouped?: boolean;
   /** Draws the "Unsent" divider above the first draft or queued row. */
   readonly showPendingDivider: boolean;
@@ -316,7 +316,7 @@ export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props
           accessibilityLabel={pendingTask.title}
           accessibilityRole="button"
           key={pendingTask.key}
-          className={sidebarPane ? "bg-drawer" : props.grouped ? "bg-card" : "bg-screen"}
+          className={sidebarPane ? "bg-drawer" : "bg-screen"}
           onPress={() => onSelectPendingTask(pendingTask)}
           style={
             sidebarPane
@@ -332,7 +332,7 @@ export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props
             rowContent
           ) : props.grouped ? (
             <View
-              className="min-h-[44px] justify-center py-2 pr-4"
+              className="min-h-[44px] justify-center py-2 pr-5"
               style={{ paddingLeft: GROUPED_CHILD_INSET }}
             >
               {rowContent}
@@ -390,8 +390,8 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       into the drawer surface, selection filled with the accent color,
       matching the v1 sidebar rows. */
   readonly pane?: "screen" | "sidebar";
-  /** A child row of a grouped Home card (iOS phone): one 44pt inset row on
-      the card surface for every variant, dot, title and time. */
+  /** A child row of the iPhone Home: one 44pt row inset under the title
+      column for every variant, dot, title and time. */
   readonly grouped?: boolean;
   /** Highlights the thread open in the detail pane (iPad split view). The
       compact Home list never sets it — phones navigate away on select. */
@@ -468,7 +468,6 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     theme[Platform.OS === "android" ? "--color-thread-selected" : "--color-user-bubble"];
   const sidebarPane = props.pane === "sidebar";
   const grouped = props.grouped === true && !sidebarPane;
-  const cardColor = theme["--color-card"];
   const selected = props.selected === true;
 
   const status = resolveThreadListV2Status(thread);
@@ -902,7 +901,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const groupedRow = (close: () => void) => (
     <RowPressable
       key={`${thread.environmentId}:${thread.id}`}
-      className="bg-card"
+      className="bg-screen"
       accessibilityHint={swipeAccessibilityHint}
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="button"
@@ -912,7 +911,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       }}
     >
       {/* The swipeable carries the 48pt inset, so the row slides inside it. */}
-      <View className="min-h-[44px] flex-row items-center gap-2.5 py-2 pr-4">
+      <View className="min-h-[44px] flex-row items-center gap-2.5 py-2 pr-5">
         <ThreadStatusDot color={statusDot.color} grouped />
         <View className="min-w-0 flex-1">
           <View className="flex-row items-center gap-1.5">
@@ -1119,9 +1118,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       )}
       <ThreadSwipeable
         threadKey={`${thread.environmentId}:${thread.id}`}
-        backgroundColor={
-          grouped ? cardColor : sidebarPane && Platform.OS !== "android" ? drawerColor : screenColor
-        }
+        backgroundColor={sidebarPane && Platform.OS !== "android" ? drawerColor : screenColor}
         compactActions={variant === "slim"}
         actionCells={grouped}
         containerStyle={

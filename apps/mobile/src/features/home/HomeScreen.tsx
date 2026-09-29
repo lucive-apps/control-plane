@@ -184,6 +184,8 @@ export function HomeScreen(props: HomeScreenProps) {
     projectGroupingMode: props.projectGroupingMode,
     projectSortOrder: props.projectSortOrder,
     nowMinute,
+    // The iPhone lists settled threads on their own screen (header menu, View Settled).
+    settledShelf: Platform.OS !== "ios",
   });
   const { items, workspaceScope } = model.sections;
   useThreadJumpShortcuts(model.sections.jumpThreads, props.onSelectThread);

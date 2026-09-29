@@ -50,7 +50,7 @@ function environmentIdsWith(
 }
 
 /** Which environments support each list action, from their server configs. */
-function useHomeCapabilities() {
+export function useHomeCapabilities() {
   const serverConfigs = useAtomValue(environmentServerConfigsAtom);
   const { environments } = useWorkspaceState();
   const connectedKey = environments
@@ -208,6 +208,8 @@ export function useHomeSections(input: {
   readonly projectGroupingMode: SidebarProjectGroupingMode;
   readonly projectSortOrder: HomeProjectSortOrder;
   readonly nowMinute: string;
+  /** False moves the Settled shelf off the list (the iPhone's Settled screen). */
+  readonly settledShelf?: boolean;
 }) {
   const capabilities = useHomeCapabilities();
   const queuedThreadKeys = useQueuedThreadKeys();
@@ -280,6 +282,7 @@ export function useHomeSections(input: {
       settledLimit: settledPaging.count,
       snoozedShelfExpanded: shelf.snoozedShelfExpanded,
       settledShelfExpanded: shelf.settledShelfExpanded,
+      settledShelf: input.settledShelf ?? true,
       collapsedKeys: sectionPreferences.collapsedKeys,
       expandedAssistantKeys: sectionPreferences.expandedAssistantKeys,
       assistantSettledCounts,
@@ -300,6 +303,7 @@ export function useHomeSections(input: {
     input.projectSortOrder,
     input.searchQuery,
     input.selectedThreadKey,
+    input.settledShelf,
     input.threads,
     input.workspaceKey,
     lastVisitedAtById,

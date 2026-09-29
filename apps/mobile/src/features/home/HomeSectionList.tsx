@@ -35,10 +35,8 @@ import { rollupDotColor, rollupDotLabel, ThreadStatusDot } from "../threads/thre
 import type { ThreadMoveDestination } from "../threads/threadOrder";
 import { useMaterialFabScroll } from "./MaterialFabScrollContext";
 import {
-  homeCardRows,
   homeSectionItemsAreEqual,
-  type HomeCardEdge,
-  type HomeCardRow,
+  withSectionActions,
   type HomeSectionItem,
   type HomeTaskThreadItem,
 } from "./homeSections";
@@ -50,13 +48,14 @@ import { useThreadListActions } from "./useThreadListActions";
 
 // Fork-owned. The one recycled list behind the phone Home and the iPad
 // sidebar: Projects, then Tasks, from `buildHomeSections`. The iOS phone
-// draws each section as one rounded card on the grouped screen background;
-// the iPad sidebar and Android keep their own row surfaces.
+// draws full-width rows with inset hairlines, each open section closed by an
+// action row (New Project, Add Repo); the iPad sidebar and Android keep their
+// own row surfaces and header "+" buttons.
 
 type ThreadSelection = Pick<EnvironmentThreadShell, "environmentId" | "id">;
 
 type HomeSectionListProps = Pick<
-  LegendListProps<HomeCardRow>,
+  LegendListProps<HomeSectionItem>,
   | "automaticallyAdjustsScrollIndicatorInsets"
   | "contentContainerStyle"
   | "contentInsetAdjustmentBehavior"
@@ -68,57 +67,53 @@ type HomeSectionListProps = Pick<
 const SECTION_LABELS = { projects: "Projects", tasks: "Tasks" } as const;
 const GROUPED_HEADER_CHEVRON_COLLAPSED = { transform: [{ rotate: "-90deg" }] } as const;
 
-const NO_ROWS: readonly HomeCardRow[] = [];
-const rowType = (row: HomeCardRow) => row.item.type;
-const rowKey = (row: HomeCardRow) => row.key;
-const rowsAreEqual = (previous: HomeCardRow, row: HomeCardRow) =>
-  previous.edge === row.edge && homeSectionItemsAreEqual(previous.item, row.item);
-const flatRows = (items: readonly HomeSectionItem[]): HomeCardRow[] =>
-  items.map((item) => ({ key: item.key, item, edge: "none" }));
+const NO_ITEMS: readonly HomeSectionItem[] = [];
+const itemType = (item: HomeSectionItem) => item.type;
+const itemKey = (item: HomeSectionItem) => item.key;
 
-/** Grouped content inset from the screen edge; section labels sit 4pt further in. */
+/** Screen-edge padding of the iPhone rows; titles start at GROUPED_CHILD_INSET. */
 const GROUPED_INSET = 20;
 const CHILD_INSET_STYLE = { paddingLeft: GROUPED_CHILD_INSET } as const;
-const SEPARATOR_STYLE = { marginLeft: GROUPED_CHILD_INSET } as const;
+const SEPARATOR_STYLE = {
+  marginLeft: GROUPED_CHILD_INSET,
+  marginRight: GROUPED_INSET,
+} as const;
 
-const CARD_CORNER = 16;
-const CARD_SLOT_STYLE = { marginHorizontal: GROUPED_INSET } as const;
-
-/**
- * One slice of a rounded card. Rows below the first draw an inset hairline.
- * The card's ends are a whole uniformly rounded card extended 16pt past the
- * slice and cut off by a square clip: uniform corners clip every child on iOS
- * (native menus and swipe rows included), which per-corner radii do not.
- */
-function CardSegment(props: { readonly edge: HomeCardEdge; readonly children: React.ReactNode }) {
-  const { edge } = props;
-  const top = edge === "top" || edge === "only";
-  const bottom = edge === "bottom" || edge === "only";
-  const separator = top ? null : <View className="h-px bg-border" style={SEPARATOR_STYLE} />;
-  if (!top && !bottom) {
-    return (
-      <View className="border-x border-border bg-card" style={CARD_SLOT_STYLE}>
-        {separator}
-        {props.children}
-      </View>
-    );
-  }
+/** Section headers and shelf labels sit between rows; every other row draws a hairline under it. */
+function drawsSeparator(item: HomeSectionItem) {
   return (
-    <View className="overflow-hidden" style={CARD_SLOT_STYLE}>
-      <View
-        className="overflow-hidden border border-border bg-card"
-        style={{
-          borderRadius: CARD_CORNER,
-          marginTop: top ? 0 : -CARD_CORNER,
-          paddingTop: top ? 0 : CARD_CORNER,
-          marginBottom: bottom ? 0 : -CARD_CORNER,
-          paddingBottom: bottom ? 0 : CARD_CORNER,
-        }}
-      >
-        {separator}
-        {props.children}
+    item.type !== "section" &&
+    item.type !== "v2-snoozed-shelf" &&
+    item.type !== "v2-settled-shelf" &&
+    item.type !== "v2-show-more"
+  );
+}
+
+/** A section's closing action: an icon in the icon column and a muted label. */
+function SectionActionRow(props: {
+  readonly icon: "plus" | "folder.badge.plus";
+  readonly label: string;
+  readonly onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      className="min-h-[54px] flex-row items-center gap-3 py-2"
+      onPress={props.onPress}
+      style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, paddingHorizontal: GROUPED_INSET })}
+    >
+      <View className="size-5 items-center justify-center">
+        <SymbolView
+          name={props.icon}
+          size={props.icon === "plus" ? 18 : 20}
+          tintColorClassName="accent-icon-muted"
+          type="monochrome"
+        />
       </View>
-    </View>
+      <Text className="flex-1 text-[17px] text-foreground-muted" numberOfLines={1}>
+        {props.label}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -148,50 +143,34 @@ const HomeSectionHeader = memo(function HomeSectionHeader(props: {
     accessibilityState: { expanded: !props.collapsed, disabled: props.forcedOpen },
   } as const;
   if (props.grouped) {
+    // No "+" here: each open section ends in its own action row.
     return (
       <View
-        className="flex-row items-center pb-2"
+        className="flex-row items-center pb-1"
         style={{
-          paddingTop: props.section === "projects" ? 12 : 28,
-          paddingHorizontal: GROUPED_INSET + 4,
+          paddingTop: props.section === "projects" ? 8 : 24,
+          paddingHorizontal: GROUPED_INSET,
         }}
       >
         <Pressable
           {...toggleAccessibility}
-          className="min-h-7 flex-1 flex-row items-center gap-1"
+          className="min-h-8 flex-row items-center gap-1"
           disabled={props.forcedOpen}
+          hitSlop={8}
           onPress={() => props.onToggle(props.collapseKey)}
           style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
         >
-          <Text className="text-sm text-foreground-muted">{label}</Text>
+          <Text className="text-[15px] text-foreground-muted">{label}</Text>
           <SymbolView
             name="chevron.down"
-            size={12}
+            size={10}
             style={props.collapsed ? GROUPED_HEADER_CHEVRON_COLLAPSED : undefined}
-            tintColorClassName="accent-foreground-muted"
+            tintColorClassName="accent-icon-subtle"
             type="monochrome"
             weight="semibold"
           />
           {dotColor !== null ? <ThreadStatusDot color={dotColor} grouped /> : null}
         </Pressable>
-        {props.onAdd ? (
-          <Pressable
-            accessibilityLabel={props.addLabel}
-            accessibilityRole="button"
-            className="min-h-7 items-center justify-center"
-            hitSlop={10}
-            onPress={props.onAdd}
-            style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}
-          >
-            <SymbolView
-              name="plus"
-              size={20}
-              tintColorClassName="accent-icon-muted"
-              type="monochrome"
-              weight="regular"
-            />
-          </Pressable>
-        ) : null}
       </View>
     );
   }
@@ -247,19 +226,13 @@ function EmptySectionRow(props: {
 }) {
   const { action } = props;
   if (props.grouped) {
+    // The section's action row below offers the way forward.
     return (
-      <View className="min-h-[52px] flex-row items-center gap-3 px-4 py-3">
-        <Text className="flex-1 text-base text-foreground-muted">{props.label}</Text>
-        {action ? (
-          <Pressable
-            accessibilityRole="button"
-            hitSlop={12}
-            onPress={action.onPress}
-            style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}
-          >
-            <Text className="text-base font-t3-medium text-foreground">{action.label}</Text>
-          </Pressable>
-        ) : null}
+      <View
+        className="min-h-[54px] justify-center py-2"
+        style={{ paddingLeft: GROUPED_CHILD_INSET, paddingRight: GROUPED_INSET }}
+      >
+        <Text className="text-[17px] text-foreground-muted">{props.label}</Text>
       </View>
     );
   }
@@ -416,7 +389,6 @@ export function HomeSectionList(
   // Android keeps its own row surfaces in the sidebar.
   const rowPane = pane === "sidebar" && Platform.OS !== "android" ? "sidebar" : "screen";
   const grouped = pane === "screen" && Platform.OS === "ios";
-  const rows = useMemo(() => (grouped ? homeCardRows(items) : flatRows(items)), [grouped, items]);
   const {
     archiveThread,
     confirmDeleteThread,
@@ -435,6 +407,15 @@ export function HomeSectionList(
   const { openNewProject, openConvertToProject } = useOpenNewProject();
   // New Project needs a connected environment that supports Projects.
   const canCreateProject = capabilities.assistants.size > 0;
+  // The iPhone closes each open section with its action row; search shows hits only.
+  const searching = searchQuery.trim().length > 0;
+  const listItems = useMemo(
+    () =>
+      grouped && !searching
+        ? withSectionActions(items, { newProject: canCreateProject, addWorkspace: true })
+        : items,
+    [canCreateProject, grouped, items, searching],
+  );
   const filteredEnvironmentId = model.environmentId;
   const openNewProjectHere = useCallback(
     () => openNewProject(filteredEnvironmentId),
@@ -677,7 +658,7 @@ export function HomeSectionList(
               pane={rowPane}
               grouped={grouped}
               label="No Projects yet"
-              {...(canCreateProject
+              {...(canCreateProject && !grouped
                 ? { action: { label: "New Project", onPress: openNewProjectHere } }
                 : {})}
             />
@@ -838,6 +819,12 @@ export function HomeSectionList(
           return (
             <ThreadListV2ShowMoreRow hiddenCount={item.hiddenCount} onPress={showMoreSettled} />
           );
+        case "section-action":
+          return item.action === "new-project" ? (
+            <SectionActionRow icon="plus" label="New Project" onPress={openNewProjectHere} />
+          ) : (
+            <SectionActionRow icon="folder.badge.plus" label="Add Repo" onPress={onAddWorkspace} />
+          );
       }
     },
     [
@@ -871,13 +858,16 @@ export function HomeSectionList(
     ],
   );
   const renderItem = useCallback(
-    ({ item: row }: { readonly item: HomeCardRow }) =>
-      row.edge === "none" ? (
-        renderRow(row.item)
+    ({ item }: { readonly item: HomeSectionItem }) =>
+      grouped && drawsSeparator(item) ? (
+        <View>
+          {renderRow(item)}
+          <View className="h-px bg-border" style={SEPARATOR_STYLE} />
+        </View>
       ) : (
-        <CardSegment edge={row.edge}>{renderRow(row.item)}</CardSegment>
+        renderRow(item)
       ),
-    [renderRow],
+    [grouped, renderRow],
   );
 
   // Everything rows read besides their item. A changed identity re-renders
@@ -915,13 +905,13 @@ export function HomeSectionList(
 
   const list = (
     <LegendList
-      data={props.ready === false ? NO_ROWS : rows}
+      data={props.ready === false ? NO_ITEMS : listItems}
       drawDistance={500}
       estimatedItemSize={64}
       extraData={extraData}
-      getItemType={rowType}
-      itemsAreEqual={rowsAreEqual}
-      keyExtractor={rowKey}
+      getItemType={itemType}
+      itemsAreEqual={homeSectionItemsAreEqual}
+      keyExtractor={itemKey}
       renderItem={renderItem}
       automaticallyAdjustsScrollIndicatorInsets={props.automaticallyAdjustsScrollIndicatorInsets}
       contentInsetAdjustmentBehavior={props.contentInsetAdjustmentBehavior}
