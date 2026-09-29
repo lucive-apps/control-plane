@@ -4,7 +4,7 @@ import type { EnvironmentId } from "@t3tools/contracts";
 import { LegendList } from "@legendapp/list/react-native";
 import { StackActions, useFocusEffect, useNavigation } from "@react-navigation/native";
 import { useCallback, useMemo, useRef, useState } from "react";
-import { View } from "react-native";
+import { Pressable, View } from "react-native";
 import type { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
 
 import { SymbolView } from "../../components/AppSymbol";
@@ -19,7 +19,8 @@ import { useHomeCapabilities } from "./useHomeSections";
 import { useThreadListActions } from "./useThreadListActions";
 
 // Fork-owned. Settled Tasks threads, off the iPhone Home: one group per
-// workspace in the Home's plain row style. Swipe or long-press unsettles.
+// workspace in the Home's plain row style, collapsed until tapped so a large
+// repo doesn't bury the rest. Swipe or long-press unsettles.
 
 type SettledItem =
   | {
@@ -27,6 +28,8 @@ type SettledItem =
       readonly key: string;
       readonly title: string;
       readonly first: boolean;
+      readonly count: number;
+      readonly expanded: boolean;
     }
   | { readonly type: "thread"; readonly key: string; readonly thread: EnvironmentThreadShell };
 
@@ -46,6 +49,14 @@ export function SettledThreadsRouteScreen() {
   // Refreshed on focus so relative times and snooze presets are current.
   const [nowMinute, setNowMinute] = useState(minuteNow);
   useFocusEffect(useCallback(() => setNowMinute(minuteNow()), []));
+  const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(() => new Set());
+  const toggleGroup = useCallback((key: string) => {
+    setExpandedGroups((current) => {
+      const next = new Set(current);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+  }, []);
 
   const items = useMemo(() => {
     const partition = partitionAssistants(projects, threads, null);
@@ -56,15 +67,28 @@ export function SettledThreadsRouteScreen() {
       settlementEnvironmentIds: capabilities.settlement,
       now: `${nowMinute}:00.000Z`,
     });
-    return groups.flatMap((group, index): SettledItem[] => [
-      { type: "group", key: `group:${group.key}`, title: group.title, first: index === 0 },
-      ...group.threads.map((thread): SettledItem => ({
-        type: "thread",
-        key: `thread:${thread.environmentId}:${thread.id}`,
-        thread,
-      })),
-    ]);
-  }, [capabilities.settlement, nowMinute, projectGroupingMode, projects, threads]);
+    return groups.flatMap((group, index): SettledItem[] => {
+      const key = `group:${group.key}`;
+      const expanded = expandedGroups.has(key);
+      return [
+        {
+          type: "group",
+          key,
+          title: group.title,
+          first: index === 0,
+          count: group.threads.length,
+          expanded,
+        },
+        ...(expanded
+          ? group.threads.map((thread): SettledItem => ({
+              type: "thread",
+              key: `thread:${thread.environmentId}:${thread.id}`,
+              thread,
+            }))
+          : []),
+      ];
+    });
+  }, [capabilities.settlement, expandedGroups, nowMinute, projectGroupingMode, projects, threads]);
 
   const openSwipeableRef = useRef<SwipeableMethods | null>(null);
   const handleSwipeableWillOpen = useCallback((methods: SwipeableMethods) => {
@@ -91,7 +115,10 @@ export function SettledThreadsRouteScreen() {
       if (item.type === "group") {
         return (
           <View>
-            <View
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ expanded: item.expanded }}
+              onPress={() => toggleGroup(item.key)}
               className="min-h-[54px] flex-row items-center gap-3 px-5 py-2"
               style={item.first ? undefined : { marginTop: 16 }}
             >
@@ -104,7 +131,16 @@ export function SettledThreadsRouteScreen() {
               <Text className="flex-1 text-[17px] text-foreground" numberOfLines={1}>
                 {item.title}
               </Text>
-            </View>
+              <Text className="text-[15px] tabular-nums text-foreground-muted">{item.count}</Text>
+              <View style={{ transform: [{ rotate: item.expanded ? "90deg" : "0deg" }] }}>
+                <SymbolView
+                  name={{ ios: "chevron.right", android: "chevron_right" }}
+                  size={13}
+                  tintColorClassName="accent-foreground-muted"
+                  type="monochrome"
+                />
+              </View>
+            </Pressable>
             <View className="h-px bg-border" style={SEPARATOR_STYLE} />
           </View>
         );
@@ -142,7 +178,15 @@ export function SettledThreadsRouteScreen() {
         </View>
       );
     },
-    [actions, capabilities, handleSwipeableClose, handleSwipeableWillOpen, nowMinute, openThread],
+    [
+      actions,
+      capabilities,
+      handleSwipeableClose,
+      handleSwipeableWillOpen,
+      nowMinute,
+      openThread,
+      toggleGroup,
+    ],
   );
 
   return (
