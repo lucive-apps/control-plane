@@ -42,7 +42,6 @@ import { animateSidebarLayoutChanges, type SidebarSection } from "../Sidebar.log
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   assistantExpansionKey,
-  assistantSettledToggle,
   isAssistantExpanded,
   orderAssistantsByPreference,
   rollupAssistantsStatus,
@@ -170,16 +169,6 @@ export function useSidebarAssistants(input: {
     () => new Set(expandedKeyList.length === 0 ? [] : expandedKeyList.split("\0")),
     [expandedKeyList],
   );
-  // Settled paging is per session, like the Tasks settled tail.
-  const [settledCounts, setSettledCounts] = useState<ReadonlyMap<string, number>>(() => new Map());
-  const setSettledCount = useCallback((key: string, count: number) => {
-    setSettledCounts((current) => {
-      const next = new Map(current);
-      if (count > 0) next.set(key, count);
-      else next.delete(key);
-      return next;
-    });
-  }, []);
   const rollupStatus = useAssistantSectionRollup(models, visible && !sectionExpanded);
   return {
     models,
@@ -189,8 +178,6 @@ export function useSidebarAssistants(input: {
     sectionExpanded,
     toggleSection,
     expandedKeys,
-    settledCounts,
-    setSettledCount,
     rollupStatus,
   };
 }
@@ -233,8 +220,6 @@ export function SidebarAssistantsSection(props: {
   readonly snapshotByKey: ReadonlyMap<string, SidebarProjectSnapshot>;
   /** From `useSidebarAssistants`, so rows and jump order agree. */
   readonly expandedKeys: ReadonlySet<string>;
-  readonly settledCounts: ReadonlyMap<string, number>;
-  readonly onSettledCountChange: (key: string, count: number) => void;
   readonly primaryEnvironmentId: EnvironmentId | null;
   readonly routeThreadKey: string | null;
   readonly routeDraft: {
@@ -289,7 +274,6 @@ export function SidebarAssistantsSection(props: {
             model={model}
             snapshot={props.snapshotByKey.get(model.entry.projectKey) ?? null}
             expanded={props.expandedKeys.has(model.key)}
-            settledCount={props.settledCounts.get(model.key) ?? 0}
             environmentLabel={
               project.environmentId === props.primaryEnvironmentId
                 ? null
@@ -310,7 +294,6 @@ export function SidebarAssistantsSection(props: {
             onNewAgent={props.onNewAgent}
             onContextMenu={handleContextMenu}
             onSetExpanded={setProjectExpanded}
-            onSettledCountChange={props.onSettledCountChange}
             onRename={handleRename}
             onCancelRename={() => setRenamingKey(null)}
             renderDrafts={props.renderDrafts}
@@ -329,7 +312,6 @@ function SidebarAssistantRow(props: {
   readonly model: SidebarAssistantModel;
   readonly snapshot: SidebarProjectSnapshot | null;
   readonly expanded: boolean;
-  readonly settledCount: number;
   readonly environmentLabel: string | null;
   readonly isActive: boolean;
   readonly containsRoute: boolean;
@@ -343,7 +325,6 @@ function SidebarAssistantRow(props: {
     position: { x: number; y: number },
   ) => void;
   readonly onSetExpanded: (key: string, expanded: boolean) => void;
-  readonly onSettledCountChange: (key: string, count: number) => void;
   readonly onRename: (project: EnvironmentProject, title: string) => void;
   readonly onCancelRename: () => void;
   readonly renderDrafts: (snapshot: SidebarProjectSnapshot) => ReactNode;
@@ -391,19 +372,13 @@ function SidebarAssistantRow(props: {
     props.onOpen(project);
   };
 
-  const { rows, hiddenSettledCount } = expanded
+  // Settled agents live in the settled view; only the open one stays listed.
+  const { rows } = expanded
     ? visibleAssistantAgentRows(model.sections, {
-        settledCount: props.settledCount,
+        settledCount: 0,
         routeThreadKey: props.routeThreadKey,
       })
-    : { rows: [], hiddenSettledCount: 0 };
-  const settledToggle = expanded
-    ? assistantSettledToggle({
-        settledCount: props.settledCount,
-        settledTotal: model.sections.settled.length,
-        hiddenSettledCount,
-      })
-    : null;
+    : { rows: [] };
 
   return (
     <li
@@ -486,20 +461,6 @@ function SidebarAssistantRow(props: {
         <ul className="flex flex-col gap-px pl-4">
           {props.snapshot !== null ? props.renderDrafts(props.snapshot) : null}
           {rows.map((row) => props.renderThreadRow(row.thread, row.section))}
-          {settledToggle !== null ? (
-            <li className="list-none">
-              <button
-                type="button"
-                data-testid="sidebar-assistant-settled-toggle"
-                className="flex h-7 w-full cursor-pointer items-center rounded-md px-2 text-left text-xs text-sidebar-muted-foreground/75 outline-none hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring"
-                onClick={() =>
-                  props.onSettledCountChange(model.key, settledToggle.nextSettledCount)
-                }
-              >
-                {settledToggle.label}
-              </button>
-            </li>
-          ) : null}
         </ul>
       ) : null}
     </li>

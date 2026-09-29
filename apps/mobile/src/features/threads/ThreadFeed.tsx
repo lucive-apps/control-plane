@@ -281,6 +281,10 @@ export interface ThreadFeedProps {
   readonly assistantTimeline?: AssistantFeedTimeline | null;
 }
 
+const USER_IMAGE_THUMBNAIL_SIZE = 112;
+// Fixed box so a thumbnail never shifts the feed while its URL resolves.
+const USER_IMAGE_THUMBNAIL_CLASS = "size-28 overflow-hidden rounded-[14px] bg-subtle";
+
 function MessageAttachmentImage(props: {
   readonly environmentId: EnvironmentId;
   readonly attachmentId: string;
@@ -1647,9 +1651,36 @@ function renderFeedEntry(
             : [],
         ),
       );
-      const visibleAttachments = attachments.filter(
-        (attachment) => isImageAttachment(attachment) || !inlineAttachmentIds.has(attachment.id),
+      // Pictures show as thumbnails above the bubble (their inline chips are dropped from the
+      // prose); files and unknown attachments stay inside it.
+      const imageAttachments = attachments.filter(isImageAttachment);
+      const bubbleAttachments = attachments.filter(
+        (attachment) => !isImageAttachment(attachment) && !inlineAttachmentIds.has(attachment.id),
       );
+      const pendingAttachments = entry.pendingMessage?.attachments ?? [];
+      const pendingImages = pendingAttachments.filter((attachment) => attachment.type === "image");
+      const pendingOthers = pendingAttachments.filter((attachment) => attachment.type !== "image");
+      const imageIdsAbove = new Set<string>([
+        ...imageAttachments.map((attachment) => attachment.id),
+        ...pendingImages.flatMap((attachment) =>
+          attachment.uploadedAttachmentId ? [attachment.uploadedAttachmentId] : [],
+        ),
+      ]);
+      const hasVisibleText =
+        replaceComposerContextReferences(message.text, (reference) => {
+          const record = message.context?.records.find(
+            (candidate) => candidate.contextId === reference.contextId,
+          );
+          return record?.kind === "image" &&
+            "attachmentId" in record &&
+            imageIdsAbove.has(record.attachmentId)
+            ? ""
+            : reference.source;
+        }).trim().length > 0;
+      const hasImages = imageAttachments.length > 0 || pendingImages.length > 0;
+      // A message of only images is just its thumbnails, with no empty bubble under them.
+      const showBubble =
+        hasVisibleText || bubbleAttachments.length > 0 || pendingOthers.length > 0 || !hasImages;
       const copyUserMessage = () => {
         if (message.text.trim().length === 0) return;
         if (message.context) {
@@ -1673,92 +1704,104 @@ function renderFeedEntry(
               iconColor={iconSubtleColor}
             />
           ) : null}
-          <Pressable
-            accessibilityHint="Long press to copy"
-            delayLongPress={350}
-            onLongPress={copyUserMessage}
-            className="min-w-0 gap-2 rounded-[20px] px-3.5 py-2.5"
-            style={{
-              backgroundColor: userBubbleColor,
-              maxWidth: props.userBubbleMaxWidth,
-              ...(hasReviewCommentContext
-                ? { width: props.reviewCommentBubbleWidth }
-                : hasWideBlock
-                  ? { width: props.userBubbleMaxWidth }
-                  : null),
-            }}
-          >
-            {entry.pendingMessage?.attachments.map((attachment) =>
-              attachment.type === "image" && attachment.uploadedAttachmentId ? (
+          {hasImages ? (
+            <View
+              className="mb-1.5 flex-row flex-wrap justify-end gap-2"
+              style={{ maxWidth: props.userBubbleMaxWidth }}
+            >
+              {pendingImages.map((attachment) =>
+                attachment.uploadedAttachmentId ? (
+                  <MessageAttachmentImage
+                    key={attachment.id}
+                    environmentId={props.environmentId}
+                    attachmentId={attachment.uploadedAttachmentId}
+                    name={attachment.name}
+                    mimeType={attachment.mimeType}
+                    className={USER_IMAGE_THUMBNAIL_CLASS}
+                    onPressPreview={props.onPressPreview}
+                  />
+                ) : (
+                  <Image
+                    key={attachment.id}
+                    source={{ uri: attachment.previewUri }}
+                    accessibilityLabel={attachment.name}
+                    style={{
+                      width: USER_IMAGE_THUMBNAIL_SIZE,
+                      height: USER_IMAGE_THUMBNAIL_SIZE,
+                      borderRadius: 14,
+                    }}
+                  />
+                ),
+              )}
+              {imageAttachments.map((attachment) => (
                 <MessageAttachmentImage
                   key={attachment.id}
                   environmentId={props.environmentId}
-                  attachmentId={attachment.uploadedAttachmentId}
+                  attachmentId={attachment.id}
                   name={attachment.name}
                   mimeType={attachment.mimeType}
-                  className="h-[140px] w-[180px] rounded-[14px]"
+                  className={USER_IMAGE_THUMBNAIL_CLASS}
                   onPressPreview={props.onPressPreview}
                 />
-              ) : attachment.type === "image" ? (
-                <Image
-                  key={attachment.id}
-                  source={{ uri: attachment.previewUri }}
-                  accessibilityLabel={attachment.name}
-                  style={{ width: 180, height: 140, borderRadius: 14 }}
-                />
-              ) : (
+              ))}
+            </View>
+          ) : null}
+          {showBubble ? (
+            <Pressable
+              accessibilityHint="Long press to copy"
+              delayLongPress={350}
+              onLongPress={copyUserMessage}
+              className="min-w-0 gap-2 rounded-[20px] px-3.5 py-2.5"
+              style={{
+                backgroundColor: userBubbleColor,
+                maxWidth: props.userBubbleMaxWidth,
+                ...(hasReviewCommentContext
+                  ? { width: props.reviewCommentBubbleWidth }
+                  : hasWideBlock
+                    ? { width: props.userBubbleMaxWidth }
+                    : null),
+              }}
+            >
+              {pendingOthers.map((attachment) => (
                 <MessageAttachmentUnknown key={attachment.id} name={attachment.name} />
-              ),
-            )}
-            {/* An empty container still takes a gap, which pads every attachment-free bubble. */}
-            {visibleAttachments.length > 0 ? (
-              <View className={inlineAttachmentIds.size ? "flex-row flex-wrap gap-2" : "gap-2"}>
-                {visibleAttachments.map((attachment) => {
-                  return isImageAttachment(attachment) ? (
-                    <MessageAttachmentImage
-                      key={attachment.id}
-                      environmentId={props.environmentId}
-                      attachmentId={attachment.id}
-                      name={attachment.name}
-                      mimeType={attachment.mimeType}
-                      className={
-                        inlineAttachmentIds.size
-                          ? "h-24 w-24 rounded-[14px] bg-white/15"
-                          : "aspect-[1.3] w-full rounded-[14px] bg-white/15"
-                      }
-                      onPressPreview={props.onPressPreview}
-                    />
-                  ) : isFileAttachment(attachment) ? (
-                    <MessageAttachmentFile
-                      key={attachment.id}
-                      environmentId={props.environmentId}
-                      attachment={attachment}
-                      onPressPreview={props.onPressPreview}
-                      onPressVideo={props.onPressVideo}
-                    />
-                  ) : (
-                    <MessageAttachmentUnknown key={attachment.id} name={attachment.name} />
-                  );
-                })}
-              </View>
-            ) : null}
-            {message.text.trim().length > 0 ? (
-              <MarkdownImageAvailableWidthContext
-                value={props.userBubbleMaxWidth - USER_BUBBLE_HORIZONTAL_PADDING * 2}
-              >
-                <UserMessageContent
-                  text={renderedText}
-                  environmentId={props.environmentId}
-                  context={message.context}
-                  markdownStyles={styles}
-                  reviewCommentColors={props.reviewCommentColors}
-                  skills={props.skills}
-                  linkHandlers={props.markdownLinkHandlers}
-                  renderImage={props.renderMarkdownImage}
-                />
-              </MarkdownImageAvailableWidthContext>
-            ) : null}
-          </Pressable>
+              ))}
+              {/* An empty container still takes a gap, which pads every attachment-free bubble. */}
+              {bubbleAttachments.length > 0 ? (
+                <View className="gap-2">
+                  {bubbleAttachments.map((attachment) =>
+                    isFileAttachment(attachment) ? (
+                      <MessageAttachmentFile
+                        key={attachment.id}
+                        environmentId={props.environmentId}
+                        attachment={attachment}
+                        onPressPreview={props.onPressPreview}
+                        onPressVideo={props.onPressVideo}
+                      />
+                    ) : (
+                      <MessageAttachmentUnknown key={attachment.id} name={attachment.name} />
+                    ),
+                  )}
+                </View>
+              ) : null}
+              {hasVisibleText ? (
+                <MarkdownImageAvailableWidthContext
+                  value={props.userBubbleMaxWidth - USER_BUBBLE_HORIZONTAL_PADDING * 2}
+                >
+                  <UserMessageContent
+                    text={renderedText}
+                    environmentId={props.environmentId}
+                    context={message.context}
+                    hiddenImageAttachmentIds={imageIdsAbove}
+                    markdownStyles={styles}
+                    reviewCommentColors={props.reviewCommentColors}
+                    skills={props.skills}
+                    linkHandlers={props.markdownLinkHandlers}
+                    renderImage={props.renderMarkdownImage}
+                  />
+                </MarkdownImageAvailableWidthContext>
+              ) : null}
+            </Pressable>
+          ) : null}
           {entry.pendingMessage && !entry.acknowledged ? (
             <View className="mt-1 flex-row items-center justify-end gap-1 pr-0.5">
               <Text className="font-t3-medium text-xs tabular-nums text-adaptive-neutral-600-400">
@@ -1876,6 +1919,8 @@ type UserMessageContentProps = {
   readonly text: string;
   readonly environmentId: EnvironmentId;
   readonly context?: OrchestrationMessageContext;
+  /** Pictures already shown as thumbnails above the bubble; their references render as nothing. */
+  readonly hiddenImageAttachmentIds?: ReadonlySet<string>;
   readonly markdownStyles: MarkdownStyleSet;
   readonly reviewCommentColors: ReviewCommentColors;
   readonly skills?: ReadonlyArray<SelectableMarkdownSkill>;
@@ -1888,8 +1933,17 @@ function UserMessageContent(props: UserMessageContentProps) {
   const navigation = useNavigation();
   const { selectedThread } = useThreadSelection();
   const text = replaceComposerContextReferences(props.text, (ref) => {
-    const available = props.context?.records.some((record) => record.contextId === ref.contextId);
-    return `[${ref.label}${available ? "" : " (unavailable)"}](t3-context://v1/${ref.kind}/${ref.contextId})`;
+    const record = props.context?.records.find(
+      (candidate) => candidate.contextId === ref.contextId,
+    );
+    if (
+      record?.kind === "image" &&
+      "attachmentId" in record &&
+      props.hiddenImageAttachmentIds?.has(record.attachmentId)
+    ) {
+      return "";
+    }
+    return `[${ref.label}${record ? "" : " (unavailable)"}](t3-context://v1/${ref.kind}/${ref.contextId})`;
   });
   const onLinkPress = (href: string) => {
     const reference = parseComposerContextHref(href);
