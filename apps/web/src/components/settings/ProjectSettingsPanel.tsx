@@ -420,7 +420,9 @@ function ProjectDetail({
                   ? `${projectIcon.text} · ${projectIcon.color}`
                   : projectIcon?.kind === "emoji"
                     ? projectIcon.emoji
-                    : (faviconPath ?? "Automatic")
+                    : projectIcon?.kind === "image"
+                      ? "Custom image"
+                      : (faviconPath ?? "Automatic")
             }
             resetAction={
               group.memberProjects.some(
@@ -516,6 +518,7 @@ function ProjectDetail({
             open
             onOpenChange={setIconPickerOpen}
             onSelect={(icon) => void setProjectIcon({ faviconPath: null, projectIcon: icon })}
+            onClear={() => void setProjectIcon({ faviconPath: null, projectIcon: null })}
           />
         </Suspense>
       ) : null}

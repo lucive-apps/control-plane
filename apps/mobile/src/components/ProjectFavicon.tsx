@@ -85,6 +85,16 @@ export function ProjectFavicon(props: {
 
 function ProjectIconGlyphView(props: { readonly glyph: ProjectIconGlyph; readonly size: number }) {
   const { glyph, size } = props;
+  if (glyph.kind === "image") {
+    return (
+      <Image
+        source={{ uri: glyph.dataUrl }}
+        cachePolicy="memory"
+        style={{ width: size, height: size, borderRadius: size * 0.25 }}
+        contentFit="cover"
+      />
+    );
+  }
   if (glyph.kind === "emoji") {
     return (
       <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>

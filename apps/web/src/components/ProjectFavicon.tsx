@@ -52,6 +52,9 @@ export function ProjectFavicon(input: {
       />
     );
   }
+  if (project.projectIcon?.kind === "image") {
+    return <ProjectImageIcon dataUrl={project.projectIcon.dataUrl} className={input.className} />;
+  }
   if (project.projectIcon?.kind === "emoji") {
     return (
       <ProjectFaviconFallback
@@ -106,6 +109,24 @@ export function ProjectFavicon(input: {
       fallbackIcon={FallbackIcon}
       fallbackProjectName={project.title}
     />
+  );
+}
+
+// Sized and clipped like ProjectMonogram so an uploaded image sits where a letter badge would.
+export function ProjectImageIcon({
+  dataUrl,
+  className,
+}: {
+  readonly dataUrl: string;
+  readonly className?: string | undefined;
+}) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn("inline-flex size-4 shrink-0 items-center justify-center", className)}
+    >
+      <img src={dataUrl} alt="" className="size-full rounded-[25%] object-cover" />
+    </span>
   );
 }
 

@@ -4521,6 +4521,51 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
     }),
   );
 
+  it.effect("persists, reads back, and clears an uploaded project image", () =>
+    Effect.gen(function* () {
+      const engine = yield* OrchestrationEngineService;
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+      const projectId = ProjectId.make("project-image-icon");
+      const dataUrl = "data:image/webp;base64,UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==";
+      yield* engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.make("cmd-image-icon-create"),
+        projectId,
+        title: "Image",
+        workspaceRoot: "/tmp/project-image-icon",
+        defaultModelSelection: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+      });
+      yield* engine.dispatch({
+        type: "project.meta.update",
+        commandId: CommandId.make("cmd-image-icon-save"),
+        projectId,
+        projectIcon: { kind: "image", dataUrl },
+      });
+      const projectIconOf = () =>
+        snapshotQuery
+          .getSnapshot()
+          .pipe(
+            Effect.map(
+              (snapshot) => snapshot.projects.find((p) => p.id === projectId)?.projectIcon,
+            ),
+          );
+      assert.deepEqual(yield* projectIconOf(), { kind: "image", dataUrl });
+      yield* engine.dispatch({
+        type: "project.meta.update",
+        commandId: CommandId.make("cmd-image-icon-clear"),
+        projectId,
+        projectIcon: null,
+      });
+      assert.strictEqual(yield* projectIconOf(), null);
+      const cleared = yield* sql<{
+        readonly icon: string | null;
+      }>`SELECT project_icon_json AS icon FROM projection_projects WHERE project_id = ${projectId}`;
+      assert.deepEqual(cleared, [{ icon: null }]);
+    }),
+  );
+
   it.effect("re-creating a deleted thread id starts from an empty projection", () =>
     Effect.gen(function* () {
       const engine = yield* OrchestrationEngineService;
