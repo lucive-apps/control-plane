@@ -372,3 +372,20 @@ export const make = Effect.gen(function* () {
 });
 
 export const layer = Layer.effect(CloudManagedEndpointRuntime, make);
+
+/**
+ * Runtime for builds with T3 Connect off. Never starts the relay client, even
+ * for a tunnel config left by an earlier link or pushed by a client, which the
+ * relay-config route then rejects as unavailable.
+ */
+export const layerDisabled = Layer.succeed(
+  CloudManagedEndpointRuntime,
+  CloudManagedEndpointRuntime.of({
+    applyConfig: (config) =>
+      Effect.succeed(
+        config
+          ? { status: "unsupported", providerKind: config.providerKind }
+          : { status: "disabled" },
+      ),
+  }),
+);

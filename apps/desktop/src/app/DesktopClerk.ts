@@ -7,6 +7,9 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 
+import * as Electron from "electron";
+
+import { T3_CONNECT_ENABLED } from "@t3tools/shared/forkFeatures";
 import { clerkFrontendApiHostnameFromPublishableKey } from "@t3tools/shared/relayAuth";
 import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as ElectronProtocol from "../electron/ElectronProtocol.ts";
@@ -67,11 +70,13 @@ function resolveDesktopClerkFrontendApiHostname(
   }
 }
 
-export const desktopClerkFrontendApiHostname = resolveDesktopClerkFrontendApiHostname(
-  typeof __T3CODE_BUILD_CLERK_PUBLISHABLE_KEY__ === "undefined"
-    ? undefined
-    : __T3CODE_BUILD_CLERK_PUBLISHABLE_KEY__,
-);
+export const desktopClerkFrontendApiHostname = T3_CONNECT_ENABLED
+  ? resolveDesktopClerkFrontendApiHostname(
+      typeof __T3CODE_BUILD_CLERK_PUBLISHABLE_KEY__ === "undefined"
+        ? undefined
+        : __T3CODE_BUILD_CLERK_PUBLISHABLE_KEY__,
+    )
+  : undefined;
 
 function createDesktopClerkBridge(stateDir: string, isDevelopment: boolean) {
   return createClerkBridge({
@@ -83,6 +88,34 @@ function createDesktopClerkBridge(stateDir: string, isDevelopment: boolean) {
     },
   });
 }
+
+const configureInstance = (isPrimaryInstance: boolean) =>
+  Effect.gen(function* () {
+    const electronApp = yield* ElectronApp.ElectronApp;
+    const electronWindow = yield* ElectronWindow.ElectronWindow;
+    const context = yield* Effect.context<ElectronWindow.ElectronWindow>();
+    const runPromise = Effect.runPromiseWith(context);
+
+    // The layer acquired Electron's single-instance lock at construction (the
+    // SDK bridge does so that OAuth deep-link callbacks on Windows/Linux reach
+    // the running app). A secondary instance quits; app.quit() is
+    // asynchronous, so stop bootstrap here before whenReady can fire.
+    if (!isPrimaryInstance) {
+      yield* electronApp.quit;
+      return yield* Effect.interrupt;
+    }
+
+    yield* electronApp.on("second-instance", () => {
+      void runPromise(
+        Effect.gen(function* () {
+          const mainWindow = yield* electronWindow.currentMainOrFirst;
+          if (Option.isSome(mainWindow)) {
+            yield* electronWindow.reveal(mainWindow.value);
+          }
+        }),
+      );
+    });
+  }).pipe(Effect.withSpan("desktop.clerk.configure"));
 
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
@@ -128,35 +161,35 @@ export const make = Effect.gen(function* () {
       }).pipe(Effect.orDie),
   );
 
-  return DesktopClerk.of({
-    configure: Effect.gen(function* () {
-      const electronApp = yield* ElectronApp.ElectronApp;
-      const electronWindow = yield* ElectronWindow.ElectronWindow;
-      const context = yield* Effect.context<ElectronWindow.ElectronWindow>();
-      const runPromise = Effect.runPromiseWith(context);
-
-      // The SDK bridge holds Electron's single-instance lock (acquired at
-      // bridge creation) so OAuth deep-link callbacks on Windows/Linux are
-      // forwarded to the running app. In a secondary instance the bridge has
-      // already begun quitting the app; app.quit() is asynchronous, so stop
-      // bootstrap here before whenReady can fire.
-      if (!bridge.isPrimaryInstance) {
-        yield* electronApp.quit;
-        return yield* Effect.interrupt;
-      }
-
-      yield* electronApp.on("second-instance", () => {
-        void runPromise(
-          Effect.gen(function* () {
-            const mainWindow = yield* electronWindow.currentMainOrFirst;
-            if (Option.isSome(mainWindow)) {
-              yield* electronWindow.reveal(mainWindow.value);
-            }
-          }),
-        );
-      });
-    }).pipe(Effect.withSpan("desktop.clerk.configure")),
-  });
+  return DesktopClerk.of({ configure: configureInstance(bridge.isPrimaryInstance) });
 });
 
 export const layer = Layer.effect(DesktopClerk, make);
+
+/**
+ * DesktopClerk for builds with T3 Connect off: no SDK bridge, so no Clerk IPC,
+ * OAuth scheme, or privileged scheme registration at startup. Keeps what the
+ * app itself relied on the bridge for: userData set before the instance lock,
+ * and one instance on Windows and Linux (macOS routes relaunches to the
+ * running app). Synchronous like `make`, so `ready` cannot fire first.
+ */
+const makeWithoutBridge = Effect.gen(function* () {
+  const environment = yield* DesktopEnvironment.DesktopEnvironment;
+  const electronApp = yield* ElectronApp.ElectronApp;
+
+  yield* electronApp.setPath(
+    "userData",
+    resolveDesktopChromiumUserDataPath({
+      appDataDirectory: environment.appDataDirectory,
+      isDevelopment: environment.isDevelopment,
+      joinPath: environment.path.join,
+      pathExists: syncHomeProbe.exists,
+    }),
+  );
+  const isPrimaryInstance =
+    environment.platform === "darwin" || Electron.app.requestSingleInstanceLock();
+
+  return DesktopClerk.of({ configure: configureInstance(isPrimaryInstance) });
+});
+
+export const layerWithoutBridge = Layer.effect(DesktopClerk, makeWithoutBridge);

@@ -10,20 +10,14 @@ server or the desktop app, that computer is already connected and selected.
 It is identified by its name, which may differ from the device running your
 browser.
 
-You can add more computers before continuing:
+You can add more computers before continuing. **Add a computer** connects
+directly to a server on your tailnet or network. Start the server with
+`t3 serve`, then run `t3 pair --tailscale` and paste the pairing link. You can
+also run `t3 serve --host <address>` and use `t3 pair` when the server is
+already reachable on your network.
 
-- **T3 Connect** connects computers that are signed in to your account.
-  [Install the CLI](./install.md#command-line) and run `t3 connect` on each
-  computer you want to add, then start T3 Code or run `t3 serve` so the
-  computer stays available.
-- **Add a computer** connects directly to a server on your network or tailnet.
-  Start the server with `t3 serve`, then run `t3 pair --tailscale` and paste
-  the pairing link. You can also run `t3 serve --host <address>` and use
-  `t3 pair` when the server is already reachable on your network.
-
-Saved computers and computers discovered through T3 Connect are selected by
-default. Uncheck any you do not want to set up; this does not disconnect them.
-Continue when your selected computers are connected. Setup checks
+Saved computers are selected by default. Uncheck any you do not want to set up;
+this does not disconnect them. Continue when your selected computers are connected. Setup checks
 agents across the selected computers, then offers workspace import grouped by computer.
 
 If T3 Code cannot confirm the environment during startup, the setup flow shows

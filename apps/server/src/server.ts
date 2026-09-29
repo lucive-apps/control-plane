@@ -152,6 +152,7 @@ import {
   persistServerRuntimeState,
 } from "./serverRuntimeState.ts";
 import { orchestrationHttpApiLayer } from "./orchestration/http.ts";
+import { T3_CONNECT_ENABLED } from "@t3tools/shared/forkFeatures";
 import * as NetService from "@t3tools/shared/Net";
 import * as RelayClient from "@t3tools/shared/relayClient";
 import { disableTailscaleServe, ensureTailscaleServe } from "@t3tools/tailscale";
@@ -253,7 +254,11 @@ const ReactorLayerLive = Layer.empty.pipe(
   Layer.provideMerge(ThreadSettlementReactor.layer),
   Layer.provideMerge(PullRequestSyncReactor.layer),
   Layer.provideMerge(ThreadPullRequestReactor.layer),
-  Layer.provideMerge(AgentAwarenessRelay.layer.pipe(Layer.provide(ServerSecretStore.layer))),
+  Layer.provideMerge(
+    T3_CONNECT_ENABLED
+      ? AgentAwarenessRelay.layer.pipe(Layer.provide(ServerSecretStore.layer))
+      : AgentAwarenessRelay.layerDisabled,
+  ),
   Layer.provideMerge(RuntimeReceiptBusLive),
 );
 
@@ -443,10 +448,12 @@ const AuthLayerLive = EnvironmentAuth.layer.pipe(
 
 const CloudManagedEndpointRuntimeLive = Layer.mergeAll(
   RelayClientLive,
-  CloudManagedEndpointRuntime.layer.pipe(
-    Layer.provide(ServerSecretStore.layer),
-    Layer.provide(RelayClientLive),
-  ),
+  T3_CONNECT_ENABLED
+    ? CloudManagedEndpointRuntime.layer.pipe(
+        Layer.provide(ServerSecretStore.layer),
+        Layer.provide(RelayClientLive),
+      )
+    : CloudManagedEndpointRuntime.layerDisabled,
 );
 
 const ProviderRuntimeLayerLive = ProviderSessionReaperLive.pipe(

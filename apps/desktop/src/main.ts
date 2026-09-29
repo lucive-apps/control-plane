@@ -15,6 +15,7 @@ import * as Option from "effect/Option";
 
 import * as Electron from "electron";
 
+import { T3_CONNECT_ENABLED } from "@t3tools/shared/forkFeatures";
 import * as NetService from "@t3tools/shared/Net";
 import { HostProcessArchitecture, HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import type { RemoteT3RunnerOptions } from "@t3tools/ssh/tunnel";
@@ -204,7 +205,9 @@ const desktopApplicationLayer = Layer.mergeAll(
   Layer.provideMerge(desktopLocalEnvironmentAuthLayer),
 );
 
-const desktopClerkLayer = DesktopClerk.layer.pipe(
+const desktopClerkLayer = (
+  T3_CONNECT_ENABLED ? DesktopClerk.layer : DesktopClerk.layerWithoutBridge
+).pipe(
   Layer.provideMerge(desktopEnvironmentLayer),
   Layer.provideMerge(NodeServices.layer),
   Layer.provideMerge(ElectronApp.layer),

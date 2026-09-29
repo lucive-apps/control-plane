@@ -639,3 +639,12 @@ export const make = Effect.gen(function* () {
 });
 
 export const layer = Layer.effect(AgentAwarenessRelay, make);
+
+/** Publisher for builds with T3 Connect off: reads no relay link, polls nothing, sends nothing. */
+export const layerDisabled = Layer.succeed(
+  AgentAwarenessRelay,
+  AgentAwarenessRelay.of({
+    publishThread: () => Effect.void,
+    start: () => Effect.void,
+  }),
+);

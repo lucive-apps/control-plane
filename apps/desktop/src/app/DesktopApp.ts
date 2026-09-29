@@ -5,6 +5,7 @@ import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 
+import { T3_CONNECT_ENABLED } from "@t3tools/shared/forkFeatures";
 import { writeOwnerMarker } from "@t3tools/shared/home";
 import * as NetService from "@t3tools/shared/Net";
 import * as Crypto from "effect/Crypto";
@@ -335,7 +336,10 @@ const startup = Effect.gen(function* () {
   yield* applicationMenu.configure;
   yield* updates.configure;
   yield* DesktopRemoteUpdates.listen;
-  yield* linuxUrlHandler.register;
+  // The scheme handler only delivers Clerk OAuth callbacks.
+  if (T3_CONNECT_ENABLED) {
+    yield* linuxUrlHandler.register;
+  }
   yield* bootstrap.pipe(Effect.catchCause((cause) => fatalStartupCause("bootstrap", cause)));
 }).pipe(Effect.withSpan("desktop.startup"));
 

@@ -516,3 +516,22 @@ describe("CloudManagedEndpointRuntime", () => {
     }),
   );
 });
+
+// Control Plane ships with T3 Connect off. A tunnel config must never report
+// "running" or "disabled", which would let the relay-config route persist a
+// link; with no spawner or relay client in the layer, nothing can start.
+describe("CloudManagedEndpointRuntime with T3 Connect off", () => {
+  it.effect("never starts a connector", () =>
+    Effect.gen(function* () {
+      const runtime = yield* ManagedEndpointRuntime.CloudManagedEndpointRuntime;
+      expect(
+        yield* runtime.applyConfig({
+          providerKind: "cloudflare_tunnel",
+          connectorToken: "connector-token",
+          tunnelId: "tunnel-1",
+        }),
+      ).toEqual({ status: "unsupported", providerKind: "cloudflare_tunnel" });
+      expect(yield* runtime.applyConfig(null)).toEqual({ status: "disabled" });
+    }).pipe(Effect.provide(ManagedEndpointRuntime.layerDisabled)),
+  );
+});

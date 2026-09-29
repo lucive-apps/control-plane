@@ -23,6 +23,14 @@ vi.mock("@clerk/electron/storage", () => ({
   storage: storageMock,
 }));
 
+const { requestSingleInstanceLockMock } = vi.hoisted(() => ({
+  requestSingleInstanceLockMock: vi.fn(),
+}));
+
+vi.mock("electron", () => ({
+  app: { requestSingleInstanceLock: requestSingleInstanceLockMock },
+}));
+
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { HomeMigrationRecord } from "@t3tools/shared/home";
 import * as Exit from "effect/Exit";
@@ -271,4 +279,107 @@ describe("DesktopClerk", () => {
       Effect.provideService(ElectronWindow.ElectronWindow, electronWindow),
     );
   });
+});
+
+// Control Plane ships with T3 Connect off, so main.ts provides this layer.
+describe("DesktopClerk without T3 Connect", () => {
+  const makeLayerWithoutBridge = (platform: NodeJS.Platform, events: string[] = []) => {
+    const environment = DesktopEnvironment.DesktopEnvironment.of({
+      stateDir: "/tmp/t3-state",
+      isDevelopment: true,
+      platform,
+      appDataDirectory: "/tmp/app-data",
+      path: { join: (...parts: ReadonlyArray<string>) => parts.join("/") },
+    } as unknown as DesktopEnvironment.DesktopEnvironment["Service"]);
+    const electronApp = {
+      setPath: (name: string, value: string) =>
+        Effect.sync(() => {
+          events.push(`setPath:${name}:${value}`);
+        }),
+    } as unknown as ElectronApp.ElectronApp["Service"];
+    return DesktopClerk.layerWithoutBridge.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          Layer.succeed(DesktopEnvironment.DesktopEnvironment, environment),
+          Layer.succeed(ElectronApp.ElectronApp, electronApp),
+        ),
+      ),
+    );
+  };
+
+  const configureWith = (layer: Layer.Layer<DesktopClerk.DesktopClerk>) => {
+    const quit = vi.fn();
+    const registeredEvents: string[] = [];
+    const electronApp = {
+      quit: Effect.sync(quit),
+      on: (eventName: string) =>
+        Effect.sync(() => {
+          registeredEvents.push(eventName);
+        }),
+    } as unknown as ElectronApp.ElectronApp["Service"];
+    return Effect.gen(function* () {
+      const clerk = yield* DesktopClerk.DesktopClerk;
+      const exit = yield* Effect.exit(Effect.scoped(clerk.configure));
+      return { exit, quitCalls: quit.mock.calls.length, registeredEvents };
+    }).pipe(
+      Effect.provide(layer),
+      Effect.provideService(ElectronApp.ElectronApp, electronApp),
+      Effect.provideService(
+        ElectronWindow.ElectronWindow,
+        {} as ElectronWindow.ElectronWindow["Service"],
+      ),
+    );
+  };
+
+  beforeEach(() => {
+    createClerkBridgeMock.mockReset();
+    requestSingleInstanceLockMock.mockReset();
+  });
+
+  it.effect("takes the single-instance lock itself, synchronously, with no Clerk bridge", () => {
+    const events: string[] = [];
+    requestSingleInstanceLockMock.mockImplementation(() => {
+      events.push("requestSingleInstanceLock");
+      return true;
+    });
+
+    // oxlint-disable-next-line t3code/no-manual-effect-runtime-in-tests -- runSync fails if anything before app ready suspends; it.effect would mask that.
+    Effect.runSync(Effect.scoped(Layer.build(makeLayerWithoutBridge("linux", events))));
+
+    // The lock lives in userData, so the real path must be set first.
+    assert.deepEqual(events, [
+      "setPath:userData:/tmp/app-data/t3code-dev",
+      "requestSingleInstanceLock",
+    ]);
+    assert.equal(createClerkBridgeMock.mock.calls.length, 0);
+    return Effect.gen(function* () {
+      const { exit, quitCalls, registeredEvents } = yield* configureWith(
+        makeLayerWithoutBridge("linux"),
+      );
+      assert.isTrue(Exit.isSuccess(exit));
+      assert.equal(quitCalls, 0);
+      assert.deepEqual(registeredEvents, ["second-instance"]);
+    });
+  });
+
+  it.effect("quits a second instance before app ready", () => {
+    requestSingleInstanceLockMock.mockReturnValue(false);
+
+    return Effect.gen(function* () {
+      const { exit, quitCalls, registeredEvents } = yield* configureWith(
+        makeLayerWithoutBridge("win32"),
+      );
+      assert.isTrue(Exit.hasInterrupts(exit));
+      assert.equal(quitCalls, 1);
+      assert.deepEqual(registeredEvents, []);
+    });
+  });
+
+  it.effect("leaves relaunches to macOS without taking the lock", () =>
+    Effect.gen(function* () {
+      const { exit } = yield* configureWith(makeLayerWithoutBridge("darwin"));
+      assert.isTrue(Exit.isSuccess(exit));
+      assert.equal(requestSingleInstanceLockMock.mock.calls.length, 0);
+    }),
+  );
 });
