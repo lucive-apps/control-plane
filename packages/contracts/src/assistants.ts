@@ -1,6 +1,6 @@
 import * as Schema from "effect/Schema";
 
-import { IsoDateTime, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { IsoDateTime, type ProjectId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 
 // Fork-owned. Imports only baseSchemas so orchestration.ts can import this
 // module without a cycle.
@@ -83,6 +83,66 @@ export function isRunningAgent(thread: {
     thread.hasPendingUserInput ||
     thread.session?.status === "starting" ||
     thread.session?.status === "running"
+  );
+}
+
+/** Message id prefix of an agent's result appended into the thread that asked for it. */
+export const AGENT_PUSH_MESSAGE_PREFIX = "cp-push:";
+
+export function isAgentPushMessageId(id: string): boolean {
+  return id.startsWith(AGENT_PUSH_MESSAGE_PREFIX);
+}
+
+export type AgentManagerRole = "coordinator" | "standing";
+
+interface AgentManagerProjectLike extends AssistantProjectLike {
+  readonly id: ProjectId;
+}
+
+interface AgentManagerThreadLike extends AssistantThreadLike {
+  readonly projectId: ProjectId;
+}
+
+interface ManagedAgentLike extends AgentManagerThreadLike {
+  readonly createdByThreadId?: ThreadId | null | undefined;
+}
+
+/**
+ * Whether `thread` may start and manage agents in `project`: its coordinator,
+ * or a standing agent. Null outside the Project and while it is archived.
+ */
+export function agentManagerRole(
+  project: AgentManagerProjectLike,
+  thread: AgentManagerThreadLike,
+): AgentManagerRole | null {
+  const assistant = project.assistant;
+  if (assistant == null || assistant.archivedAt != null || thread.projectId !== project.id) {
+    return null;
+  }
+  if (assistant.coordinatorThreadId === thread.id) return "coordinator";
+  return isStandingAgent(project, thread) ? "standing" : null;
+}
+
+/**
+ * The coordinator manages every other thread in its Project. A standing
+ * agent manages only the one-off agents it created.
+ */
+export function canManageAgent(
+  project: AgentManagerProjectLike,
+  manager: AgentManagerThreadLike,
+  agent: ManagedAgentLike,
+): boolean {
+  const role = agentManagerRole(project, manager);
+  if (
+    role === null ||
+    agent.projectId !== project.id ||
+    agent.id === manager.id ||
+    agent.id === project.assistant?.coordinatorThreadId
+  ) {
+    return false;
+  }
+  return (
+    role === "coordinator" || (agent.createdByThreadId === manager.id && agent.pinnedAt == null)
   );
 }
 

@@ -17,6 +17,8 @@ const state = vi.hoisted(() => ({
   approval: false,
   sessionError: false,
   turnError: false,
+  replyTo: null as string | null,
+  coordinatorCompletedAt: undefined as string | null | undefined,
   add: vi.fn(
     (_toast: { title: string; description: string; actionProps: { onClick: () => void } }) =>
       "toast-1",
@@ -45,8 +47,27 @@ vi.mock("@effect/atom-react", () => ({
             turnId: "turn-1",
             state: state.turnError ? "error" : state.completedAt ? "completed" : "running",
             completedAt: state.completedAt,
+            ...(state.replyTo ? { replyTo: state.replyTo } : {}),
           },
         },
+        // A Project coordinator whose turns are started by pushed results, never requests.
+        ...(state.coordinatorCompletedAt === undefined
+          ? []
+          : [
+              {
+                id: "thread-coordinator",
+                title: "Personal",
+                archivedAt: null,
+                hasPendingUserInput: false,
+                hasPendingApprovals: false,
+                session: null,
+                latestTurn: {
+                  turnId: "turn-coordinator",
+                  state: state.coordinatorCompletedAt ? "completed" : "running",
+                  completedAt: state.coordinatorCompletedAt,
+                },
+              },
+            ]),
       ],
     }),
   }),
@@ -109,6 +130,8 @@ beforeEach(() => {
     approval: false,
     sessionError: false,
     turnError: false,
+    replyTo: null,
+    coordinatorCompletedAt: undefined,
   });
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("window", new EventTarget());
@@ -237,6 +260,52 @@ describe("thread notifications", () => {
     expect(state.sound).toHaveBeenCalledWith("completion", expect.any(Function));
     expect(state.add).toHaveBeenCalledTimes(1);
     expect(state.notification).not.toHaveBeenCalled();
+  });
+
+  describe("turns a manager requested", () => {
+    beforeEach(() => {
+      state.mode = "notifications-and-sound";
+      state.replyTo = "thread-coordinator";
+    });
+
+    it("does not alert for the requested completion, but does for a later one", async () => {
+      await render();
+      await complete();
+      expect(state.add).not.toHaveBeenCalled();
+      expect(state.sound).not.toHaveBeenCalled();
+
+      state.replyTo = null;
+      state.completedAt = null;
+      await render();
+      state.completedAt = "2026-09-13T10:05:00.000Z";
+      await render();
+      expect(state.add).toHaveBeenCalledTimes(1);
+      expect(state.add).toHaveBeenLastCalledWith(
+        expect.objectContaining({ title: "Thread completed", description: "Fix the login form" }),
+      );
+    });
+
+    it("still alerts when a requested turn needs approval", async () => {
+      await render();
+      state.approval = true;
+      await render();
+      expect(state.add).toHaveBeenCalledTimes(1);
+      expect(state.add).toHaveBeenLastCalledWith(
+        expect.objectContaining({ title: "Approval needed" }),
+      );
+    });
+
+    it("alerts for the coordinator's reply instead of the agent's result", async () => {
+      state.coordinatorCompletedAt = null;
+      await render();
+      state.completedAt = "2026-09-13T10:00:00.000Z";
+      state.coordinatorCompletedAt = "2026-09-13T10:01:00.000Z";
+      await render();
+      expect(state.add).toHaveBeenCalledTimes(1);
+      expect(state.add).toHaveBeenLastCalledWith(
+        expect.objectContaining({ title: "Thread completed", description: "Personal" }),
+      );
+    });
   });
 
   it("keeps system alerts when the app is in the background", async () => {

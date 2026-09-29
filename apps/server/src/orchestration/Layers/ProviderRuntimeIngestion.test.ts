@@ -3635,6 +3635,89 @@ describe("ProviderRuntimeIngestion", () => {
     expect(await messageText()).toBe("First paragraph.\n\nSecond paragraph.\n\n");
   });
 
+  // Anything that reads a turn's result when its session leaves running (the
+  // agent result reactor) must see the whole message, including the part
+  // streaming still held back.
+  it.each([
+    { mode: "paragraph", terminal: "turn.completed", status: "ready", state: "completed" },
+    { mode: "turn", terminal: "turn.completed", status: "ready", state: "completed" },
+    { mode: "paragraph", terminal: "turn.aborted", status: "interrupted", state: "interrupted" },
+    { mode: "turn", terminal: "turn.aborted", status: "interrupted", state: "interrupted" },
+  ] as const)(
+    "lands buffered text before $terminal ends the session in $mode mode",
+    async ({ mode, terminal, status, state }) => {
+      const harness = await createHarness({ serverSettings: { responseStreamingMode: mode } });
+      const base = {
+        provider: ProviderDriverKind.make("codex"),
+        createdAt: "2026-01-01T00:00:00.000Z",
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId(`turn-final-${mode}-${terminal}`),
+      };
+      const itemId = asItemId(`item-final-${mode}-${terminal}`);
+      const messageId = `assistant:${itemId}`;
+      await harness.emitAndDrain([
+        { ...base, type: "turn.started", eventId: asEventId(`evt-final-started-${mode}`) },
+      ]);
+      harness.advanceClock(1_000);
+      await harness.emitAndDrain([
+        {
+          ...base,
+          type: "content.delta",
+          eventId: asEventId(`evt-final-delta-${mode}`),
+          itemId,
+          payload: { streamKind: "assistant_text", delta: "The last paragraph has no break" },
+        },
+      ]);
+      // Still buffered: no message row exists yet.
+      const buffered = (await harness.readModel()).threads.find((t) => t.id === base.threadId);
+      expect(buffered?.messages.some((message) => message.id === messageId)).toBe(false);
+
+      await harness.emitAndDrain([
+        terminal === "turn.completed"
+          ? {
+              ...base,
+              type: "turn.completed",
+              eventId: asEventId(`evt-final-completed-${mode}`),
+              payload: { state: "completed" },
+            }
+          : {
+              ...base,
+              type: "turn.aborted",
+              eventId: asEventId(`evt-final-aborted-${mode}`),
+              payload: { reason: "Interrupted by user." },
+            },
+      ]);
+
+      const events = await Effect.runPromise(
+        Stream.runCollect(harness.engine.readEvents(0)).pipe(
+          Effect.map((chunk) => Array.from(chunk)),
+        ),
+      );
+      const finalMessage = events.find(
+        (event) =>
+          event.type === "thread.message-sent" &&
+          event.payload.messageId === messageId &&
+          !event.payload.streaming,
+      );
+      // The harness seeds a ready session first, so take the turn's own end.
+      const turnEnd = events.findLast(
+        (event) => event.type === "thread.session-set" && event.payload.session.status === status,
+      );
+      expect(finalMessage).toBeDefined();
+      expect(turnEnd).toBeDefined();
+      expect(finalMessage!.sequence).toBeLessThan(turnEnd!.sequence);
+
+      const thread = (await harness.readModel()).threads.find((t) => t.id === base.threadId);
+      expect(thread?.messages.find((message) => message.id === messageId)).toMatchObject({
+        text: "The last paragraph has no break",
+        streaming: false,
+      });
+      const turn = await harness.readTurn(base.turnId);
+      expect(turn?.assistantMessageId).toBe(messageId);
+      expect(turn?.state).toBe(state);
+    },
+  );
+
   it("holds paragraphs that finish inside the pacing window and lands them together", async () => {
     const harness = await createHarness();
     const codex = ProviderDriverKind.make("codex");

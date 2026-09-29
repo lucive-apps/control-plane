@@ -956,6 +956,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     Effect.gen(function* () {
       yield* prepareAssistantRuntime(threadId);
       const capabilities = yield* agentAccessCapabilities(threadId);
+      if (AssistantRuntime.readAssistantRuntime(threadId)?.agents) capabilities.add("agents");
       const credential = yield* issueMcpCredential({ threadId, providerInstanceId, capabilities });
       if (credential) {
         const deviceEnvironment = capabilities.has("device")

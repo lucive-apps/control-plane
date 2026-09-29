@@ -128,6 +128,25 @@ the session at its next turn start with the same resume cursor, never during a r
 The coordinator's own edits to `MEMORY.md` go through its tools, not the RPC, so they do not
 restart it; the block tells it to re-read the file instead.
 
+## Agent result delivery
+
+A request is a user message whose `source.replyTo` names the thread its result goes to. The
+[agent completion reactor](../../apps/server/src/orchestration/AgentCompletionReactor.ts) answers
+each request from the turn it started: once the agent is idle, it appends the agent's last reply
+into the recipient, and it starts that message as a turn only when the recipient is idle, one at a
+time. A turn start during a running turn steers it, and on Grok and Antigravity cancels it, which is
+also why `cp_thread_send` holds a message for a busy thread in the same Project. Every step uses an
+id derived from the request ([agentProtocol.ts](../../apps/server/src/orchestration/agentProtocol.ts))
+and command receipts are the ledger, so a restart recomputes what is owed and held from projections
+and receipts. The reactor reads the result when the turn-ending session-set lands. That only works
+because [ingestion](../../apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts)
+finalizes buffered assistant text before that session-set; otherwise the result misses its last
+paragraph, or all of it in turn streaming mode. Runtime receipts are not an option because the
+[receipt bus](../../apps/server/src/orchestration/Layers/RuntimeReceiptBus.ts) keeps nothing outside
+tests. A tool call that blocks until the agent finishes is not either: Codex's default MCP tool
+timeout is 60 seconds, and the [Codex adapter](../../apps/server/src/provider/Layers/CodexAdapter.ts)
+sets no override.
+
 ## Attachments and stored history
 
 Attachments live outside the project workspace. [ProviderService](../../apps/server/src/provider/Layers/ProviderService.ts)

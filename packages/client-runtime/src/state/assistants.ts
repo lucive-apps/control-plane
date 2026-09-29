@@ -225,12 +225,11 @@ export function countRunningAgents(
 }
 
 /**
- * Whether an unread agent lights its Project's dot. True in M2 because
- * nothing relays an agent's result to the coordinator yet; M3 sets it to
- * false once completion pushes land, leaving coordinator unread as the only
- * unread source.
+ * Whether an unread agent lights its Project's dot. False: a finished agent's
+ * result now reaches the coordinator, so coordinator unread is the only unread
+ * source. Agents' live statuses still roll up.
  */
-export const ASSISTANT_ROLLUP_AGENT_UNREAD = true;
+export const ASSISTANT_ROLLUP_AGENT_UNREAD = false;
 
 /** One static dot for a Project: the most urgent live status, else unread. */
 export function rollupAssistantStatus(input: {

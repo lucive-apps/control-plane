@@ -17,6 +17,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
+import { agentPushId } from "./agentProtocol.ts";
 import { decideOrchestrationCommand } from "./decider.ts";
 import { projectEvent } from "./projector.ts";
 
@@ -600,6 +601,241 @@ it.layer(NodeServices.layer)("assistant decider", (it) => {
       expect(payloadOf(events[0], "project.meta-updated").assistant).toBeNull();
     }),
   );
+
+  describe("agent lineage", () => {
+    const NEW_AGENT = ThreadId.make("thread-new-agent");
+    const createAgent = (createdByThreadId: ThreadId): OrchestrationCommand => ({
+      type: "thread.create",
+      commandId: CommandId.make("cmd-create-agent"),
+      threadId: NEW_AGENT,
+      projectId: PROJECT_ID,
+      title: "Research",
+      modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      createdAt: NOW,
+      createdByThreadId,
+    });
+
+    it.effect("records the creator on thread.created", () =>
+      Effect.gen(function* () {
+        for (const creator of [COORDINATOR, PINNED_AGENT]) {
+          const events = yield* decide(makeReadModel(coordinatorProject), createAgent(creator));
+          expect(payloadOf(events[0], "thread.created").createdByThreadId).toBe(creator);
+        }
+        const { createdByThreadId: _creator, ...plain } = createAgent(COORDINATOR) as Extract<
+          OrchestrationCommand,
+          { type: "thread.create" }
+        >;
+        const events = yield* decide(makeReadModel({}), plain);
+        expect(payloadOf(events[0], "thread.created")).not.toHaveProperty("createdByThreadId");
+      }),
+    );
+
+    const rejected: ReadonlyArray<readonly [string, OrchestrationReadModel]> = [
+      [
+        "a thread from another project",
+        makeReadModel({
+          ...coordinatorProject,
+          threads: [
+            makeThread(COORDINATOR, { title: "Personal" }),
+            makeThread(PINNED_AGENT, { projectId: OTHER_PROJECT_ID, pinnedAt: NOW }),
+          ],
+        }),
+      ],
+      [
+        "a missing thread",
+        makeReadModel({ ...coordinatorProject, threads: [makeThread(COORDINATOR)] }),
+      ],
+      [
+        "an archived thread",
+        makeReadModel({
+          ...coordinatorProject,
+          threads: [makeThread(COORDINATOR), makeThread(PINNED_AGENT, { archivedAt: NOW })],
+        }),
+      ],
+      [
+        "a deleted thread",
+        makeReadModel({
+          ...coordinatorProject,
+          threads: [makeThread(COORDINATOR), makeThread(PINNED_AGENT, { deletedAt: NOW })],
+        }),
+      ],
+      ["a thread of a plain workspace", makeReadModel({})],
+    ];
+    for (const [label, readModel] of rejected) {
+      it.effect(`rejects a creator that is ${label}`, () =>
+        Effect.gen(function* () {
+          const error = yield* rejection(readModel, createAgent(PINNED_AGENT));
+          expect(error._tag).toBe("OrchestrationCommandInvariantError");
+        }),
+      );
+    }
+  });
+
+  describe("requests", () => {
+    const ONE_OFF = ThreadId.make("thread-one-off");
+    const ELSEWHERE = ThreadId.make("thread-elsewhere");
+    const readModel = makeReadModel({
+      ...coordinatorProject,
+      threads: [
+        makeThread(COORDINATOR, { title: "Personal" }),
+        makeThread(AGENT),
+        makeThread(PINNED_AGENT, { pinnedAt: NOW }),
+        makeThread(ONE_OFF),
+        makeThread(ELSEWHERE, { projectId: OTHER_PROJECT_ID }),
+      ],
+    });
+    const source = (replyTo: ThreadId) => ({
+      kind: "agent" as const,
+      threadId: replyTo,
+      threadTitle: "Sender",
+      replyTo,
+    });
+    const turnStart = (
+      threadId: ThreadId,
+      replyTo: ThreadId,
+      messageId = "message-request",
+    ): OrchestrationCommand => ({
+      type: "thread.turn.start",
+      commandId: CommandId.make("cmd-request"),
+      threadId,
+      message: {
+        messageId: MessageId.make(messageId),
+        role: "user",
+        text: "Look into it",
+        attachments: [],
+        source: source(replyTo),
+      },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      createdAt: NOW,
+    });
+    const append = (
+      threadId: ThreadId,
+      replyTo: ThreadId,
+      messageId = "message-request",
+    ): OrchestrationCommand => ({
+      type: "thread.message.user.append",
+      commandId: CommandId.make("cmd-request"),
+      threadId,
+      message: {
+        messageId: MessageId.make(messageId),
+        text: "Look into it",
+        attachments: [],
+        source: source(replyTo),
+      },
+      createdAt: NOW,
+    });
+
+    for (const [name, build] of [
+      ["thread.turn.start", turnStart],
+      ["thread.message.user.append", append],
+    ] as const) {
+      it.effect(`${name} accepts a request from another thread of the Project`, () =>
+        Effect.gen(function* () {
+          for (const [target, replyTo] of [
+            [AGENT, COORDINATOR],
+            [ONE_OFF, PINNED_AGENT],
+            [PINNED_AGENT, COORDINATOR],
+          ] as const) {
+            const events = yield* decide(readModel, build(target, replyTo));
+            const sent = events.find((event) => event.type === "thread.message-sent");
+            expect(payloadOf(sent, "thread.message-sent").source?.replyTo).toBe(replyTo);
+          }
+        }),
+      );
+
+      it.effect(`${name} rejects a request to the coordinator, to itself, or across Projects`, () =>
+        Effect.gen(function* () {
+          for (const [label, target, replyTo] of [
+            ["coordinator target", COORDINATOR, AGENT],
+            ["self", AGENT, AGENT],
+            ["other Project", AGENT, ELSEWHERE],
+            ["missing recipient", AGENT, ThreadId.make("thread-missing")],
+          ] as const) {
+            const error = yield* rejection(readModel, build(target, replyTo));
+            expect(error._tag, label).toBe("OrchestrationCommandInvariantError");
+          }
+          const workspace = makeReadModel({});
+          const error = yield* rejection(workspace, build(AGENT, PINNED_AGENT));
+          expect(error._tag).toBe("OrchestrationCommandInvariantError");
+        }),
+      );
+
+      it.effect(`${name} rejects a pushed result that names a recipient`, () =>
+        Effect.gen(function* () {
+          const pushId = agentPushId(ONE_OFF, "message-request");
+          const error = yield* rejection(readModel, build(PINNED_AGENT, COORDINATOR, pushId));
+          expect(error).toMatchObject({ detail: "A pushed result cannot be a request." });
+        }),
+      );
+    }
+
+    it.effect("starts a held request whose recipient changed after it was appended", () =>
+      Effect.gen(function* () {
+        const held = yield* apply(readModel, yield* decide(readModel, append(AGENT, PINNED_AGENT)));
+        const recipientDeleted: OrchestrationReadModel = {
+          ...held,
+          threads: held.threads.map((thread) =>
+            thread.id === PINNED_AGENT ? { ...thread, deletedAt: NOW } : thread,
+          ),
+        };
+        const promoted: OrchestrationReadModel = {
+          ...held,
+          projects: held.projects.map((project) =>
+            project.id === PROJECT_ID
+              ? { ...project, assistant: { coordinatorThreadId: AGENT } }
+              : project,
+          ),
+        };
+        for (const changed of [recipientDeleted, promoted]) {
+          const events = yield* decide(changed, turnStart(AGENT, PINNED_AGENT));
+          expect(events.map((event) => event.type)).toEqual(["thread.turn-start-requested"]);
+          // A new request with the same recipient is still checked.
+          const error = yield* rejection(changed, turnStart(AGENT, PINNED_AGENT, "message-new"));
+          expect(error._tag).toBe("OrchestrationCommandInvariantError");
+        }
+      }),
+    );
+
+    it.effect("a pushed result keeps a snoozed standing agent snoozed", () =>
+      Effect.gen(function* () {
+        const snoozed = makeReadModel({
+          ...coordinatorProject,
+          threads: [
+            makeThread(COORDINATOR, { title: "Personal" }),
+            makeThread(PINNED_AGENT, {
+              pinnedAt: NOW,
+              snoozedUntil: "2099-01-01T00:00:00.000Z",
+              snoozedAt: NOW,
+            }),
+          ],
+        });
+        const start = (messageId: string): OrchestrationCommand => ({
+          type: "thread.turn.start",
+          commandId: CommandId.make(`cmd-${messageId}`),
+          threadId: PINNED_AGENT,
+          message: {
+            messageId: MessageId.make(messageId),
+            role: "user",
+            text: "Result from agent",
+            attachments: [],
+            source: { kind: "agent", threadId: AGENT, threadTitle: "Helper" },
+          },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          createdAt: NOW,
+        });
+        const pushed = yield* decide(snoozed, start(agentPushId(AGENT, "message-request")));
+        expect(pushed.map((event) => event.type)).not.toContain("thread.unsnoozed");
+        const other = yield* decide(snoozed, start("message-peer"));
+        expect(other.map((event) => event.type)).toContain("thread.unsnoozed");
+      }),
+    );
+  });
 
   it.effect("replaying the events puts the marker on the read model", () =>
     Effect.gen(function* () {

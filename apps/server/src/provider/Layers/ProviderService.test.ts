@@ -5249,3 +5249,119 @@ describe("Project role block", () => {
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 });
+
+describe("agents capability", () => {
+  const projectId = ProjectId.make("project-agents-capability");
+  const coordinatorId = asThreadId("thread-agents-coordinator");
+
+  /** The capabilities on each credential a session start requests. */
+  const capabilitiesFor = (options: {
+    readonly threadId: ThreadId;
+    readonly pinnedAt?: string;
+    readonly assistant: boolean;
+  }) =>
+    Effect.gen(function* () {
+      const thread = {
+        ...(yield* decodeBrowserAccessThreadShell({
+          id: options.threadId,
+          projectId,
+          title: "Agents capability",
+          modelSelection: createModelSelection(codexInstanceId, "gpt-5.4"),
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          latestTurn: null,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+          session: null,
+          latestUserMessageAt: null,
+          hasPendingApprovals: false,
+          hasPendingUserInput: false,
+          hasActionableProposedPlan: false,
+        })),
+        pinnedAt: options.pinnedAt ?? null,
+      };
+      const project: OrchestrationProjectShell = {
+        id: projectId,
+        title: "Acme",
+        workspaceRoot: fixtureCwd("project-agents-capability"),
+        defaultModelSelection: null,
+        assistant: options.assistant ? { coordinatorThreadId: coordinatorId } : null,
+        scripts: [],
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      };
+      const issued: Array<ReadonlyArray<string>> = [];
+      const codex = makeFakeCodexAdapter();
+      const providerLayer = makeProviderServiceLive({
+        issueMcpCredential: (request) =>
+          Effect.sync(() => {
+            issued.push([...request.capabilities].toSorted());
+            return undefined;
+          }),
+      }).pipe(
+        Layer.provide(
+          Layer.succeed(
+            ProviderAdapterRegistry.ProviderAdapterRegistry,
+            makeAdapterRegistryMock({ [CODEX_DRIVER]: codex.adapter }),
+          ),
+        ),
+        Layer.provide(
+          ProviderSessionDirectoryLive.pipe(
+            Layer.provide(
+              ProviderSessionRuntime.layer.pipe(Layer.provide(SqlitePersistenceMemory)),
+            ),
+          ),
+        ),
+        Layer.provide(
+          Layer.mock(ProjectionSnapshotQuery.ProjectionSnapshotQuery)({
+            getThreadShellById: () => Effect.succeedSome(thread),
+            getProjectShellById: () => Effect.succeedSome(project),
+          }),
+        ),
+        Layer.provide(defaultServerSettingsLayer),
+        Layer.provide(serverConfigTestLayer),
+        Layer.provide(AnalyticsService.layerTest),
+        Layer.provide(
+          Layer.succeed(
+            ProviderEventLoggers.ProviderEventLoggers,
+            ProviderEventLoggers.NoOpProviderEventLoggers,
+          ),
+        ),
+      );
+      yield* Effect.gen(function* () {
+        const provider = yield* ProviderService.ProviderService;
+        yield* provider.startSession(options.threadId, {
+          provider: CODEX_DRIVER,
+          providerInstanceId: codexInstanceId,
+          threadId: options.threadId,
+          runtimeMode: "full-access",
+        });
+        yield* provider.stopSession({ threadId: options.threadId });
+      }).pipe(Effect.provide(providerLayer));
+      return issued;
+    });
+
+  it.effect("grants agents to the coordinator and standing agents only", () =>
+    Effect.gen(function* () {
+      const coordinator = yield* capabilitiesFor({ threadId: coordinatorId, assistant: true });
+      const standing = yield* capabilitiesFor({
+        threadId: asThreadId("thread-agents-standing"),
+        pinnedAt: "2026-01-02T00:00:00.000Z",
+        assistant: true,
+      });
+      const oneOff = yield* capabilitiesFor({
+        threadId: asThreadId("thread-agents-one-off"),
+        assistant: true,
+      });
+      const plain = yield* capabilitiesFor({ threadId: coordinatorId, assistant: false });
+
+      const grantsAgents = (issued: ReadonlyArray<ReadonlyArray<string>>) =>
+        issued.map((capabilities) => capabilities.includes("agents"));
+      assert.deepEqual(grantsAgents(coordinator), [true]);
+      assert.deepEqual(grantsAgents(standing), [true]);
+      assert.deepEqual(grantsAgents(oneOff), [false]);
+      assert.deepEqual(grantsAgents(plain), [false]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+});

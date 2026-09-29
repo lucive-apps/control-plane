@@ -2,7 +2,6 @@ import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
-  ASSISTANT_ROLLUP_AGENT_UNREAD,
   convertSummary,
   countRunningAgents,
   defaultProjectFolder,
@@ -243,13 +242,17 @@ describe("rollupAssistantStatus", () => {
     ).toBe("approval");
   });
 
-  it("falls back to unread only when nothing is live", () => {
+  it("falls back to coordinator unread only when nothing is live", () => {
     expect(
       rollupAssistantStatus({ statuses: ["ready"], coordinatorUnread: true, agentsUnread: false }),
     ).toBe("unread");
     expect(
+      rollupAssistantStatus({ statuses: ["ready"], coordinatorUnread: true, agentsUnread: true }),
+    ).toBe("unread");
+    // Agent results reach the coordinator, so an unread agent alone lights nothing.
+    expect(
       rollupAssistantStatus({ statuses: ["ready"], coordinatorUnread: false, agentsUnread: true }),
-    ).toBe(ASSISTANT_ROLLUP_AGENT_UNREAD ? "unread" : null);
+    ).toBeNull();
     expect(
       rollupAssistantStatus({ statuses: [], coordinatorUnread: false, agentsUnread: false }),
     ).toBeNull();

@@ -97,10 +97,14 @@ describe("showsTurnMinimap", () => {
 describe("resolveAgentMessagePresentation", () => {
   const coordinatorThreadId = ThreadId.make("thread-coordinator");
   const salesThreadId = ThreadId.make("thread-sales");
+  const researchThreadId = ThreadId.make("thread-research");
+  const helperThreadId = ThreadId.make("thread-helper");
   const outsiderThreadId = ThreadId.make("thread-outside");
   const projectThreadTitles = new Map([
     [coordinatorThreadId, "Personal"],
     [salesThreadId, "Sales"],
+    [researchThreadId, "Research"],
+    [helperThreadId, "Bun startup"],
   ]);
   const timeline = (role: "coordinator" | "agent") => ({
     role,
@@ -108,9 +112,19 @@ describe("resolveAgentMessagePresentation", () => {
     project: { title: "Personal" },
     projectThreadTitle: (threadId: ThreadId) => projectThreadTitles.get(threadId) ?? null,
   });
-  const fromThread = (threadId: ThreadId, threadTitle: string) => ({
+  const fromThread = (
+    threadId: ThreadId,
+    threadTitle: string,
+    options: { id?: string; replyTo?: ThreadId } = {},
+  ) => ({
+    id: options.id ?? "message-1",
     role: "user",
-    source: { kind: "agent" as const, threadId, threadTitle },
+    source: {
+      kind: "agent" as const,
+      threadId,
+      threadTitle,
+      ...(options.replyTo ? { replyTo: options.replyTo } : {}),
+    },
   });
 
   it("attributes the coordinator's message in an agent thread to the Project", () => {
@@ -126,7 +140,7 @@ describe("resolveAgentMessagePresentation", () => {
     });
   });
 
-  it("leaves other agents' messages in an agent thread as default rows", () => {
+  it("leaves a peer's plain message in an agent thread as a default row", () => {
     expect(
       resolveAgentMessagePresentation({
         message: fromThread(salesThreadId, "Sales"),
@@ -135,13 +149,73 @@ describe("resolveAgentMessagePresentation", () => {
     ).toEqual({ kind: "default" });
   });
 
-  it("labels a message from one of the Project's agents as a reply in the coordinator", () => {
+  it("reads a one-off agent's pushed result in its standing agent's thread as a reply", () => {
     expect(
       resolveAgentMessagePresentation({
-        message: fromThread(salesThreadId, "Sales"),
-        assistantTimeline: timeline("coordinator"),
+        message: fromThread(helperThreadId, "New thread", {
+          id: `cp-push:${helperThreadId}:message-request`,
+        }),
+        assistantTimeline: timeline("agent"),
       }),
-    ).toEqual({ kind: "replied", displayName: "Sales", linkThreadId: salesThreadId });
+    ).toEqual({ kind: "replied", displayName: "Bun startup", linkThreadId: helperThreadId });
+  });
+
+  it("attributes a standing agent's request in its one-off agent's thread to the standing agent", () => {
+    expect(
+      resolveAgentMessagePresentation({
+        message: fromThread(researchThreadId, "Research", { replyTo: researchThreadId }),
+        assistantTimeline: timeline("agent"),
+      }),
+    ).toEqual({
+      kind: "attributed-user",
+      displayName: "Research",
+      linkThreadId: researchThreadId,
+    });
+  });
+
+  it("keeps the coordinator's requests in an agent thread attributed to the Project", () => {
+    expect(
+      resolveAgentMessagePresentation({
+        message: fromThread(coordinatorThreadId, "Personal", { replyTo: coordinatorThreadId }),
+        assistantTimeline: timeline("agent"),
+      }),
+    ).toMatchObject({ kind: "attributed-user", displayName: "Personal" });
+  });
+
+  it("keeps a result from an agent later set as coordinator as a reply in the old coordinator", () => {
+    expect(
+      resolveAgentMessagePresentation({
+        message: fromThread(coordinatorThreadId, "Bun startup", {
+          id: `cp-push:${coordinatorThreadId}:message-request`,
+        }),
+        assistantTimeline: timeline("agent"),
+      }),
+    ).toEqual({ kind: "replied", displayName: "Personal", linkThreadId: coordinatorThreadId });
+  });
+
+  it("keeps the default row in an agent thread for a sender outside the Project", () => {
+    for (const options of [
+      { id: `cp-push:${outsiderThreadId}:message-request` },
+      { replyTo: outsiderThreadId },
+    ]) {
+      expect(
+        resolveAgentMessagePresentation({
+          message: fromThread(outsiderThreadId, "Elsewhere", options),
+          assistantTimeline: timeline("agent"),
+        }),
+      ).toEqual({ kind: "default" });
+    }
+  });
+
+  it("labels a message from one of the Project's agents as a reply in the coordinator", () => {
+    for (const options of [{}, { id: `cp-push:${salesThreadId}:message-request` }]) {
+      expect(
+        resolveAgentMessagePresentation({
+          message: fromThread(salesThreadId, "Sales", options),
+          assistantTimeline: timeline("coordinator"),
+        }),
+      ).toEqual({ kind: "replied", displayName: "Sales", linkThreadId: salesThreadId });
+    }
   });
 
   it("names the replying agent by its current title, not the one it sent with", () => {
@@ -171,13 +245,17 @@ describe("resolveAgentMessagePresentation", () => {
     ).toEqual({ kind: "default" });
     expect(
       resolveAgentMessagePresentation({
-        message: { role: "user" },
+        message: { id: "message-1", role: "user" },
         assistantTimeline: timeline("agent"),
       }),
     ).toEqual({ kind: "default" });
     expect(
       resolveAgentMessagePresentation({
-        message: { role: "user", source: { kind: "agent", threadTitle: "Personal" } },
+        message: {
+          id: "message-1",
+          role: "user",
+          source: { kind: "agent", threadTitle: "Personal" },
+        },
         assistantTimeline: timeline("agent"),
       }),
     ).toEqual({ kind: "default" });

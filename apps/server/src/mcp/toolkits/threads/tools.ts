@@ -88,6 +88,8 @@ export type ThreadSendInput = typeof ThreadSendInput.Type;
 export const ThreadSendResult = Schema.Struct({
   threadId: ThreadId,
   threadTitle: TrimmedNonEmptyString,
+  /** The target was busy, so the message waits for its turn to end. */
+  queued: Schema.Boolean,
 });
 export type ThreadSendResult = typeof ThreadSendResult.Type;
 
