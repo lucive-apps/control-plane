@@ -112,6 +112,10 @@ const running = (id: string, overrides: Partial<OrchestrationThreadShell> = {}) 
     ...overrides,
   });
 
+/** `count` running agents with distinct ids, for filling the Project's running cap. */
+const runningAgents = (count: number) =>
+  Array.from({ length: count }, (_, index) => running(`agent-${index + 1}`));
+
 const coordinator = makeThread("coordinator", { title: "Acme" });
 const research = makeThread("research", { title: "Research", pinnedAt: LONG_AGO });
 
@@ -467,10 +471,10 @@ describe("cp_agent_create", () => {
 
   it.effect("fails at the running cap, counting a first message no turn adopted yet", () =>
     Effect.gen(function* () {
-      const busy = [running("a"), running("b"), running("c")];
+      const busy = runningAgents(AGENT_RUNNING_CAP - 1);
       const atCap = yield* makeHarness({
         caller: COORDINATOR_ID,
-        threads: [running("coordinator", { title: "Acme" }), ...busy, running("d")],
+        threads: [running("coordinator", { title: "Acme" }), ...busy, running("last")],
       });
       const justCreated = yield* makeHarness({
         caller: COORDINATOR_ID,
@@ -478,11 +482,13 @@ describe("cp_agent_create", () => {
       });
 
       for (const harness of [atCap, justCreated]) {
-        const error = yield* harness.create({ title: "Fifth", message: "Go." }).pipe(Effect.flip);
+        const error = yield* harness
+          .create({ title: "Over the cap", message: "Go." })
+          .pipe(Effect.flip);
         expect(error).toMatchObject({
           _tag: "ConcurrencyLimitError",
           limit: AGENT_RUNNING_CAP,
-          running: 4,
+          running: AGENT_RUNNING_CAP,
         });
         expect(harness.commands).toEqual([]);
       }
@@ -493,7 +499,7 @@ describe("cp_agent_create", () => {
     Effect.gen(function* () {
       const harness = yield* makeHarness({
         caller: COORDINATOR_ID,
-        threads: [coordinator, running("a"), running("b"), running("c")],
+        threads: [coordinator, ...runningAgents(AGENT_RUNNING_CAP - 1)],
       });
 
       const exits = yield* Effect.all(
@@ -515,7 +521,7 @@ describe("cp_agent_create", () => {
     Effect.gen(function* () {
       const harness = yield* makeHarness({
         caller: COORDINATOR_ID,
-        threads: [coordinator, running("a"), running("b"), running("c")],
+        threads: [coordinator, ...runningAgents(AGENT_RUNNING_CAP - 1)],
       });
       const params = { title: "Pricing", message: "Compare plans.", clientRequestId: "req-1" };
 
@@ -588,18 +594,18 @@ describe("cp_agent_create", () => {
     Effect.gen(function* () {
       const harness = yield* makeHarness({
         caller: COORDINATOR_ID,
-        threads: [coordinator, running("a"), running("b"), running("c")],
+        threads: [coordinator, ...runningAgents(AGENT_RUNNING_CAP - 1)],
         failOnce: "thread.turn.start",
       });
       const params = { title: "Pricing", message: "Compare plans.", clientRequestId: "req-4" };
 
       yield* harness.create(params).pipe(Effect.flip);
-      harness.threads.set(ThreadId.make("d"), running("d"));
+      harness.threads.set(ThreadId.make("last"), running("last"));
       const atCap = yield* harness.create(params).pipe(Effect.flip);
-      harness.threads.delete(ThreadId.make("d"));
+      harness.threads.delete(ThreadId.make("last"));
       const retried = yield* harness.create(params);
 
-      expect(atCap).toMatchObject({ _tag: "ConcurrencyLimitError", running: 4 });
+      expect(atCap).toMatchObject({ _tag: "ConcurrencyLimitError", running: AGENT_RUNNING_CAP });
       expect(retried.created).toBe(false);
       expect(commandTypes(harness.commands)).toEqual(["thread.create", "thread.turn.start"]);
     }),
