@@ -89,10 +89,10 @@ export const ProjectListRow = memo(function ProjectListRow(props: {
               <Text className="flex-1 text-[17px] text-foreground" numberOfLines={1}>
                 {project.title}
               </Text>
+              {dotColor !== null ? <ThreadStatusDot color={dotColor} grouped /> : null}
               {running > 0 ? (
                 <Text className="text-[17px] tabular-nums text-foreground-muted">{running}</Text>
               ) : null}
-              {dotColor !== null ? <ThreadStatusDot color={dotColor} grouped /> : null}
             </View>
           </RowPressable>
         </ControlPillMenu>

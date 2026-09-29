@@ -117,10 +117,11 @@ export const TaskFolderHeader = memo(function TaskFolderHeader(props: {
       <Text className="flex-1 text-[17px] text-foreground" numberOfLines={1}>
         {props.title}
       </Text>
+      {/* Dot before count, so counts line up against the chevron column. */}
+      {dotColor !== null ? <ThreadStatusDot color={dotColor} grouped /> : null}
       {props.count > 0 ? (
         <Text className="text-[17px] tabular-nums text-foreground-muted">{props.count}</Text>
       ) : null}
-      {dotColor !== null ? <ThreadStatusDot color={dotColor} grouped /> : null}
       <SymbolView
         name="chevron.right"
         size={14}
