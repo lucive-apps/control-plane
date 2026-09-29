@@ -47,11 +47,16 @@ export function resolveEnvironmentOptionLabel(input: {
 // A remote (non-primary) environment is always surfaced, even when it is the
 // only environment available: with a single connected machine there is nothing
 // to pick, but the user still needs to see where the project runs.
+//
+// Project coordinator and agent threads always surface it (`alwaysShow`): an
+// agent can run on a different machine than the one the app is open on, so
+// the user should never have to guess where the thread is running from.
 export function shouldShowEnvironmentIndicator(input: {
   activeEnvironment: Pick<EnvironmentOption, "isPrimary"> | null;
   canPickEnvironment: boolean;
+  alwaysShow?: boolean;
 }): boolean {
-  if (input.canPickEnvironment) return true;
+  if (input.alwaysShow || input.canPickEnvironment) return true;
   return input.activeEnvironment !== null && !input.activeEnvironment.isPrimary;
 }
 
