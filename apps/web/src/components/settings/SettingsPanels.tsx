@@ -172,6 +172,7 @@ import {
 } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 import { ProjectFavicon } from "../ProjectFavicon";
+import { ArchivedProjectsSection } from "../assistants/ArchivedProjectsSection";
 import { PanelAnimationsPreview } from "./PanelAnimationsPreview";
 
 const ENVIRONMENT_IDENTIFICATION_LABELS: Record<EnvironmentIdentificationMode, string> = {
@@ -3401,6 +3402,7 @@ export function ArchivedThreadsPanel() {
 
   return (
     <SettingsPageContainer>
+      <ArchivedProjectsSection />
       {archivedGroups.length === 0 ? (
         <SettingsSection
           id={isLoadingArchive ? undefined : searchableSetting("archive").id}

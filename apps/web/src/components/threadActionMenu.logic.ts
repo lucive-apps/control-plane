@@ -1,4 +1,9 @@
-import type { ContextMenuItem } from "@t3tools/contracts";
+import {
+  assistantThreadRole,
+  type ContextMenuItem,
+  type ProjectAssistant,
+  type ThreadId,
+} from "@t3tools/contracts";
 import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled";
 
 /**
@@ -24,8 +29,38 @@ export type ThreadActionMenuId =
   | "copy-path"
   | "copy-branch"
   | "copy-thread-id"
+  | "set-coordinator"
+  | "stop-agent"
   | "archive"
   | "delete";
+
+/** Menu state for a Project agent (any thread in a Project other than its coordinator). */
+export interface ThreadActionMenuAgentState {
+  /** Pinned: a standing agent, which never settles until unpinned. */
+  readonly isStanding: boolean;
+  /** The agent has a session to stop. */
+  readonly canStop: boolean;
+  /** Only a Local thread can coordinate. */
+  readonly canBeCoordinator: boolean;
+}
+
+/** Agent menu state for `thread`, or undefined when it is not a Project agent. */
+export function resolveThreadActionMenuAgent(
+  project: { readonly assistant?: ProjectAssistant | null | undefined } | null | undefined,
+  thread: {
+    readonly id: ThreadId;
+    readonly pinnedAt?: string | null | undefined;
+    readonly worktreePath: string | null;
+    readonly session: { readonly status: string } | null;
+  },
+): ThreadActionMenuAgentState | undefined {
+  if (assistantThreadRole(project, thread.id) !== "agent") return undefined;
+  return {
+    isStanding: thread.pinnedAt != null,
+    canStop: thread.session !== null && thread.session.status !== "stopped",
+    canBeCoordinator: thread.worktreePath === null,
+  };
+}
 
 export interface ThreadActionMenuState {
   readonly branch: string | null;
@@ -52,6 +87,11 @@ export interface ThreadActionMenuState {
     readonly titleRegeneration: boolean;
   };
   readonly snoozePresets: ReadonlyArray<SnoozePreset>;
+  /**
+   * Present for a Project agent: branch and workspace-filter items go, a
+   * standing agent loses Settle, and Set as coordinator and Stop agent join.
+   */
+  readonly agent?: ThreadActionMenuAgentState | undefined;
 }
 
 /**
@@ -62,8 +102,9 @@ export interface ThreadActionMenuState {
 export function buildThreadActionMenuItems(
   state: ThreadActionMenuState,
 ): ReadonlyArray<ContextMenuItem<ThreadActionMenuId>> {
+  const agent = state.agent;
   return [
-    ...(state.branch
+    ...(state.branch && !agent
       ? [
           {
             id: "new-thread-on-branch" as const,
@@ -81,8 +122,9 @@ export function buildThreadActionMenuItems(
       : []),
     // Both lifecycle actions stay available on pinned threads: settling
     // clears the pin ("done" beats "keep on top"), and snoozing hides the
-    // card until wake with the pin intact.
-    ...(state.supports.settlement
+    // card until wake with the pin intact. A standing agent is the exception:
+    // it never settles, so Unpin is its way out.
+    ...(state.supports.settlement && !agent?.isStanding
       ? [
           state.isSettled
             ? { id: "unsettle" as const, label: "Un-settle thread", icon: "circle-check" }
@@ -120,7 +162,7 @@ export function buildThreadActionMenuItems(
         ]
       : []),
     { id: "mark-unread", label: "Mark unread", icon: "mail-open" },
-    ...(state.projectFilter
+    ...(state.projectFilter && !agent
       ? [
           {
             id: "filter-by-project" as const,
@@ -144,7 +186,22 @@ export function buildThreadActionMenuItems(
         { id: "copy-thread-id", label: "Thread ID", icon: "hash" },
       ],
     },
-    { id: "project-settings", label: "Workspace settings", icon: "settings" },
+    {
+      id: "project-settings",
+      label: agent ? "Project settings" : "Workspace settings",
+      icon: "settings",
+    },
+    ...(agent
+      ? [
+          {
+            id: "set-coordinator" as const,
+            label: "Set as coordinator",
+            disabled: !agent.canBeCoordinator,
+            separatorBefore: true,
+          },
+          { id: "stop-agent" as const, label: "Stop agent", disabled: !agent.canStop },
+        ]
+      : []),
     // Archive removes the thread from the sidebar while keeping its
     // conversation under Settings > Archived threads — distinct from Settle
     // (stays visible in the Settled shelf) and Delete (clears history for

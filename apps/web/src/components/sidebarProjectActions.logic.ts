@@ -16,12 +16,15 @@ export type ProjectFolderActionMenuId =
   | "project-settings"
   | "copy-path"
   | `copy-path:${string}`
+  | "convert"
+  | `convert:${string}`
   | "delete"
   | `delete:${string}`;
 
 export type ResolvedProjectFolderMenuAction<TMember extends ProjectFolderMenuMember> =
   | { readonly kind: "project-settings" }
   | { readonly kind: "copy-path"; readonly member: TMember }
+  | { readonly kind: "convert"; readonly member: TMember }
   | { readonly kind: "delete"; readonly members: readonly TMember[] };
 
 export function formatProjectMemberActionLabel(
@@ -34,17 +37,26 @@ export function formatProjectMemberActionLabel(
     : member.workspaceRoot;
 }
 
-export function buildProjectFolderActionMenuItems(
-  project: ProjectFolderMenuProject,
+/**
+ * The Tasks folder menu. `canConvert` is true for checkouts whose environment
+ * supports Projects; Convert targets one checkout, so grouped folders list
+ * only those.
+ */
+export function buildProjectFolderActionMenuItems<TMember extends ProjectFolderMenuMember>(
+  project: ProjectFolderMenuProject & { readonly memberProjects: readonly TMember[] },
+  menuOptions: {
+    readonly canConvert?: (member: TMember) => boolean;
+  } = {},
 ): ReadonlyArray<ContextMenuItem<ProjectFolderActionMenuId>> {
   const targeted = (
-    action: "copy-path" | "delete",
+    action: "copy-path" | "convert" | "delete",
     label: string,
     options?: {
       destructive?: boolean;
       icon?: string;
       separatorBefore?: boolean;
     },
+    members: readonly ProjectFolderMenuMember[] = project.memberProjects,
   ): ContextMenuItem<ProjectFolderActionMenuId> => {
     if (project.memberProjects.length === 1) {
       return {
@@ -59,7 +71,7 @@ export function buildProjectFolderActionMenuItems(
       label,
       ...(options?.icon ? { icon: options.icon } : {}),
       ...(options?.separatorBefore ? { separatorBefore: true } : {}),
-      children: project.memberProjects.map((member) => ({
+      children: members.map((member) => ({
         id: `${action}:${member.physicalProjectKey}` as const,
         label: formatProjectMemberActionLabel(member, project.groupedProjectCount),
         ...(options?.destructive ? { destructive: true } : {}),
@@ -67,9 +79,15 @@ export function buildProjectFolderActionMenuItems(
     };
   };
 
+  const convertibleMembers = menuOptions.canConvert
+    ? project.memberProjects.filter(menuOptions.canConvert)
+    : [];
   return [
     { id: "project-settings", label: "Workspace settings", icon: "settings" },
     targeted("copy-path", "Copy path", { icon: "folder" }),
+    ...(convertibleMembers.length > 0
+      ? [targeted("convert", "Convert to Project…", undefined, convertibleMembers)]
+      : []),
     targeted("delete", "Remove", {
       destructive: true,
       icon: "trash",
@@ -92,6 +110,16 @@ export function resolveProjectFolderMenuAction<TMember extends ProjectFolderMenu
     const key = actionId.slice("copy-path:".length);
     const member = project.memberProjects.find((candidate) => candidate.physicalProjectKey === key);
     return member ? { kind: "copy-path", member } : null;
+  }
+
+  if (actionId === "convert") {
+    const member = project.memberProjects.length === 1 ? project.memberProjects[0] : undefined;
+    return member ? { kind: "convert", member } : null;
+  }
+  if (actionId.startsWith("convert:")) {
+    const key = actionId.slice("convert:".length);
+    const member = project.memberProjects.find((candidate) => candidate.physicalProjectKey === key);
+    return member ? { kind: "convert", member } : null;
   }
 
   if (actionId === "delete") {

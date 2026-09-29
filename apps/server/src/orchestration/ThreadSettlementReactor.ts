@@ -1,5 +1,6 @@
 import {
   CommandId,
+  isAssistantSettlementExempt,
   type OrchestrationEvent,
   type ServerSettings as ServerSettingsValue,
   type ThreadId,
@@ -103,7 +104,8 @@ export const make = Effect.gen(function* () {
     const candidates = snapshot.threads.filter(
       (thread) =>
         (threadId === undefined || thread.id === threadId) &&
-        isAutoSettlementCandidate(thread, now),
+        isAutoSettlementCandidate(thread, now) &&
+        !isAssistantSettlementExempt(projects.get(thread.projectId), thread),
     );
 
     // Return the thread when it still needs a pull request decision. A rejected

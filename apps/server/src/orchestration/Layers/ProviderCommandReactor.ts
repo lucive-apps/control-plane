@@ -51,6 +51,7 @@ import type { ProviderServiceError } from "../../provider/Errors.ts";
 import { TextGeneration } from "../../textGeneration/TextGeneration.ts";
 import { ProviderAuthService } from "../../provider/Services/ProviderAuthService.ts";
 import type { ProviderInstanceRoutingInfo } from "../../provider/Services/ProviderAdapterRegistry.ts";
+import { assistantRoleKey, readAssistantRuntime } from "../../provider/assistantRuntime.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProviderRegistry } from "../../provider/Services/ProviderRegistry.ts";
 import { ProviderSessionDirectory } from "../../provider/Services/ProviderSessionDirectory.ts";
@@ -898,6 +899,14 @@ const make = Effect.gen(function* () {
     if (existingSessionThreadId) {
       const runtimeModeChanged = thread.runtimeMode !== thread.session?.runtimeMode;
       const cwdChanged = effectiveCwd !== activeSession?.cwd;
+      // A Project role change or a Memory or role-file save rebuilds the session's role
+      // block. A steer into a starting or running turn keeps the session; the next
+      // idle turn restarts it.
+      const assistantRoleChanged =
+        thread.session?.status !== "starting" &&
+        thread.session?.status !== "running" &&
+        (readAssistantRuntime(threadId)?.roleKey ?? "none") !==
+          assistantRoleKey({ project, thread });
       const sessionModelSwitch = (yield* providerService.getCapabilities(desiredInstanceId))
         .sessionModelSwitch;
       const modelChanged =
@@ -918,7 +927,8 @@ const make = Effect.gen(function* () {
         !cwdChanged &&
         !instanceChanged &&
         !shouldRestartForModelChange &&
-        !shouldRestartForModelSelectionChange
+        !shouldRestartForModelSelectionChange &&
+        !assistantRoleChanged
       ) {
         yield* refreshWorkspaceSnapshot;
         return existingSessionThreadId;
@@ -944,6 +954,7 @@ const make = Effect.gen(function* () {
         instanceChanged,
         shouldRestartForModelChange,
         shouldRestartForModelSelectionChange,
+        assistantRoleChanged,
         hasResumeCursor: resumeCursor !== undefined,
       });
       const restartedSession = yield* startProviderSession(

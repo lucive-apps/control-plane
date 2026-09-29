@@ -49,12 +49,19 @@ import {
 } from "@t3tools/client-runtime/state/subagentRuntime";
 
 const EMPTY_AGENT_PANEL_MODEL = emptyAgentPanelModel();
+const EMPTY_MINIMAP_ITEMS: ReadonlyArray<TimelineMinimapItem> = [];
 const NOOP_OPEN_AGENTS = () => {};
 const EMPTY_QUEUED_MESSAGES: ReadonlyArray<QueuedComposerMessage> = [];
 const NOOP_QUEUED_MESSAGE_ACTION = (_id: string) => {};
 const NOOP_USE_ARTIFACT_TEMPLATE = () => {};
 const NOOP_OPEN_ATTACHMENT = (_attachment: ChatFileAttachment) => {};
 import { resolveChatListAnchoredEndSpace } from "@t3tools/shared/chatList";
+import { ProjectFavicon } from "../ProjectFavicon";
+import {
+  resolveAgentMessagePresentation,
+  type AgentMessagePresentation,
+  type AssistantTimeline,
+} from "./assistantThreadView.logic";
 import { toolActivityFaviconUrl } from "@t3tools/shared/favicon";
 import { formatDuration } from "@t3tools/shared/orchestrationTiming";
 import { getProjectFaviconCacheKey } from "@t3tools/shared/projectFavicon";
@@ -305,6 +312,8 @@ interface TimelineRowSharedState {
   onSteerQueuedMessage: (id: string) => void;
   steerQueuedMessageShortcutLabel: string | null;
   onRemoveQueuedMessage: (id: string) => void;
+  /** Set in a Project's threads, for its coordinator and agent handoff rows. */
+  assistantTimeline: AssistantTimeline | null;
 }
 
 interface TimelineRowActivityState {
@@ -471,6 +480,9 @@ interface MessagesTimelineProps {
   onSteerQueuedMessage?: (id: string) => void;
   steerQueuedMessageShortcutLabel?: string | null;
   onRemoveQueuedMessage?: (id: string) => void;
+  /** False skips minimap derivation and rendering (a Project's coordinator). */
+  showTurnMinimap?: boolean;
+  assistantTimeline?: AssistantTimeline | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -529,6 +541,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onSteerQueuedMessage = NOOP_QUEUED_MESSAGE_ACTION,
   steerQueuedMessageShortcutLabel = null,
   onRemoveQueuedMessage = NOOP_QUEUED_MESSAGE_ACTION,
+  showTurnMinimap = true,
+  assistantTimeline = null,
 }: MessagesTimelineProps) {
   const listIdentityKey = displayThreadKey ?? routeThreadKey;
   const rememberedPosition = useMemo(
@@ -814,7 +828,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     queuedMessages,
   ]);
   const rows = useStableRows(rawRows, listIdentityKey);
-  const minimapItems = useMemo(() => deriveTimelineMinimapItems(rows), [rows]);
+  const minimapItems = useMemo(
+    () => (showTurnMinimap ? deriveTimelineMinimapItems(rows) : EMPTY_MINIMAP_ITEMS),
+    [rows, showTurnMinimap],
+  );
   const restoreRowIndex =
     restoringThreadPosition && rememberedPosition?.atEnd === false
       ? rows.findIndex((row) => row.id === rememberedPosition.rowId)
@@ -1168,6 +1185,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onSteerQueuedMessage,
       steerQueuedMessageShortcutLabel,
       onRemoveQueuedMessage,
+      assistantTimeline,
     }),
     [
       readyCitationRequest,
@@ -1203,6 +1221,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onSteerQueuedMessage,
       steerQueuedMessageShortcutLabel,
       onRemoveQueuedMessage,
+      assistantTimeline,
     ],
   );
   const backgroundWorktreeSetup =
@@ -1718,15 +1737,8 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       {row.kind === "work-toggle" ? <WorkGroupToggleTimelineRow row={row} /> : null}
       {row.kind === "turn-fold" ? <TurnFoldTimelineRow row={row} /> : null}
       {row.kind === "divider" ? <TimelineDividerRow row={row} /> : null}
-      {row.kind === "message" &&
-      row.message.role === "user" &&
-      isAgentOriginatedUserMessage(row.message) ? (
-        <AgentMessageTimelineRow row={row} />
-      ) : null}
-      {row.kind === "message" &&
-      row.message.role === "user" &&
-      !isAgentOriginatedUserMessage(row.message) ? (
-        <UserTimelineRow row={row} />
+      {row.kind === "message" && row.message.role === "user" ? (
+        <UserRoleTimelineRow row={row} />
       ) : null}
       {row.kind === "message" && row.message.role === "assistant" ? (
         <AssistantTimelineRow row={row} />
@@ -1942,7 +1954,38 @@ function MessageAuthorHeading({ children }: { children: string }) {
   return <h3 className="sr-only select-none">{children}</h3>;
 }
 
-function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
+/**
+ * User-role messages: typed prompts, and messages another thread sent. In a
+ * Project, the coordinator's messages to an agent read as attributed prompts
+ * and an agent's messages to the coordinator read as replies.
+ */
+function UserRoleTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
+  const { assistantTimeline } = use(TimelineRowCtx);
+  const presentation = resolveAgentMessagePresentation({
+    message: row.message,
+    assistantTimeline,
+  });
+  if (presentation.kind === "attributed-user") {
+    return <UserTimelineRow row={row} attribution={presentation} />;
+  }
+  if (isAgentOriginatedUserMessage(row.message)) {
+    return (
+      <AgentMessageTimelineRow
+        row={row}
+        replied={presentation.kind === "replied" ? presentation : null}
+      />
+    );
+  }
+  return <UserTimelineRow row={row} />;
+}
+
+function UserTimelineRow({
+  row,
+  attribution = null,
+}: {
+  row: Extract<TimelineRow, { kind: "message" }>;
+  attribution?: Extract<AgentMessagePresentation, { kind: "attributed-user" }> | null;
+}) {
   const ctx = use(TimelineRowCtx);
   const { onImageExpand, onFileOpen } = ctx;
   const resources = useMemo(
@@ -2100,8 +2143,18 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
 
   return (
     <div className="group flex flex-col items-end gap-1">
+      {attribution && ctx.assistantTimeline ? (
+        <button
+          type="button"
+          onClick={() => ctx.assistantTimeline?.onOpenThread(attribution.linkThreadId)}
+          className="inline-flex max-w-[80%] cursor-pointer items-center gap-1.5 rounded-sm pe-1 text-muted-foreground text-xs hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <ProjectFavicon project={ctx.assistantTimeline.project} className="size-3" />
+          <span className="min-w-0 truncate">{attribution.displayName}</span>
+        </button>
+      ) : null}
       <div className="relative max-w-[80%] rounded-2xl bg-message p-3 text-message-foreground">
-        <MessageAuthorHeading>You</MessageAuthorHeading>
+        <MessageAuthorHeading>{attribution ? attribution.displayName : "You"}</MessageAuthorHeading>
         {(regularImages.length > 0 || userVideos.length > 0) && (
           <div className="mb-2 grid max-w-[210px] grid-cols-2 gap-2">
             {regularImages.map((image) => (
@@ -4794,12 +4847,17 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
 
 const AgentMessageTimelineRow = memo(function AgentMessageTimelineRow({
   row,
+  replied = null,
 }: {
   row: Extract<TimelineRow, { kind: "message" }>;
+  /** An agent replying to its coordinator: "<Agent> replied", the name linking to the agent. */
+  replied?: Extract<AgentMessagePresentation, { kind: "replied" }> | null;
 }) {
-  const { timestampFormat } = use(TimelineRowCtx);
+  const { timestampFormat, assistantTimeline } = use(TimelineRowCtx);
   const [expanded, setExpanded] = useState(false);
-  const label = agentMessageToolLabel(row.message.source);
+  const label = replied
+    ? `${replied.displayName} replied`
+    : agentMessageToolLabel(row.message.source);
   const body = row.message.text.trim();
   const canExpand = body.length > 0;
   const toggleExpanded = () => {
@@ -4839,7 +4897,24 @@ const AgentMessageTimelineRow = memo(function AgentMessageTimelineRow({
         </span>
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
           <p className="min-w-0 flex-1 truncate text-secondary-label text-sm leading-relaxed">
-            {label}
+            {replied && assistantTimeline ? (
+              <>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    assistantTimeline.onOpenThread(replied.linkThreadId);
+                  }}
+                  onKeyDown={stopRowToggle}
+                  className="cursor-pointer rounded-sm hover:text-foreground hover:underline focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {replied.displayName}
+                </button>{" "}
+                replied
+              </>
+            ) : (
+              label
+            )}
           </p>
           <TimelineRowTimestamp
             createdAt={row.message.createdAt}
@@ -4882,8 +4957,18 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
   onToggleEntry?: ((collapsed: boolean) => void) | undefined;
 }) {
   const { workEntry, workspaceRoot, isExpandedToolGroupEntry, displayLabel } = props;
-  const { threadRef, onImageExpand, timestampFormat } = use(TimelineRowCtx);
+  const { threadRef, onImageExpand, timestampFormat, assistantTimeline } = use(TimelineRowCtx);
   const groupView = use(WorkGroupViewCtx);
+  // In a Project, "Messaged <Agent>" opens the thread it reached.
+  const handoffThreadId = useMemo(
+    () =>
+      assistantTimeline ? resolveWorkEntryToolPresentation(workEntry)?.linkThreadId : undefined,
+    [assistantTimeline, workEntry],
+  );
+  const handoffLink =
+    handoffThreadId !== undefined && assistantTimeline?.projectThreadTitle(handoffThreadId) != null
+      ? handoffThreadId
+      : null;
   const [expanded, setExpanded] = useState(
     () => groupView?.state.expandedEntries.has(workEntry.id) ?? false,
   );
@@ -5017,7 +5102,24 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
                 onClick={expanded ? stopRowToggleWhileSelectingText : undefined}
                 onPointerDown={expanded ? stopRowToggle : undefined}
               >
-                {previewText}
+                {handoffLink !== null && assistantTimeline ? (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      assistantTimeline.onOpenThread(handoffLink);
+                    }}
+                    onKeyDown={stopRowToggle}
+                    className={cn(
+                      "max-w-full cursor-pointer rounded-sm text-left hover:text-foreground hover:underline focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+                      !expanded && "block truncate",
+                    )}
+                  >
+                    {previewText}
+                  </button>
+                ) : (
+                  previewText
+                )}
               </span>
               {answerPreview ? (
                 <span

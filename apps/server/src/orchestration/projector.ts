@@ -388,6 +388,7 @@ export function projectEvent(
                     ? { projectIcon: payload.projectIcon }
                     : {}),
                   ...(payload.scripts !== undefined ? { scripts: payload.scripts } : {}),
+                  ...(payload.assistant !== undefined ? { assistant: payload.assistant } : {}),
                   updatedAt: payload.updatedAt,
                 }
               : project,

@@ -544,6 +544,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               ? { projectIcon: event.payload.projectIcon }
               : {}),
             ...(event.payload.scripts !== undefined ? { scripts: event.payload.scripts } : {}),
+            ...(event.payload.assistant !== undefined
+              ? { assistant: event.payload.assistant }
+              : {}),
             updatedAt: event.payload.updatedAt,
           });
           return;

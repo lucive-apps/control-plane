@@ -11,10 +11,12 @@ import {
   persistState,
   reorderProjects,
   resolveProjectExpanded,
+  resolveSectionExpanded,
   setDefaultAdvertisedEndpointKey,
   setProjectExpanded,
   setSidebarProjectScopeKey,
   setThreadChangedFilesExpanded,
+  SIDEBAR_ASSISTANTS_SECTION_KEY,
   SIDEBAR_PROJECTS_SECTION_KEY,
   SIDEBAR_REPOSITORIES_SECTION_KEY,
   type UiState,
@@ -284,6 +286,22 @@ describe("parsePersistedState", () => {
         legacyProjectCwdPreferenceKey("/repo/b"),
       ]),
     ).toBe(false);
+  });
+
+  it("keeps sidebar sections expanded when the migrated folder default is collapsed", () => {
+    const parsed = parsePersistedState({ expandedProjectCwds: ["/repo/a"] });
+    const tasksKeys = [SIDEBAR_PROJECTS_SECTION_KEY, SIDEBAR_REPOSITORIES_SECTION_KEY];
+
+    expect(resolveSectionExpanded(parsed.projectExpandedById, tasksKeys)).toBe(true);
+    expect(
+      resolveSectionExpanded(parsed.projectExpandedById, [SIDEBAR_ASSISTANTS_SECTION_KEY]),
+    ).toBe(true);
+
+    const collapsed = setProjectExpanded(parsed, SIDEBAR_ASSISTANTS_SECTION_KEY, false);
+    expect(
+      resolveSectionExpanded(collapsed.projectExpandedById, [SIDEBAR_ASSISTANTS_SECTION_KEY]),
+    ).toBe(false);
+    expect(resolveSectionExpanded(collapsed.projectExpandedById, tasksKeys)).toBe(true);
   });
 });
 

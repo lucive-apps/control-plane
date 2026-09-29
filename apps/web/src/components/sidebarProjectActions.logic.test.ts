@@ -74,6 +74,40 @@ describe("buildProjectFolderActionMenuItems", () => {
   });
 });
 
+describe("Convert to Project in the folder menu", () => {
+  const supportsProjects = (member: ProjectFolderMenuMember) => member !== remoteMember;
+
+  it("appears only for checkouts whose environment supports Projects", () => {
+    const single = { memberProjects: [localMember], groupedProjectCount: 1 };
+    expect(ids(buildProjectFolderActionMenuItems(single))).not.toContain("convert");
+    expect(
+      ids(buildProjectFolderActionMenuItems(single, { canConvert: () => false })),
+    ).not.toContain("convert");
+    const items = buildProjectFolderActionMenuItems(single, { canConvert: supportsProjects });
+    expect(ids(items)).toEqual(["project-settings", "copy-path", "convert", "delete"]);
+    expect(items[2]).toMatchObject({ id: "convert", label: "Convert to Project…" });
+    expect(resolveProjectFolderMenuAction(single, "convert")).toEqual({
+      kind: "convert",
+      member: localMember,
+    });
+  });
+
+  it("lists only convertible checkouts as children of a grouped folder", () => {
+    const grouped = { memberProjects: [localMember, remoteMember], groupedProjectCount: 2 };
+    const items = buildProjectFolderActionMenuItems(grouped, { canConvert: supportsProjects });
+    expect(ids(items)).toContain("convert:local:alpha");
+    expect(ids(items)).not.toContain("convert:remote:alpha");
+    expect(resolveProjectFolderMenuAction(grouped, "convert")).toBeNull();
+    expect(resolveProjectFolderMenuAction(grouped, "convert:local:alpha")).toEqual({
+      kind: "convert",
+      member: localMember,
+    });
+    expect(ids(buildProjectFolderActionMenuItems(grouped, { canConvert: () => true }))).toEqual(
+      expect.arrayContaining(["convert:local:alpha", "convert:remote:alpha"]),
+    );
+  });
+});
+
 describe("resolveProjectFolderMenuAction", () => {
   it("targets the only checkout from a leaf action", () => {
     const project = { memberProjects: [localMember] };

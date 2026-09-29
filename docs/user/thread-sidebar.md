@@ -6,6 +6,23 @@ need a separate branch and working directory.
 The sidebar's **Tasks** section lists your threads grouped by workspace, the folder
 they work in. Use **Add workspace** in that section to add another folder.
 
+## Projects in the sidebar
+
+When your server supports [Projects](./projects.md), the **Projects** section sits above
+Tasks. Use **New Project** in its header to create one. Click a Project to open its
+coordinator, and expand it to see its agents: standing agents first, then one-off and snoozed
+agents. Settled agents stay under their Project instead of the Settled view; expand them ten
+at a time. Hover a Project and click **+** to start an agent, or right-click it for Rename,
+Settings, Archive, Move to Tasks and Delete. Each Project shows its number of running agents
+and one dot for its most urgent thread.
+
+Click **Projects** or **Tasks** to collapse that section. A collapsed section or workspace also
+shows one dot for its most urgent thread. Filtering the list to one workspace from a thread's
+menu hides Projects until you clear the filter.
+
+To turn a workspace into a Project, right-click its folder under Tasks and choose **Convert to
+Project…**.
+
 ## Start a thread
 
 On web and desktop, a new thread keeps the current workspace and carries your model
@@ -47,7 +64,8 @@ files directly; see [Attach files](./composer.md#attach-files).
 On web and desktop, pinning or unpinning a thread keeps the sidebar at your current
 scroll position instead of following the thread to its new place in the list.
 
-Pinning does not prevent automatic settlement. Settling a thread removes its pin.
+Pinning does not prevent automatic settlement. Settling a thread removes its pin. In a
+[Project](./projects.md#agents), a pinned agent is a standing agent and never settles.
 
 On web and desktop, expand a workspace folder and drag a thread up or down to change
 its order within that workspace. Pinned threads reorder among pins, and active threads
@@ -87,7 +105,7 @@ sending an answer or restarting the agent.
 By default, environments settle inactive threads after three days and settle
 threads whose pull request merged. A closed pull request can also settle an idle
 thread. Work in progress, pending questions or approvals, and live background work
-prevent automatic settlement. An open pull request does not prevent inactivity
+prevent automatic settlement. A Project's coordinator and standing agents never settle. An open pull request does not prevent inactivity
 settlement, but an old closed or merged pull request does not settle work you
 resumed after it closed.
 

@@ -112,6 +112,22 @@ holds only later turns, so the [checkpoint reactor](../../apps/server/src/orches
 rejects rewinds before that count. A rewind that lands exactly on it re-arms the marker, because it
 removes the turn that carried the transcript.
 
+## Project role instructions
+
+A Project's coordinator and agents get a role block after the shared runtime instructions. At
+session start, [ProviderService](../../apps/server/src/provider/Layers/ProviderService.ts) builds
+it, inlining `MEMORY.md` or a standing agent's `<slug>/AGENTS.md`, and
+[stores it per thread](../../apps/server/src/provider/assistantRuntime.ts). Adapters read the stored
+text instead of rebuilding it, because Claude, Codex and OpenCode take it as system or developer
+text that must stay identical for the session to keep the prompt cache. Cursor, Grok and
+Antigravity resend instructions with every prompt, so they get a short pointer to the files. The
+block's role key covers the role, the Project title, the standing agent's slug and a save counter
+for each tracked file that `projects.writeFile` bumps. When the key changes, the
+[command reactor](../../apps/server/src/orchestration/Layers/ProviderCommandReactor.ts) restarts
+the session at its next turn start with the same resume cursor, never during a running turn.
+The coordinator's own edits to `MEMORY.md` go through its tools, not the RPC, so they do not
+restart it; the block tells it to re-read the file instead.
+
 ## Attachments and stored history
 
 Attachments live outside the project workspace. [ProviderService](../../apps/server/src/provider/Layers/ProviderService.ts)

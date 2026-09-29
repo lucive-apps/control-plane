@@ -10,6 +10,7 @@ const testState = vi.hoisted(() => {
     defaultModelSelection: null,
     defaultRuntimeMode: "full-access" as RuntimeMode,
   };
+  let targetIsProject = false;
   let storedDraft: {
     readonly draftId: string;
     readonly environmentId: string;
@@ -45,6 +46,12 @@ const testState = vi.hoisted(() => {
     get targetSettings() {
       return targetSettings;
     },
+    get targetIsProject() {
+      return targetIsProject;
+    },
+    set targetIsProject(value: boolean) {
+      targetIsProject = value;
+    },
     reset(
       nextStoredDraft: typeof storedDraft,
       workspaceDefaults = {
@@ -53,6 +60,7 @@ const testState = vi.hoisted(() => {
       },
     ) {
       storedDraft = nextStoredDraft;
+      targetIsProject = false;
       targetSettings = {
         defaultThreadEnvMode: workspaceDefaults.envMode,
         newWorktreesStartFromOrigin: workspaceDefaults.startFromOrigin,
@@ -156,10 +164,11 @@ vi.mock("../state/entities", () => ({
       workspaceRoot: "/remote/project",
       defaultThreadEnvMode: null,
       defaultModelSelection: null,
+      ...(testState.targetIsProject ? { assistant: { coordinatorThreadId: "thread-c" } } : {}),
     },
   ],
   readThreadShell: () => null,
-  useProjects: () => [],
+  useWorkspaceProjects: () => [],
   useThread: () => null,
 }));
 vi.mock("../state/server", () => ({
@@ -174,6 +183,34 @@ vi.mock("../uiStateStore", () => ({
 vi.mock("./useSettings", () => ({ useClientSettings: () => ({}) }));
 
 import { useNewThreadHandler } from "./useHandleNewThread";
+
+describe("Projects", () => {
+  it.each([
+    ["new", null],
+    [
+      "reusable",
+      {
+        draftId: "draft-existing",
+        environmentId: "environment-ssh",
+        promotedTo: null,
+        threadId: "thread-existing",
+      },
+    ],
+  ])("starts a %s agent draft Local even when the default is worktree", async (_, draft) => {
+    testState.reset(draft, { envMode: "worktree", startFromOrigin: true });
+    testState.targetIsProject = true;
+    const projectRef = { environmentId: "environment-ssh", projectId: "project-remote" } as never;
+
+    const opened = await useNewThreadHandler()(projectRef);
+
+    expect(testState.draftStore.setLogicalProjectDraftThreadId).toHaveBeenCalledWith(
+      "remote-project",
+      projectRef,
+      opened!.draftId,
+      expect.objectContaining({ envMode: "local", startFromOrigin: false }),
+    );
+  });
+});
 
 describe.each([
   ["new", null],

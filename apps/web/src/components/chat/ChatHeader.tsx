@@ -1,17 +1,18 @@
 import {
+  type AssistantThreadRole,
   type EnvironmentId,
   type EditorId,
   type ProjectScript,
   type ResolvedKeybindingsConfig,
   type ThreadId,
 } from "@t3tools/contracts";
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { ChevronDownIcon } from "lucide-react";
+import { ChevronDownIcon, NotebookTextIcon } from "lucide-react";
 import {
   memo,
   useCallback,
@@ -42,6 +43,8 @@ import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { observeResponsiveBreakpointFade, usePanelAnimationSettings } from "../../panelAnimations";
 import { ProjectFavicon } from "../ProjectFavicon";
+import { Button } from "../ui/button";
+import { useAssistantActions, useAssistantProjectMenu } from "../assistants/useAssistantActions";
 import {
   WorkspaceBreadcrumb,
   WorkspaceBreadcrumbItem,
@@ -64,6 +67,14 @@ interface ChatHeaderProps {
   availableEditors: ReadonlyArray<EditorId>;
   rightPanelOpen: boolean;
   gitCwd: string | null;
+  /** The thread's role when `activeProject` is a Project. */
+  assistantRole?: AssistantThreadRole | null | undefined;
+  /** False hides git and pull request actions (Project threads working Local). */
+  showGitActions?: boolean | undefined;
+  /** Opens the coordinator's `MEMORY.md`. */
+  onOpenMemory?: (() => void) | undefined;
+  /** An agent's Project crumb opens its coordinator instead of a new thread. */
+  onOpenCoordinator?: (() => void) | undefined;
   readonly onOpenPullRequest?: ((number: number) => void) | undefined;
   onNewThreadInProject: () => void;
   onOpenProjectSettings?: (() => void) | undefined;
@@ -133,6 +144,10 @@ export const ChatHeader = memo(function ChatHeader({
   availableEditors,
   rightPanelOpen,
   gitCwd,
+  assistantRole = null,
+  showGitActions = true,
+  onOpenMemory,
+  onOpenCoordinator,
   onOpenPullRequest,
   onNewThreadInProject,
   onOpenProjectSettings,
@@ -159,6 +174,9 @@ export const ChatHeader = memo(function ChatHeader({
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const activeProjectName = activeProject?.title;
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
+  const projectCrumbLabel = onOpenCoordinator
+    ? `Open ${activeProjectName}`
+    : `New thread in ${activeProjectName}`;
   const fileScripts = useT3ProjectFileScripts(
     activeThreadEnvironmentId,
     activeProjectScripts ? activeProjectCwd : null,
@@ -215,8 +233,10 @@ export const ChatHeader = memo(function ChatHeader({
     },
     [activeThreadEnvironmentId, activeThreadId, activeThreadTitle, updateThreadMetadata],
   );
+  // A coordinator is its Project: its crumb opens the Project menu, never the thread menu.
+  const coordinatorProject = assistantRole === "coordinator" ? activeProject : null;
   const { openMenu, closeMenu } = useThreadActionMenu({
-    threadRef: isServerThread ? activeThreadRef : null,
+    threadRef: isServerThread && coordinatorProject === null ? activeThreadRef : null,
     projectCwd: activeProjectCwd,
     onStartRename: startRename,
   });
@@ -280,14 +300,17 @@ export const ChatHeader = memo(function ChatHeader({
       // The right-side controls (git, scripts, open-in) keep their own
       // behavior; only the breadcrumb area opens the thread menu.
       if ((event.target as HTMLElement).closest("[data-chat-header-actions]")) return;
+      // CoordinatorCrumb handles its own right-click.
+      if (coordinatorProject) return;
       if (!isServerThread && onOpenProjectSettings === undefined) return;
       cancelPendingTitleMenu();
       event.preventDefault();
       if (!isServerThread) {
         const api = readLocalApi();
         if (!api) return;
+        const label = assistantRole !== null ? "Project settings" : "Workspace settings";
         void api.contextMenu
-          .show([{ id: "project-settings", label: "Workspace settings", icon: "settings" }], {
+          .show([{ id: "project-settings", label, icon: "settings" }], {
             x: event.clientX,
             y: event.clientY,
           })
@@ -298,7 +321,15 @@ export const ChatHeader = memo(function ChatHeader({
       }
       openMenu({ x: event.clientX, y: event.clientY });
     },
-    [cancelPendingTitleMenu, isServerThread, onOpenProjectSettings, openMenu, renamingTitle],
+    [
+      assistantRole,
+      cancelPendingTitleMenu,
+      coordinatorProject,
+      isServerThread,
+      onOpenProjectSettings,
+      openMenu,
+      renamingTitle,
+    ],
   );
   const handleRenameKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLInputElement>) => {
@@ -325,7 +356,7 @@ export const ChatHeader = memo(function ChatHeader({
         {/* The project always leads the header: knowing which project a
             thread lives in is priority zero, and the thread title alone
             doesn't answer it. */}
-        {activeProject ? (
+        {activeProject && coordinatorProject === null ? (
           <>
             <WorkspaceBreadcrumbItem className="shrink">
               <Tooltip>
@@ -333,8 +364,8 @@ export const ChatHeader = memo(function ChatHeader({
                   render={
                     <button
                       type="button"
-                      aria-label={`New thread in ${activeProjectName}`}
-                      onClick={onNewThreadInProject}
+                      aria-label={projectCrumbLabel}
+                      onClick={onOpenCoordinator ?? onNewThreadInProject}
                       className="inline-flex min-w-0 max-w-full cursor-pointer items-center gap-1.5 rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                     />
                   }
@@ -342,14 +373,16 @@ export const ChatHeader = memo(function ChatHeader({
                   <ProjectFavicon project={activeProject} className="size-3.5" />
                   <span className="max-w-40 truncate">{activeProjectName}</span>
                 </TooltipTrigger>
-                <TooltipPopup side="top">New thread in {activeProjectName}</TooltipPopup>
+                <TooltipPopup side="top">{projectCrumbLabel}</TooltipPopup>
               </Tooltip>
             </WorkspaceBreadcrumbItem>
             <WorkspaceBreadcrumbSeparator />
           </>
         ) : null}
         <WorkspaceBreadcrumbItem current className="min-w-10 flex-1">
-          {renamingTitle !== null ? (
+          {coordinatorProject ? (
+            <CoordinatorCrumb key={activeThreadId} project={coordinatorProject} />
+          ) : renamingTitle !== null ? (
             <input
               autoFocus
               aria-label="Thread title"
@@ -410,6 +443,25 @@ export const ChatHeader = memo(function ChatHeader({
           "[[data-panel-animations=true]_&]:motion-safe:transition-[padding-right] [[data-panel-animations=true]_&]:motion-safe:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:motion-safe:ease-out",
         )}
       >
+        {onOpenMemory ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  type="button"
+                  aria-label="Memory"
+                  onClick={onOpenMemory}
+                />
+              }
+            >
+              <NotebookTextIcon />
+              <span className="hidden @3xl/header-actions:inline">Memory</span>
+            </TooltipTrigger>
+            <TooltipPopup>Open MEMORY.md</TooltipPopup>
+          </Tooltip>
+        ) : null}
         {activeProjectScripts || showOpenInPicker || activeProjectName ? (
           <ChatHeaderOverflowMenu>
             {activeProjectScripts && (
@@ -434,7 +486,7 @@ export const ChatHeader = memo(function ChatHeader({
                 openInCwd={openInCwd}
               />
             )}
-            {activeProjectName && (
+            {activeProjectName && showGitActions && (
               <GitActionsControl
                 variant="menu"
                 gitCwd={gitCwd}
@@ -449,3 +501,86 @@ export const ChatHeader = memo(function ChatHeader({
     </div>
   );
 });
+
+/**
+ * The coordinator's crumb. A coordinator reads as its Project: one crumb whose
+ * click and right-click open the Project menu, and whose Rename renames the
+ * Project (the server retitles the coordinator to match). Mounted only for a
+ * coordinator, so other headers skip the Project action hooks.
+ */
+function CoordinatorCrumb({ project }: { project: EnvironmentProject }) {
+  const actions = useAssistantActions();
+  const openProjectMenu = useAssistantProjectMenu();
+  const [renaming, setRenaming] = useState(false);
+  const renameCommittedRef = useRef(false);
+  const startRename = useCallback(() => {
+    renameCommittedRef.current = false;
+    setRenaming(true);
+  }, []);
+  const commitRename = (title: string) => {
+    setRenaming(false);
+    void actions.rename(scopeProjectRef(project.environmentId, project.id), title);
+  };
+  const openMenuAt = (position: { readonly x: number; readonly y: number }) => {
+    void openProjectMenu({ project, position, onRename: startRename });
+  };
+  return (
+    <div
+      className="flex min-w-0 flex-1"
+      onContextMenu={(event) => {
+        if (renaming) return;
+        event.preventDefault();
+        openMenuAt({ x: event.clientX, y: event.clientY });
+      }}
+    >
+      {renaming ? (
+        <input
+          autoFocus
+          aria-label="Project name"
+          className="min-w-0 flex-1 rounded-sm bg-transparent text-sm font-medium text-foreground outline-none ring-1 ring-ring/50 focus:ring-ring"
+          defaultValue={project.title}
+          onBlur={(event) => {
+            if (renameCommittedRef.current) return;
+            commitRename(event.currentTarget.value);
+          }}
+          onFocus={(event) => event.currentTarget.select()}
+          onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+            if (event.key === "Enter") {
+              renameCommittedRef.current = true;
+              commitRename(event.currentTarget.value);
+            } else if (event.key === "Escape") {
+              renameCommittedRef.current = true;
+              setRenaming(false);
+            }
+          }}
+        />
+      ) : (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                aria-label={`Project actions for ${project.title}`}
+                aria-haspopup="menu"
+                onClick={(event) => {
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  openMenuAt({ x: rect.left, y: rect.bottom + 4 });
+                }}
+                className="group/thread-title inline-flex min-w-0 max-w-full cursor-pointer items-center gap-1.5 rounded-sm text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+              />
+            }
+          >
+            <ProjectFavicon project={project} className="size-3.5" />
+            <h2 className="min-w-0 truncate">{project.title}</h2>
+            <ChevronDownIcon
+              aria-hidden
+              className="size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover/thread-title:opacity-100 group-focus-visible/thread-title:opacity-100"
+            />
+          </TooltipTrigger>
+          <TooltipPopup side="top">{project.title}</TooltipPopup>
+        </Tooltip>
+      )}
+    </div>
+  );
+}

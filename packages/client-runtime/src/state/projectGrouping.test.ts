@@ -1,4 +1,4 @@
-import { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import type { EnvironmentProject } from "./models.ts";
@@ -169,6 +169,25 @@ describe("buildProjectGroups", () => {
     expect(groups).toHaveLength(3);
     expect(groups.flatMap((group) => group.members)).toHaveLength(3);
     expect(groups.map((group) => group.label)).toEqual(["t3code", "t3code-2", "t3code-3"]);
+  });
+
+  it("never merges a Project into its repository group, even with a repository override", () => {
+    const project = makeProject("personal", "/work/t3code-2", {
+      assistant: { coordinatorThreadId: ThreadId.make("coordinator") },
+    });
+    const projects = [makeProject("t3code", "/work/t3code"), project];
+
+    for (const mode of ["repository", "repository_path"] as const) {
+      const groups = buildProjectGroups({
+        projects,
+        settings: settings(mode, { [derivePhysicalProjectKey(project)]: "repository" }),
+      });
+      expect(groups.map((group) => group.members.map((member) => member.project.id))).toEqual([
+        ["t3code"],
+        ["personal"],
+      ]);
+      expect(groups[1]?.key).toBe(derivePhysicalProjectKey(project));
+    }
   });
 
   it("applies a physical-project override without dropping its siblings", () => {

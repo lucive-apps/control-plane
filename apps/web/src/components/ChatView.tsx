@@ -17,6 +17,8 @@ import {
 } from "../questionAttachments";
 import { useAttachmentUploadStore } from "../lib/attachmentUploadQueue";
 import {
+  assistantThreadRole,
+  isStandingAgent,
   type AssistantCitation,
   type ApprovalRequestId,
   type ChatFileAttachment,
@@ -359,8 +361,14 @@ import {
   useThread,
   useThreadRefs,
   useThreadShell,
+  readProject,
   readThreadShell,
 } from "../state/entities";
+import {
+  resolveAssistantThreadChrome,
+  showsTurnMinimap,
+  type AssistantTimeline,
+} from "./chat/assistantThreadView.logic";
 import { environmentShell } from "../state/shell";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
 import { createPageScrollController, type PageScrollKey } from "./chat/pageScrollController";
@@ -494,6 +502,7 @@ import { clampFileAttachmentUploadBytes } from "@t3tools/client-runtime/state/at
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { fileAttachmentCapabilityBlockReason } from "./chat/composerAttachmentFiles";
 import { assetEnvironment } from "../state/assets";
+import { projectEnvironment } from "../state/projects";
 import { readPreparedConnection } from "../state/session";
 import { useAtomCommand } from "../state/use-atom-command";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
@@ -2145,6 +2154,8 @@ export default function ChatView(props: ChatViewProps) {
     [activeThread?.environmentId, activeThread?.projectId],
   );
   const activeProject = useProject(activeProjectRef);
+  // Coordinator or agent when the thread (or draft) is in a Project.
+  const assistantRole = assistantThreadRole(activeProject, activeThread?.id);
   // Environment settings with the active project's overrides applied.
   const activeProjectSettings = useMemo(
     () => resolveProjectSettings(settings, activeProject?.id ?? null, activeProject ?? undefined),
@@ -3752,18 +3763,26 @@ export default function ChatView(props: ChatViewProps) {
     }
   }, [environmentId, gitStatusCwd, liveIsGitRepo]);
   const isGitRepo = liveIsGitRepo ?? recallCheckoutIsRepo(environmentId, gitStatusCwd) ?? true;
+  const assistantChrome = resolveAssistantThreadChrome({
+    role: assistantRole,
+    isStanding: activeThread ? isStandingAgent(activeProject, activeThread) : false,
+    isGitRepo,
+    // Only a server thread can already work in a worktree; a Project draft
+    // starts Local even if it carries one from before a Convert.
+    worktreePath: isServerThread ? (activeThread?.worktreePath ?? null) : null,
+  });
   // Keep a hidden, off-flow strip mounted for existing threads so the composer
   // can measure whether its relocated controls fit. The visible chrome remains
   // content-driven: Git/environment context or controls that actually fit.
   const mountComposerContextStrip = shouldShowComposerContextStrip({
     hasActiveProject: activeProject !== null,
-    isGitRepo,
+    isGitRepo: assistantChrome.showGitControls,
     showEnvironmentIndicator: showComposerEnvironmentIndicator,
     hostsRestingComposerControls: routeKind === "server",
   });
   const showComposerContextStrip = shouldShowComposerContextStrip({
     hasActiveProject: activeProject !== null,
-    isGitRepo,
+    isGitRepo: assistantChrome.showGitControls,
     showEnvironmentIndicator: showComposerEnvironmentIndicator,
     hostsRestingComposerControls: routeKind === "server" && restingComposerControlsVisible,
   });
@@ -4668,6 +4687,68 @@ export default function ChatView(props: ChatViewProps) {
     },
     [activeProject, activeThreadRef],
   );
+  const rereadProjectFile = useAtomQueryRunner(projectEnvironment.readFile, {
+    reportFailure: false,
+    reportDefect: false,
+    refresh: true,
+  });
+  // The coordinator is Local, so the panel resolves this against the Project
+  // folder: the same MEMORY.md the server inlines into its session. The file
+  // view re-reads only after this thread's own tool calls, while New Project
+  // and other agents write MEMORY.md too, so every open reads it again.
+  const openMemorySurface = useCallback(() => {
+    openFileSurface("MEMORY.md");
+    if (!activeThreadRef || !activeWorkspaceRoot) return;
+    void rereadProjectFile({
+      environmentId: activeThreadRef.environmentId,
+      input: { cwd: activeWorkspaceRoot, relativePath: "MEMORY.md" },
+    });
+  }, [activeThreadRef, activeWorkspaceRoot, openFileSurface, rereadProjectFile]);
+  // Handoff links can outlive their thread, since rows re-read the shell only
+  // when they render.
+  const openLinkedThread = useCallback(
+    (threadRef: ScopedThreadRef) => {
+      if (readThreadShell(threadRef) === null) {
+        toastManager.add({ type: "info", title: "This thread is no longer available." });
+        return;
+      }
+      void navigate({ to: "/$environmentId/$threadId", params: buildThreadRouteParams(threadRef) });
+    },
+    [navigate],
+  );
+  const activeCoordinatorThreadId = activeProject?.assistant?.coordinatorThreadId;
+  const openActiveCoordinator = useCallback(() => {
+    if (!activeProject || activeCoordinatorThreadId === undefined) return;
+    openLinkedThread(scopeThreadRef(activeProject.environmentId, activeCoordinatorThreadId));
+  }, [activeCoordinatorThreadId, activeProject, openLinkedThread]);
+  // A held paint still shows the previous thread's timeline, so its Project
+  // rows and minimap follow that thread until this one paints.
+  const heldTimelineShell =
+    paintOnlyDisplayedTimeline && displayedThreadRef ? readThreadShell(displayedThreadRef) : null;
+  const timelineProject = paintOnlyDisplayedTimeline
+    ? heldTimelineShell &&
+      readProject(scopeProjectRef(heldTimelineShell.environmentId, heldTimelineShell.projectId))
+    : activeProject;
+  const timelineAssistantRole = paintOnlyDisplayedTimeline
+    ? assistantThreadRole(timelineProject, heldTimelineShell?.id)
+    : assistantRole;
+  const assistantTimeline = useMemo<AssistantTimeline | null>(() => {
+    const coordinatorThreadId = timelineProject?.assistant?.coordinatorThreadId;
+    if (!timelineProject || timelineAssistantRole === null || coordinatorThreadId === undefined) {
+      return null;
+    }
+    const { environmentId: projectEnvironmentId, id: projectId } = timelineProject;
+    return {
+      role: timelineAssistantRole,
+      coordinatorThreadId,
+      project: timelineProject,
+      projectThreadTitle: (threadId) => {
+        const thread = readThreadShell(scopeThreadRef(projectEnvironmentId, threadId));
+        return thread?.projectId === projectId ? thread.title : null;
+      },
+      onOpenThread: (threadId) => openLinkedThread(scopeThreadRef(projectEnvironmentId, threadId)),
+    };
+  }, [openLinkedThread, timelineAssistantRole, timelineProject]);
   // The shell carries server PR updates even while thread detail is still loading.
   const activeThreadMetadata = activeThreadShell ?? activeThread;
   const hasLinkedPullRequestDetail = activeThreadMetadata?.linkedPullRequest != null;
@@ -5840,13 +5921,16 @@ export default function ChatView(props: ChatViewProps) {
       ? (pendingServerThreadStartFromOriginByThreadId[activeThread?.id ?? ""] ??
         activeProjectSettings.settings.newWorktreesStartFromOrigin)
       : false;
+  // Project threads have no env-mode control, so they always send Local.
   const sendEnvMode = resolveSendEnvMode({
     requestedEnvMode: envMode,
-    isGitRepo,
+    isGitRepo: assistantChrome.showGitControls,
   });
+  // Project threads share the Project folder's checkout, so they never offer
+  // to switch its branch back.
   const localCheckoutBranchMismatch = useMemo(
     () =>
-      isServerThread
+      isServerThread && assistantChrome.showGitControls
         ? resolveLocalCheckoutBranchMismatch({
             effectiveEnvMode: envMode,
             activeWorktreePath,
@@ -5854,7 +5938,14 @@ export default function ChatView(props: ChatViewProps) {
             currentGitBranch: gitStatusQuery.data?.refName ?? null,
           })
         : null,
-    [activeThreadBranch, activeWorktreePath, envMode, gitStatusQuery.data?.refName, isServerThread],
+    [
+      activeThreadBranch,
+      activeWorktreePath,
+      assistantChrome.showGitControls,
+      envMode,
+      gitStatusQuery.data?.refName,
+      isServerThread,
+    ],
   );
   const activeComposerTasksProgress = useMemo(() => {
     if (!activeLatestTurn || latestTurnSettled || activePlan?.turnId !== activeLatestTurn.turnId) {
@@ -6712,7 +6803,14 @@ export default function ChatView(props: ChatViewProps) {
       if (command === "thread.settle") {
         event.preventDefault();
         event.stopPropagation();
-        if (!isServerThread || !activeThreadRef || !supportsSettlement) return;
+        if (
+          !isServerThread ||
+          !activeThreadRef ||
+          !supportsSettlement ||
+          !assistantChrome.keybindingSettle
+        ) {
+          return;
+        }
         if (activeThreadSettled) {
           void handleUnsettleActiveThread();
           return;
@@ -6735,7 +6833,14 @@ export default function ChatView(props: ChatViewProps) {
       if (command === "thread.pin") {
         event.preventDefault();
         event.stopPropagation();
-        if (!isServerThread || !activeThreadRef || !supportsPinning) return;
+        if (
+          !isServerThread ||
+          !activeThreadRef ||
+          !supportsPinning ||
+          !assistantChrome.keybindingPin
+        ) {
+          return;
+        }
         const pinned = activeThreadPinned;
         void (pinned ? confirmAndUnpinThread(activeThreadRef) : pinThread(activeThreadRef)).then(
           (result) => {
@@ -6927,6 +7032,8 @@ export default function ChatView(props: ChatViewProps) {
     activeThreadRef,
     activeThreadPinned,
     activeThreadSettled,
+    assistantChrome.keybindingPin,
+    assistantChrome.keybindingSettle,
     canInterruptRunningThread,
     activeThreadKey,
     terminalUiState.terminalOpen,
@@ -8363,7 +8470,8 @@ export default function ChatView(props: ChatViewProps) {
                       runtimeMode,
                       interactionMode: sendInteractionMode,
                       branch: activeThreadBranch,
-                      worktreePath: activeThread.worktreePath,
+                      // Project agents start Local in the Project folder.
+                      worktreePath: assistantRole === null ? activeThread.worktreePath : null,
                       createdAt: activeThread.createdAt,
                     },
                   }
@@ -9803,9 +9911,15 @@ export default function ChatView(props: ChatViewProps) {
           ) : null}
           {!rightPanelControlsAtRoot && !rightPanelControlsInPanel ? panelLayoutControls : null}
           <ChatHeader
-            {...(!supportsPullRequests || activeProjectRepository === null
+            {...(!supportsPullRequests ||
+            activeProjectRepository === null ||
+            !assistantChrome.showPullRequestControls
               ? {}
               : { onOpenPullRequest: openProjectPullRequest })}
+            assistantRole={assistantRole}
+            showGitActions={assistantChrome.showPullRequestControls}
+            {...(assistantRole === "coordinator" ? { onOpenMemory: openMemorySurface } : {})}
+            {...(assistantRole === "agent" ? { onOpenCoordinator: openActiveCoordinator } : {})}
             activeThreadEnvironmentId={activeThread.environmentId}
             activeThreadId={activeThread.id}
             {...(routeKind === "draft" && draftId ? { draftId } : {})}
@@ -9950,6 +10064,8 @@ export default function ChatView(props: ChatViewProps) {
                 cancelPositionRestoreRef={cancelPositionRestoreRef}
                 hideEmptyPlaceholder={isDraftHeroState || threadDetailLoading}
                 topFadeEnabled={!hasTimelineTopBanner}
+                showTurnMinimap={showsTurnMinimap(timelineAssistantRole)}
+                assistantTimeline={assistantTimeline}
                 loadEarlier={paintOnlyDisplayedTimeline ? null : loadEarlierTurns}
                 queuedMessages={paintOnlyDisplayedTimeline ? EMPTY_QUEUED_MESSAGES : queuedMessages}
                 onSteerQueuedMessage={onSteerQueuedMessage}
@@ -10036,10 +10152,14 @@ export default function ChatView(props: ChatViewProps) {
                       <ComposerSurface.Host>
                         <div ref={attachDraftHeroComposerAnchorRef} className="relative z-10">
                           <ChatComposer
-                            multipleModelSelections={multipleModelSelections}
+                            multipleModelSelections={
+                              assistantChrome.supportsMultipleModels
+                                ? multipleModelSelections
+                                : null
+                            }
                             supportsMultipleModels={
                               serverConfig?.environment.capabilities.requiredWorktreeBootstrap ===
-                              true
+                                true && assistantChrome.supportsMultipleModels
                             }
                             onMultipleModelSelectionsChange={setMultipleModelSelections}
                             composerRef={composerRef}
@@ -10126,7 +10246,7 @@ export default function ChatView(props: ChatViewProps) {
                             }
                             restingControlsHost={restingComposerControlsHost}
                             restingControlsHaveLeadingContext={
-                              isGitRepo || showComposerEnvironmentIndicator
+                              assistantChrome.showGitControls || showComposerEnvironmentIndicator
                             }
                             onRestingControlsVisibilityChange={setRestingComposerControlsVisible}
                             getTimelineScrollableNode={getTimelineScrollableNode}
@@ -10179,11 +10299,14 @@ export default function ChatView(props: ChatViewProps) {
                           {mountComposerContextStrip && (
                             <div className="pointer-events-auto">
                               <BranchToolbar
-                                forceNewWorktree={multipleModelSelections !== null}
+                                forceNewWorktree={
+                                  multipleModelSelections !== null &&
+                                  assistantChrome.supportsMultipleModels
+                                }
                                 ref={branchToolbarRef}
                                 environmentId={activeThread.environmentId}
                                 threadId={activeThread.id}
-                                showGitControls={isGitRepo}
+                                showGitControls={assistantChrome.showGitControls}
                                 {...(routeKind === "draft" && draftId ? { draftId } : {})}
                                 onEnvModeChange={onEnvModeChange}
                                 startFromOrigin={startFromOrigin}

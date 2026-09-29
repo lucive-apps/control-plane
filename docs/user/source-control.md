@@ -93,6 +93,10 @@ messages, review titles, and descriptions from your changes.
 Choose the writing style and model in **Settings → Source Control**. **Repository conventions**
 uses the workspace's instructions and recent commit subjects.
 
+[Project](./projects.md) threads work in the Project folder, so the coordinator and its agents
+have no Git actions or pull request controls. An agent that already had its own worktree when
+its workspace became a Project keeps them.
+
 ## Review and merge
 
 Open **Pull requests** to review changes and comments, request reviewers, check out a branch,

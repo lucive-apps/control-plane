@@ -4,6 +4,7 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
 import type {
+  OrchestrationProjectShell,
   ProviderApprovalDecision,
   ProviderRuntimeEvent,
   ProviderSendTurnInput,
@@ -77,6 +78,7 @@ import * as ServerConfig from "../../config.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import * as AnalyticsService from "../../telemetry/AnalyticsService.ts";
 import { makeAdapterRegistryMock } from "../testUtils/providerAdapterRegistryMock.ts";
+import { assistantRoleKey, readAssistantRuntime } from "../assistantRuntime.ts";
 import * as ProjectionSnapshotQuery from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
@@ -4977,7 +4979,8 @@ describe("agent browser access", () => {
         getEventReplayStats: () => Effect.die("unused"),
         getActiveProjectByWorkspaceRoot: () => Effect.die("unused"),
         getProjectShells: () => Effect.die("unused"),
-        getProjectShellById: () => Effect.die("unused"),
+        // Every session start reads the project for its Project role block.
+        getProjectShellById: () => Effect.succeedNone,
         getFirstActiveThreadIdByProjectId: () => Effect.die("unused"),
         getThreadCheckpointContext: () => Effect.die("unused"),
         getFullThreadDiffContext: () => Effect.die("unused"),
@@ -5147,6 +5150,102 @@ describe("agent browser access", () => {
         { withoutOrchestration: true },
       );
       assert.deepEqual(issued, [{ threadId, capabilities: ["preview", "pull-requests"] }]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+});
+
+describe("Project role block", () => {
+  it.effect("stores the block without an MCP credential and clears it on stop", () =>
+    Effect.gen(function* () {
+      const threadId = asThreadId("thread-project-coordinator");
+      const projectId = ProjectId.make("project-role-block");
+      const workspaceRoot = fixtureCwd("project-role-block");
+      NodeFS.writeFileSync(NodePath.join(workspaceRoot, "MEMORY.md"), "- Prefer small PRs\n");
+      const thread = yield* decodeBrowserAccessThreadShell({
+        id: threadId,
+        projectId,
+        title: "Acme",
+        modelSelection: createModelSelection(codexInstanceId, "gpt-5.4"),
+        runtimeMode: "full-access",
+        branch: null,
+        worktreePath: null,
+        latestTurn: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        session: null,
+        latestUserMessageAt: null,
+        hasPendingApprovals: false,
+        hasPendingUserInput: false,
+        hasActionableProposedPlan: false,
+      });
+      const project: OrchestrationProjectShell = {
+        id: projectId,
+        title: "Acme",
+        workspaceRoot,
+        defaultModelSelection: null,
+        assistant: { coordinatorThreadId: threadId },
+        scripts: [],
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      };
+      const codex = makeFakeCodexAdapter();
+      const credentialRequests: Array<ThreadId> = [];
+      const providerLayer = makeProviderServiceLive({
+        issueMcpCredential: (request) =>
+          Effect.sync(() => {
+            credentialRequests.push(request.threadId);
+            return undefined;
+          }),
+      }).pipe(
+        Layer.provide(
+          Layer.succeed(
+            ProviderAdapterRegistry.ProviderAdapterRegistry,
+            makeAdapterRegistryMock({ [CODEX_DRIVER]: codex.adapter }),
+          ),
+        ),
+        Layer.provide(
+          ProviderSessionDirectoryLive.pipe(
+            Layer.provide(
+              ProviderSessionRuntime.layer.pipe(Layer.provide(SqlitePersistenceMemory)),
+            ),
+          ),
+        ),
+        Layer.provide(
+          Layer.mock(ProjectionSnapshotQuery.ProjectionSnapshotQuery)({
+            getThreadShellById: () => Effect.succeedSome(thread),
+            getProjectShellById: () => Effect.succeedSome(project),
+          }),
+        ),
+        Layer.provide(defaultServerSettingsLayer),
+        Layer.provide(serverConfigTestLayer),
+        Layer.provide(AnalyticsService.layerTest),
+        Layer.provide(
+          Layer.succeed(
+            ProviderEventLoggers.ProviderEventLoggers,
+            ProviderEventLoggers.NoOpProviderEventLoggers,
+          ),
+        ),
+      );
+
+      yield* Effect.gen(function* () {
+        const provider = yield* ProviderService.ProviderService;
+        yield* provider.startSession(threadId, {
+          provider: CODEX_DRIVER,
+          providerInstanceId: codexInstanceId,
+          threadId,
+          runtimeMode: "full-access",
+        });
+
+        assert.deepEqual(credentialRequests, [threadId]);
+        const stored = readAssistantRuntime(threadId);
+        assert.include(stored?.inline ?? "", "<memory>\n- Prefer small PRs\n</memory>");
+        // The reactor compares this key against the same projection shells each turn.
+        assert.equal(stored?.roleKey, assistantRoleKey({ project, thread }));
+        assert.match(stored?.roleKey ?? "", /^coordinator:/);
+
+        yield* provider.stopSession({ threadId });
+        assert.equal(readAssistantRuntime(threadId), undefined);
+      }).pipe(Effect.provide(providerLayer));
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 });

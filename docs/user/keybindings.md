@@ -119,6 +119,7 @@ shortcut; assign one in **Settings → Keybindings**.
 `chat.new` and `chat.newLocal` start a new thread in the current workspace.
 Use **New thread in...** in the command palette to choose a different workspace
 first. Both use your [new-thread defaults](./thread-sidebar.md#start-a-thread).
+Inside a [Project](./projects.md), they start a new agent in the Project folder.
 
 ## Reserved shortcuts
 

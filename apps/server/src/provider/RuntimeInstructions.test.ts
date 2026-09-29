@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vite-plus/test";
+import { ThreadId } from "@t3tools/contracts";
+import { afterEach, describe, expect, it } from "vite-plus/test";
+
+import { clearAssistantRuntime, setAssistantRuntime } from "./assistantRuntime.ts";
 import { buildRuntimeInstructions } from "./RuntimeInstructions.ts";
 
 describe("buildRuntimeInstructions", () => {
@@ -24,5 +27,32 @@ describe("buildRuntimeInstructions", () => {
     const instructions = buildRuntimeInstructions({ harness: "Cursor", model });
     expect(instructions).toContain("through the Cursor harness.");
     expect(instructions).not.toContain("reasoning effort");
+  });
+
+  describe("Project role block", () => {
+    const threadId = ThreadId.make("project-thread");
+    afterEach(() => clearAssistantRuntime(threadId));
+
+    it("appends the block registered for the thread", () => {
+      setAssistantRuntime(threadId, { roleKey: "k", inline: "INLINE BLOCK", pointer: "POINTER" });
+
+      const instructions = buildRuntimeInstructions({ harness: "Claude Code", threadId });
+
+      expect(instructions.endsWith("</pull_request_linking>\n\nINLINE BLOCK")).toBe(true);
+      expect(instructions).not.toContain("POINTER");
+      expect(buildRuntimeInstructions({ harness: "Claude Code" })).not.toContain("INLINE BLOCK");
+      expect(
+        buildRuntimeInstructions({ harness: "Claude Code", threadId: ThreadId.make("other") }),
+      ).not.toContain("INLINE BLOCK");
+    });
+
+    it("appends the pointer for providers that resend it every prompt", () => {
+      setAssistantRuntime(threadId, { roleKey: "k", inline: "INLINE BLOCK", pointer: "POINTER" });
+
+      const instructions = buildRuntimeInstructions({ harness: "Grok", threadId });
+
+      expect(instructions.endsWith("\n\nPOINTER")).toBe(true);
+      expect(instructions).not.toContain("INLINE BLOCK");
+    });
   });
 });
