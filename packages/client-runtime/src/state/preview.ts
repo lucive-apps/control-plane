@@ -48,6 +48,9 @@ export function createPreviewEnvironmentAtoms<R, E>(
     automationRequests: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:preview:automation-requests",
       tag: WS_METHODS.previewAutomationConnect,
+      // The broker evicts an unanswered host without closing the WebSocket.
+      // Re-register only the command stream; never replay the timed-out action.
+      restartAfter: "250 millis",
       // Automation requests are commands, not cached query data. Dispose the
       // stream immediately with its owner so stale requests cannot replay when
       // a thread remounts and the server can clear disconnected hosts promptly.

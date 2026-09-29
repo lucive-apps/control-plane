@@ -596,6 +596,60 @@ it.effect("routes requests for background threads through an environment-level h
   ),
 );
 
+it.effect("keeps coordinator and spawned agent default tabs independent on a shared host", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const broker = yield* makeBroker;
+      const agentScope = {
+        ...scope,
+        threadId: ThreadId.make("spawned-agent"),
+        providerSessionId: "spawned-agent-session",
+      };
+      const coordinatorTab = PreviewTabId.make("coordinator-tab");
+      const agentTab = PreviewTabId.make("agent-tab");
+      const routed: RoutedRequest[] = [];
+      const connected = yield* Deferred.make<void>();
+      yield* Stream.runForEach(
+        (yield* broker.connect(makeHost())).pipe(
+          Stream.tap((event) =>
+            event.type === "connected" ? Deferred.succeed(connected, undefined) : Effect.void,
+          ),
+          Stream.filterMap((event) =>
+            event.type === "request"
+              ? Result.succeed({ ...event.request, connectionId: event.connectionId })
+              : Result.failVoid,
+          ),
+        ),
+        (request) => {
+          routed.push(request);
+          return broker.respond({
+            clientId: "client-1",
+            connectionId: request.connectionId,
+            requestId: request.requestId,
+            ok: true,
+            result: {
+              tabId: request.threadId === scope.threadId ? coordinatorTab : agentTab,
+            },
+          });
+        },
+      ).pipe(Effect.forkScoped);
+      yield* Deferred.await(connected);
+
+      yield* broker.invoke({ scope, operation: "open", input: {} });
+      yield* broker.invoke({ scope: agentScope, operation: "open", input: {} });
+      yield* broker.invoke({ scope, operation: "snapshot", input: {} });
+      yield* broker.invoke({ scope: agentScope, operation: "snapshot", input: {} });
+
+      expect(routed.map((request) => [request.threadId, request.tabId])).toEqual([
+        [scope.threadId, undefined],
+        [agentScope.threadId, undefined],
+        [scope.threadId, coordinatorTab],
+        [agentScope.threadId, agentTab],
+      ]);
+    }),
+  ),
+);
+
 it.effect("never routes a provider session to a host from another environment", () =>
   Effect.scoped(
     Effect.gen(function* () {
