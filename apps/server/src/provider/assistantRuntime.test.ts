@@ -54,7 +54,6 @@ describe("buildAssistantRuntimeBlock", () => {
     );
     expect(block?.inline).toContain(`Your memory is ${memoryPath}.`);
     expect(block?.inline).toContain("<memory>\n- Route billing to Sales\n</memory>");
-    expect(block?.inline).not.toMatch(/schedule/i);
     expect(block?.pointer).toContain(`Read \`${memoryPath}\` before acting and keep it current.`);
     expect(block?.pointer).toContain("Do not reply to acknowledgements.");
     expect(block?.pointer).not.toContain("Route billing");
@@ -107,6 +106,26 @@ describe("buildAssistantRuntimeBlock", () => {
     expect(oneOff?.pointer).toContain("so do not also send it with cp_thread_send.");
     expect(oneOff?.pointer).not.toContain("coordinator (threadId");
     expect(oneOff?.pointer).not.toContain("cp_agent_");
+  });
+
+  it("tells only the coordinator to schedule when asked, and that schedules start paused", () => {
+    const project = makeProject();
+    const build = (thread: ReturnType<typeof makeThread>) =>
+      buildAssistantRuntimeBlock({ project, thread, memory: "", roleFile: "" });
+    const rule =
+      "Create or edit schedules with cp_schedule_* only when the user asks; they stay paused until the user turns them on.";
+
+    const coordinator = build(makeThread("coordinator"));
+    expect(coordinator?.inline).toContain(rule);
+    // Cursor, Grok and Antigravity see only the pointer.
+    expect(coordinator?.pointer).toContain(rule);
+    for (const agent of [
+      build(makeThread("agent", { title: "Research", pinnedAt: PINNED_AT })),
+      build(makeThread("agent")),
+    ]) {
+      expect(agent?.inline).not.toMatch(/schedule/i);
+      expect(agent?.pointer).not.toMatch(/schedule/i);
+    }
   });
 
   it("grants the agents capability to the coordinator and standing agents only", () => {

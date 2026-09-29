@@ -11,12 +11,26 @@ import {
   isArchivedAssistant,
   isAssistantSettlementExempt,
   isRunningAgent,
+  isScheduleMessageId,
   isStandingAgent,
+  ProjectAssistant,
+  ProjectScheduleAgentChange,
+  withoutSchedulePrompts,
 } from "./assistants.ts";
-import { ProjectId, ThreadId } from "./baseSchemas.ts";
+import { IsoDateTime, ProjectId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { ClientOrchestrationCommand } from "./orchestration.ts";
 
 const decodeClientCommand = Schema.decodeUnknownEffect(ClientOrchestrationCommand);
+const decodeAgentChange = Schema.decodeUnknownEffect(ProjectScheduleAgentChange);
+const decodeAssistant = Schema.decodeUnknownEffect(ProjectAssistant);
+// The M2 marker, as older clients decode it.
+const decodeOlderAssistant = Schema.decodeUnknownEffect(
+  Schema.Struct({
+    coordinatorThreadId: ThreadId,
+    formerTitle: Schema.optional(TrimmedNonEmptyString),
+    archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
+  }),
+);
 
 const COORDINATOR = ThreadId.make("coordinator");
 const AGENT = ThreadId.make("agent");
@@ -48,6 +62,144 @@ describe("ProjectAssistantPatch", () => {
       });
     }),
   );
+});
+
+describe("schedules", () => {
+  const schedule = {
+    id: "morning-brief",
+    name: "Morning brief",
+    cron: "0 7 * * 1-5",
+    target: "coordinator" as const,
+    enabled: true,
+  };
+  const decodeScheduleWrite = (schedules: ReadonlyArray<Record<string, unknown>>) =>
+    decodeClientCommand({
+      type: "project.meta.update",
+      commandId: "cmd",
+      projectId: "project",
+      assistant: { schedules },
+    }).pipe(
+      Effect.map((command) =>
+        command.type === "project.meta.update" ? command.assistant?.schedules : undefined,
+      ),
+    );
+
+  it.effect("takes a whole-list write with or without a prompt, and no authorship", () =>
+    Effect.gen(function* () {
+      const withPrompt = yield* decodeScheduleWrite([{ ...schedule, prompt: "Summarize." }]);
+      assert.strictEqual(withPrompt?.[0]?.prompt, "Summarize.");
+      // `updatedAt` is the echo of the read; the server stamps its own.
+      const updatedAt = "2026-01-01T00:00:00.000Z";
+      const kept = yield* decodeScheduleWrite([
+        { ...schedule, createdBy: "thread-x", updatedBy: "thread-x", updatedAt },
+      ]);
+      assert.deepStrictEqual(kept, [{ ...schedule, updatedAt }]);
+      const badId = yield* Effect.flip(decodeScheduleWrite([{ ...schedule, id: "Morning Brief" }]));
+      assert.strictEqual(badId._tag, "SchemaError");
+      const withRuns = yield* decodeClientCommand({
+        type: "project.meta.update",
+        commandId: "cmd",
+        projectId: "project",
+        assistant: { schedules: [], scheduleRuns: { x: {} }, schedulePrompts: { x: "y" } },
+      });
+      assert.deepStrictEqual(
+        withRuns.type === "project.meta.update" ? withRuns.assistant : undefined,
+        { schedules: [] },
+      );
+    }),
+  );
+
+  it.effect("keeps the schedule record and agent commands off the client wire", () =>
+    Effect.gen(function* () {
+      for (const type of ["project.schedule.record", "project.schedule.agent-change"]) {
+        const error = yield* Effect.flip(
+          decodeClientCommand({
+            type,
+            commandId: "cmd",
+            projectId: "project",
+            scheduleId: "morning-brief",
+            actorThreadId: "coordinator",
+            change: { kind: "delete", id: "morning-brief" },
+            run: { slot: "t", at: "t", trigger: "cron", outcome: "sent" },
+            createdAt: "t",
+          }),
+        );
+        assert.strictEqual(error._tag, "SchemaError", type);
+      }
+    }),
+  );
+
+  it.effect("lets an agent pause a schedule but never turn one on", () =>
+    Effect.gen(function* () {
+      const paused = yield* decodeAgentChange({
+        kind: "upsert",
+        id: "morning-brief",
+        enabled: false,
+      });
+      assert.deepStrictEqual(paused, { kind: "upsert", id: "morning-brief", enabled: false });
+      const enabled = yield* Effect.flip(
+        decodeAgentChange({ kind: "upsert", id: "morning-brief", enabled: true }),
+      );
+      assert.strictEqual(enabled._tag, "SchemaError");
+    }),
+  );
+
+  it.effect("a marker with schedules still decodes on a build that predates them", () =>
+    Effect.gen(function* () {
+      const marker = {
+        coordinatorThreadId: "coordinator",
+        schedules: [
+          {
+            ...schedule,
+            createdBy: "user",
+            updatedBy: "coordinator",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+        scheduleRuns: {
+          "morning-brief": {
+            slot: "2026-01-02T07:00:00.000Z",
+            at: "2026-01-02T07:00:01.000Z",
+            trigger: "cron",
+            outcome: "missed",
+            reason: "not-running",
+          },
+        },
+      };
+      const older = yield* decodeOlderAssistant(marker);
+      assert.deepStrictEqual(older, { coordinatorThreadId: COORDINATOR });
+      const current = yield* decodeAssistant(marker);
+      assert.strictEqual(current.schedules?.[0]?.updatedBy, "coordinator");
+      assert.strictEqual(current.scheduleRuns?.["morning-brief"]?.reason, "not-running");
+      // A miss reason from a newer server reads as absent instead of failing the Project.
+      const newer = yield* decodeAssistant({
+        ...marker,
+        scheduleRuns: {
+          "morning-brief": { ...marker.scheduleRuns["morning-brief"], reason: "future-reason" },
+        },
+      });
+      assert.strictEqual(newer.scheduleRuns?.["morning-brief"]?.outcome, "missed");
+      assert.strictEqual(newer.scheduleRuns?.["morning-brief"]?.reason, undefined);
+    }),
+  );
+
+  it("strips prompts for the shell", () => {
+    const marker = {
+      coordinatorThreadId: COORDINATOR,
+      schedulePrompts: { "morning-brief": "Summarize." },
+      scheduleRuns: {},
+    };
+    assert.deepStrictEqual(withoutSchedulePrompts(marker), {
+      coordinatorThreadId: COORDINATOR,
+      scheduleRuns: {},
+    });
+  });
+
+  it("recognizes scheduled prompt ids but not run record ids", () => {
+    assert.isTrue(isScheduleMessageId("cp-schedule:x"));
+    assert.isFalse(isScheduleMessageId("cp-schedule-run:x"));
+    assert.isFalse(isScheduleMessageId("cp-push:cp-schedule:x"));
+  });
 });
 
 describe("assistant predicates", () => {

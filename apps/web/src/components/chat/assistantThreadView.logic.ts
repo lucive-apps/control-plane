@@ -58,6 +58,8 @@ export interface AssistantTimeline {
 }
 
 export type AgentMessagePresentation =
+  /** A prompt a Project schedule sent: "Scheduled · <name> · <time>" above the bubble. */
+  | { readonly kind: "scheduled"; readonly name: string }
   /**
    * A manager's message in an agent thread: a user bubble attributed to the
    * Project (from the coordinator) or to the standing agent that asked.
@@ -97,6 +99,10 @@ export function resolveAgentMessagePresentation(input: {
 }): AgentMessagePresentation {
   const { message, assistantTimeline: timeline } = input;
   const source = message.source;
+  // A schedule has no sender thread, so it wins before any handoff reading.
+  if (isAgentOriginatedUserMessage(message) && source?.scheduleId !== undefined) {
+    return { kind: "scheduled", name: source.threadTitle ?? "Schedule" };
+  }
   if (!timeline || !isAgentOriginatedUserMessage(message) || source?.threadId === undefined) {
     return DEFAULT_PRESENTATION;
   }

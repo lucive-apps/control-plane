@@ -236,8 +236,12 @@ export function rollupAssistantStatus(input: {
   readonly statuses: Iterable<SidebarThreadStatus>;
   readonly coordinatorUnread: boolean;
   readonly agentsUnread: boolean;
+  /** A missed or failed schedule reads as failed: below approval, input and working. */
+  readonly scheduleAttention?: boolean | undefined;
 }): SidebarThreadStatus | "unread" | null {
-  const status = rollupSidebarThreadStatus(input.statuses);
+  const status = rollupSidebarThreadStatus(
+    input.scheduleAttention === true ? [...input.statuses, "failed"] : input.statuses,
+  );
   if (status !== null && status !== "ready") return status;
   return input.coordinatorUnread || (ASSISTANT_ROLLUP_AGENT_UNREAD && input.agentsUnread)
     ? "unread"

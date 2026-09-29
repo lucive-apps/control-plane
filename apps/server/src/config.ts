@@ -91,6 +91,10 @@ export class ServerConfig extends Context.Service<
     readonly desktopTelemetryFd?: number | undefined;
     readonly desktopTelemetryControlFd?: number | undefined;
     readonly resourceMonitorPath?: string | undefined;
+    /** Fork: the desktop's schedule backend, which beats `CPLANE_SCHEDULES_BACKEND`. */
+    readonly schedulesBackend?: "os" | "dry-run" | undefined;
+    /** Fork: the desktop app's bundle id, for the schedule entry's label. */
+    readonly appId?: string | undefined;
     readonly autoBootstrapProjectFromCwd: boolean;
     readonly logWebSocketEvents: boolean;
     readonly tailscaleServeEnabled: boolean;

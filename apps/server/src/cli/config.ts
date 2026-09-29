@@ -415,6 +415,10 @@ export const resolveServerConfig = (
       desktopTelemetryFd,
       desktopTelemetryControlFd,
       resourceMonitorPath,
+      ...(bootstrap?.schedulesBackend === undefined
+        ? {}
+        : { schedulesBackend: bootstrap.schedulesBackend }),
+      ...(bootstrap?.appId === undefined ? {} : { appId: bootstrap.appId }),
       autoBootstrapProjectFromCwd,
       logWebSocketEvents,
       tailscaleServeEnabled,

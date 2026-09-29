@@ -8,6 +8,7 @@ import {
   ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
+import { ProjectScheduler } from "./schedules.ts";
 
 /** Wire version for orchestration snapshots, streams, commands, and RPC payloads. */
 export const ORCHESTRATION_PROTOCOL_VERSION = 1;
@@ -148,6 +149,16 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
       and enforces its invariants. Absent on older and upstream servers, so clients hide
       Projects rather than send commands those servers would drop. */
   assistants: Schema.optionalKey(Schema.Boolean),
+  /** Server stores Project schedules and answers `schedules.status` and `schedules.run`.
+      Absent on older and upstream servers, so clients hide the Schedules panel. A scheduler
+      this build does not know also reads as absent. */
+  projectSchedules: ForwardCompatibleOptional(
+    Schema.Struct({
+      scheduler: ProjectScheduler,
+      /** The host zone at startup. The panel prefers the live zone from `schedules.status`. */
+      timeZone: TrimmedNonEmptyString,
+    }),
+  ),
   /** Server understands regenerateTitle on thread.meta.update. Absent on
       older servers, so clients hide the action instead of sending it. */
   threadTitleRegeneration: Schema.optionalKey(Schema.Boolean),

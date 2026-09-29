@@ -1,12 +1,37 @@
+import {
+  CommandId,
+  MessageId,
+  ProjectId,
+  ProviderInstanceId,
+  ThreadId,
+  TurnId,
+} from "@t3tools/contracts";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { assert, it as effectIt } from "@effect/vitest";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { describe, expect, it } from "vite-plus/test";
 
+import { ServerConfig } from "../config.ts";
+import { OrchestrationCommandReceiptRepositoryLive } from "../persistence/Layers/OrchestrationCommandReceipts.ts";
+import { OrchestrationEventStoreLive } from "../persistence/Layers/OrchestrationEventStore.ts";
+import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
+import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import { AGENT_RESULT_CAP_BYTES } from "./agentProtocol.ts";
 import {
   formatAgentResult,
   isDeliveryIdle,
+  makeAgentPushQueries,
   openMessageQuestions,
   type AgentResultOutcome,
 } from "./agentPushes.ts";
+import { OrchestrationEngineLive } from "./Layers/OrchestrationEngine.ts";
+import { OrchestrationProjectionPipelineLive } from "./Layers/ProjectionPipeline.ts";
+import { OrchestrationProjectionSnapshotQueryLive } from "./Layers/ProjectionSnapshotQuery.ts";
+import { OrchestrationEngineService } from "./Services/OrchestrationEngine.ts";
+import * as ThreadBackgroundLiveness from "./ThreadBackgroundLiveness.ts";
+import * as ThreadPlanProgress from "./ThreadPlanProgress.ts";
 
 const header = (state: string) => `Result from agent "Compare" (threadId agent-1): ${state}`;
 
@@ -93,4 +118,105 @@ describe("isDeliveryIdle", () => {
     expect(isDeliveryIdle(ready, { requestedAt: "2026-09-28T11:59:00.000Z" }, now)).toBe(false);
     expect(isDeliveryIdle(ready, { requestedAt: "2026-09-28T11:57:00.000Z" }, now)).toBe(true);
   });
+});
+
+describe("pushBudget", () => {
+  const PROJECT = ProjectId.make("project-personal");
+  const COORDINATOR = ThreadId.make("coordinator");
+  const EngineLayer = OrchestrationEngineLive.pipe(
+    Layer.provideMerge(OrchestrationProjectionSnapshotQueryLive),
+    Layer.provide(ThreadBackgroundLiveness.layer),
+    Layer.provide(ThreadPlanProgress.layer),
+    Layer.provideMerge(OrchestrationProjectionPipelineLive),
+    Layer.provide(OrchestrationEventStoreLive),
+    Layer.provide(OrchestrationCommandReceiptRepositoryLive),
+    Layer.provide(RepositoryIdentityResolver.layer),
+    Layer.provideMerge(SqlitePersistenceMemory),
+    Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "t3-push-budget-" })),
+    Layer.provideMerge(NodeServices.layer),
+  );
+
+  effectIt.effect("releases on a scheduled turn and never counts a push answering a schedule", () =>
+    Effect.gen(function* () {
+      const engine = yield* OrchestrationEngineService;
+      const queries = makeAgentPushQueries(yield* SqlClient.SqlClient);
+      const createdAt = "2026-09-28T12:00:00.000Z";
+      yield* engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.make("project"),
+        projectId: PROJECT,
+        title: "Personal",
+        workspaceRoot: "/tmp/project-personal",
+        createdAt,
+      });
+      yield* engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("coordinator"),
+        threadId: COORDINATOR,
+        projectId: PROJECT,
+        title: "Personal",
+        modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5-codex" },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        createdAt,
+      });
+      /** A turn the coordinator ran, started by an agent-sourced `messageId`. */
+      const runTurn = (messageId: string) =>
+        Effect.gen(function* () {
+          yield* engine.dispatch({
+            type: "thread.turn.start",
+            commandId: CommandId.make(`start:${messageId}`),
+            threadId: COORDINATOR,
+            message: {
+              messageId: MessageId.make(messageId),
+              role: "user",
+              text: "",
+              attachments: [],
+              // Pushes name their agent; scheduled prompts name their schedule.
+              source: messageId.startsWith("cp-schedule:")
+                ? { kind: "agent", threadTitle: "Daily", scheduleId: "daily" }
+                : { kind: "agent", threadId: ThreadId.make("agent"), threadTitle: "Agent" },
+            },
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            createdAt,
+          });
+          for (const status of ["running", "ready"] as const) {
+            yield* engine.dispatch({
+              type: "thread.session.set",
+              commandId: CommandId.make(`session:${status}:${messageId}`),
+              threadId: COORDINATOR,
+              session: {
+                threadId: COORDINATOR,
+                status,
+                providerName: "codex",
+                runtimeMode: "full-access",
+                activeTurnId: status === "running" ? TurnId.make(`turn:${messageId}`) : null,
+                lastError: null,
+                updatedAt: createdAt,
+              },
+              createdAt,
+            });
+          }
+        });
+      const scheduledPrompt = `cp-schedule:${PROJECT}:daily:2026-09-28T13:00:00.000Z`;
+
+      yield* runTurn("cp-push:agent-1:request-1");
+      yield* runTurn(
+        `cp-push:standing-sales:cp-schedule:${PROJECT}:pipeline:2026-09-28T13:00:00.000Z`,
+      );
+      assert.deepStrictEqual(yield* queries.pushBudget(COORDINATOR), {
+        pushedSinceRelease: 1,
+        releaseMessageId: null,
+      });
+      yield* runTurn(scheduledPrompt);
+      yield* runTurn("cp-push:agent-2:request-2");
+      assert.deepStrictEqual(yield* queries.pushBudget(COORDINATOR), {
+        pushedSinceRelease: 1,
+        releaseMessageId: MessageId.make(scheduledPrompt),
+      });
+    }).pipe(Effect.provide(EngineLayer)),
+  );
 });

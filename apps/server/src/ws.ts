@@ -133,6 +133,7 @@ import * as PortScanner from "./preview/PortScanner.ts";
 import * as WorkspaceEntries from "./workspace/WorkspaceEntries.ts";
 import * as WorkspaceFileSystem from "./workspace/WorkspaceFileSystem.ts";
 import { readWorkflowScript } from "./orchestration/workflowScriptQuery.ts";
+import { ScheduleService } from "./schedules/ScheduleService.ts";
 import * as WorkspacePaths from "./workspace/WorkspacePaths.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
@@ -628,6 +629,7 @@ const makeWsRpcLayer = (
         | WorkspacePaths.WorkspacePaths
       >();
       const agentSessionScanner = yield* AgentSessionScanner.AgentSessionScanner;
+      const scheduleService = yield* ScheduleService;
       const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
       const backgroundPolicy = yield* BackgroundPolicy.BackgroundPolicy;
       const rpcClientIds = yield* Ref.make(new Set<RpcClientId>());
@@ -852,6 +854,7 @@ const makeWsRpcLayer = (
         switch (event.type) {
           case "project.created":
           case "project.meta-updated":
+          case "project.schedule-run-recorded":
             return projectUpsertOrRemove(ProjectId.make(event.aggregateId), event.sequence);
           case "project.deleted":
             return Effect.succeed(
@@ -3081,6 +3084,16 @@ const makeWsRpcLayer = (
               ),
             ),
             { "rpc.aggregate": "workspace" },
+          ),
+        [WS_METHODS.schedulesStatus]: (input) =>
+          observeRpcEffect(WS_METHODS.schedulesStatus, scheduleService.status(input.projectId), {
+            "rpc.aggregate": "orchestration",
+          }),
+        [WS_METHODS.schedulesRun]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.schedulesRun,
+            scheduleService.run(input.projectId, input.scheduleId),
+            { "rpc.aggregate": "orchestration" },
           ),
         [WS_METHODS.shellOpenInEditor]: (input) =>
           observeRpcEffect(WS_METHODS.shellOpenInEditor, externalLauncher.launchEditor(input), {

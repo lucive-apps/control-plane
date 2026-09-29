@@ -296,6 +296,27 @@ it.layer(
       }),
     );
 
+    it.effect("renders schedule entries to disk in every dev mode, even over an inherited os", () =>
+      Effect.gen(function* () {
+        for (const mode of ["dev", "dev:desktop"] as const) {
+          const env = yield* createDevRunnerEnv({
+            mode,
+            baseEnv: { CPLANE_SCHEDULES_BACKEND: "os" },
+            serverOffset: 0,
+            webOffset: 0,
+            t3Home: undefined,
+            browser: undefined,
+            autoBootstrapProjectFromCwd: undefined,
+            logWebSocketEvents: undefined,
+            host: undefined,
+            port: undefined,
+            devUrl: undefined,
+          });
+          assert.equal(env.CPLANE_SCHEDULES_BACKEND, "dry-run");
+        }
+      }),
+    );
+
     it.effect("does not force websocket logging on in dev mode when unset", () =>
       Effect.gen(function* () {
         const env = yield* createDevRunnerEnv({

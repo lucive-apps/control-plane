@@ -14,6 +14,7 @@ import {
 } from "./assistants.ts";
 import type { EnvironmentProject, EnvironmentThreadShell } from "./models.ts";
 import { derivePhysicalProjectKey } from "./projectGrouping.ts";
+import type { SidebarThreadStatus } from "./threadStatus.ts";
 
 const primary = EnvironmentId.make("primary");
 const remote = EnvironmentId.make("remote");
@@ -240,6 +241,21 @@ describe("rollupAssistantStatus", () => {
         agentsUnread: false,
       }),
     ).toBe("approval");
+  });
+
+  it("ranks a missed or failed schedule below working and above unread", () => {
+    const rollup = (statuses: SidebarThreadStatus[]) =>
+      rollupAssistantStatus({
+        statuses,
+        coordinatorUnread: true,
+        agentsUnread: false,
+        scheduleAttention: true,
+      });
+    expect(rollup(["ready"])).toBe("failed");
+    expect(rollup(["monitoring"])).toBe("failed");
+    expect(rollup(["working"])).toBe("working");
+    expect(rollup(["input"])).toBe("input");
+    expect(rollup(["approval"])).toBe("approval");
   });
 
   it("falls back to coordinator unread only when nothing is live", () => {

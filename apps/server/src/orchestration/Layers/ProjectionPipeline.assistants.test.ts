@@ -131,4 +131,94 @@ engineLayer("OrchestrationProjectionPipeline assistant marker", (it) => {
       assert.deepStrictEqual(rows, [{ assistant: null }]);
     }),
   );
+
+  it.effect("records schedule runs in place and keeps prompts off the shell", () =>
+    Effect.gen(function* () {
+      const engine = yield* OrchestrationEngineService;
+      const snapshots = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+      const projectId = ProjectId.make("project-schedules");
+      const coordinatorThreadId = ThreadId.make("thread-schedules-coordinator");
+
+      yield* engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.make("cmd-schedules-project"),
+        projectId,
+        title: "Sales",
+        workspaceRoot: "/tmp/project-schedules",
+        createdAt,
+      });
+      yield* engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("cmd-schedules-thread"),
+        threadId: coordinatorThreadId,
+        projectId,
+        title: "Sales",
+        modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5-codex" },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        createdAt,
+      });
+      yield* engine.dispatch({
+        type: "project.meta.update",
+        commandId: CommandId.make("cmd-schedules-set"),
+        projectId,
+        assistant: {
+          coordinatorThreadId,
+          schedules: [
+            {
+              id: "morning-brief",
+              name: "Morning brief",
+              cron: "0 7 * * 1-5",
+              target: "coordinator",
+              enabled: true,
+              prompt: "Summarize the pipeline.",
+            },
+          ],
+        },
+      });
+      const readUpdatedAt = sql<{ readonly updatedAt: string }>`
+        SELECT updated_at AS "updatedAt" FROM projection_projects WHERE project_id = ${projectId}
+      `;
+      const [before] = yield* readUpdatedAt;
+
+      const run = {
+        slot: "2026-01-05T14:00:00.000Z",
+        at: "2026-01-05T14:00:02.000Z",
+        trigger: "cron",
+        outcome: "sent",
+        threadId: coordinatorThreadId,
+      } as const;
+      yield* engine.dispatch({
+        type: "project.schedule.record",
+        commandId: CommandId.make("cp-schedule-run:project-schedules:morning-brief:slot"),
+        projectId,
+        scheduleId: "morning-brief",
+        run,
+        createdAt: run.at,
+      });
+
+      const [after] = yield* readUpdatedAt;
+      assert.strictEqual(after?.updatedAt, before?.updatedAt);
+
+      const shell = (yield* snapshots.getShellSnapshot()).projects.find(
+        (project) => project.id === projectId,
+      );
+      const byId = Option.getOrUndefined(yield* snapshots.getProjectShellById(projectId));
+      const command = (yield* snapshots.getCommandReadModel()).projects.find(
+        (project) => project.id === projectId,
+      );
+      for (const project of [shell, byId, command]) {
+        assert.deepStrictEqual(project?.assistant?.scheduleRuns, { "morning-brief": run });
+        assert.strictEqual(project?.assistant?.schedules?.[0]?.id, "morning-brief");
+      }
+      assert.notProperty(shell?.assistant, "schedulePrompts");
+      assert.notProperty(byId?.assistant, "schedulePrompts");
+      assert.deepStrictEqual(command?.assistant?.schedulePrompts, {
+        "morning-brief": "Summarize the pipeline.",
+      });
+    }),
+  );
 });

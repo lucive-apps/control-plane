@@ -24,6 +24,9 @@ const MEMORY_FILE = "MEMORY.md";
 const ROLE_FILE = "AGENTS.md";
 /** Inline cap for MEMORY.md and role files; the rest stays on disk. */
 export const ASSISTANT_INLINE_CAP_BYTES = 16_384;
+/** Coordinator only: the schedule tools refuse every other caller. */
+const SCHEDULE_RULE =
+  "Create or edit schedules with cp_schedule_* only when the user asks; they stay paused until the user turns them on.";
 
 interface AssistantRuntimeProject {
   readonly id: string;
@@ -176,6 +179,7 @@ export function buildAssistantRuntimeBlock(
       `Delegate work to agents with cp_agent_create. An agent is one-off by default and settles after it reports. Pass standing: true only for a role you will reuse, and first write its role to \`${roleFilePattern}\` (slug: its title in lowercase with dashes).`,
       "When an agent you started or messaged finishes, its final message arrives here as a message from it, including any question it has for the user. Nothing polls: after delegating, end your turn. Relay an agent's question to the user, then send the answer with cp_thread_send and the agent's threadId.",
       `At most ${AGENT_RUNNING_CAP} agents run at once in this Project. Use cp_agent_list, cp_agent_read and cp_agent_stop to check on them or stop them. A message to a busy agent waits until its turn ends; stop it first to redirect it. Pass threadId to cp_thread_send, since titles can match threads outside this Project.`,
+      SCHEDULE_RULE,
       input.memory.trim()
         ? `<memory>\n${capInline(input.memory, memoryPath)}\n</memory>`
         : `<memory>(${MEMORY_FILE} is empty)</memory>`,
@@ -188,6 +192,7 @@ export function buildAssistantRuntimeBlock(
       "Delegate with cp_agent_create; results arrive as messages, so end your turn after delegating.",
       `Before passing standing: true, write the agent's role to \`${roleFilePattern}\` (slug: its title in lowercase with dashes).`,
       "Do not reply to acknowledgements. When you message an agent with cp_thread_send, pass the threadId its result returns on later sends.",
+      SCHEDULE_RULE,
       close,
     ].join("\n");
     return { roleKey, inline, pointer, agents: true };

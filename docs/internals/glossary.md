@@ -26,6 +26,8 @@ The UI calls a project a **workspace** and lists workspaces under the sidebar's 
 | Assistant   | The project marker the UI shows as a **Project**: a named coordinator plus its agents.                        |
 | Coordinator | The Project's long-running thread, `assistant.coordinatorThreadId`, always titled with the Project name.      |
 | Agent       | Any other thread in a Project. Pinned agents are standing roles that never settle; others are one-off agents. |
+| Schedule    | A prompt a Project sends on a cadence to its coordinator or a standing agent ([schedules](./schedules.md)).   |
+| Fire        | The host's OS scheduler waking the server to run the schedule slots that are due.                             |
 
 ## Orchestration
 

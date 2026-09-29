@@ -11,6 +11,7 @@ import {
   type AssistantEntry,
 } from "@t3tools/client-runtime/state/assistants";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
+import { hasScheduleAttention } from "@t3tools/client-runtime/state/schedules";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId, ScopedProjectRef, ServerConfig } from "@t3tools/contracts";
 import { ChevronRightIcon, PlusIcon } from "lucide-react";
@@ -59,6 +60,8 @@ export interface SidebarAssistantModel {
   readonly coordinatorKey: string;
   readonly agentKeys: ReadonlySet<string>;
   readonly sections: AssistantAgentSections<EnvironmentThreadShell>;
+  /** A missed or failed schedule, which reads as failed on the dot. */
+  readonly scheduleAttention: boolean;
 }
 
 // Without Projects the section's state keeps one identity, so the sidebar's
@@ -124,6 +127,7 @@ export function useSidebarAssistants(input: {
             supportsSnooze: capabilities?.threadSnooze === true,
             supportsSettlement: capabilities?.threadSettlement === true,
           }),
+          scheduleAttention: hasScheduleAttention(project.assistant),
         },
       ];
     });

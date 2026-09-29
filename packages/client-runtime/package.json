@@ -223,6 +223,10 @@
       "types": "./src/state/assistants.ts",
       "default": "./src/state/assistants.ts"
     },
+    "./state/schedules": {
+      "types": "./src/state/schedules.ts",
+      "default": "./src/state/schedules.ts"
+    },
     "./state/thread-sort": {
       "types": "./src/state/threadSort.ts",
       "default": "./src/state/threadSort.ts"

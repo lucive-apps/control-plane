@@ -13,6 +13,7 @@ import {
   OrchestrationMessage,
   OrchestrationSession,
   OrchestrationThread,
+  ProjectScheduleRunRecordedPayload,
   WORKTREE_SETUP_ACTIVITY_KIND,
 } from "@t3tools/contracts";
 import {
@@ -406,6 +407,33 @@ export function projectEvent(
                   ...project,
                   deletedAt: payload.deletedAt,
                   updatedAt: payload.deletedAt,
+                }
+              : project,
+          ),
+        })),
+      );
+
+    case "project.schedule-run-recorded":
+      return decodeForEvent(
+        ProjectScheduleRunRecordedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          // The Project's updatedAt stays, so a run never reorders the sidebar.
+          projects: nextBase.projects.map((project) =>
+            project.id === payload.projectId && project.assistant != null
+              ? {
+                  ...project,
+                  assistant: {
+                    ...project.assistant,
+                    scheduleRuns: {
+                      ...project.assistant.scheduleRuns,
+                      [payload.scheduleId]: payload.run,
+                    },
+                  },
                 }
               : project,
           ),

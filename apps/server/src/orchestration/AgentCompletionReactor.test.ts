@@ -1304,3 +1304,198 @@ describe("AgentCompletionReactor", () => {
     }),
   );
 });
+
+describe("AgentCompletionReactor with scheduled prompts", () => {
+  const SALES = A("standing-sales");
+  const scheduled = (scheduleId: string) =>
+    M(`cp-schedule:${PROJECT}:${scheduleId}:2026-09-28T13:00:00.000Z`);
+
+  /** A schedule's prompt, appended as ScheduleRunner appends it. */
+  const appendScheduled = (
+    f: Effect.Success<typeof makeFixture>,
+    threadId: ThreadId,
+    messageId: MessageId,
+    replyTo?: ThreadId,
+  ) =>
+    Effect.gen(function* () {
+      yield* f.dispatch({
+        type: "thread.message.user.append",
+        commandId: CommandId.make(messageId),
+        threadId,
+        message: {
+          messageId,
+          text: "Run the pipeline check.",
+          attachments: [],
+          source: {
+            kind: "agent",
+            threadTitle: "Pipeline check",
+            scheduleId: "pipeline",
+            ...(replyTo !== undefined ? { replyTo } : {}),
+          },
+        },
+        createdAt: yield* f.now,
+      });
+    });
+
+  /** A one-off agent's result pushed into the coordinator; `run` lets the coordinator take it. */
+  const pushResult = (
+    f: Effect.Success<typeof makeFixture>,
+    drain: Effect.Effect<void>,
+    index: number,
+    run: boolean,
+  ) =>
+    Effect.gen(function* () {
+      const agent = A(`agent-${index}`);
+      yield* f.createThread(agent, `Agent ${index}`, { createdBy: COORDINATOR });
+      yield* f.request(agent, M(`request-${index}`), COORDINATOR);
+      yield* f.finishTurn(agent, T(`turn-agent-${index}`), `Answer ${index}.`);
+      yield* drain;
+      if (run) {
+        yield* f.finishTurn(COORDINATOR, T(`turn-push-${index}`), "Noted.");
+        yield* drain;
+      }
+      return pushIdOf(agent, M(`request-${index}`));
+    });
+
+  test(
+    "starts a scheduled prompt in an idle coordinator exactly once",
+    Effect.gen(function* () {
+      const f = yield* makeFixture;
+      yield* f.createProject;
+      const prompt = scheduled("daily");
+
+      yield* f.withReactor((drain) =>
+        Effect.gen(function* () {
+          yield* appendScheduled(f, COORDINATOR, prompt);
+          yield* drain;
+          assert.deepStrictEqual(yield* f.receipts("cp-start:"), [`accepted cp-start:${prompt}`]);
+          yield* f.setSession(COORDINATOR, "ready", null);
+          yield* drain;
+        }),
+      );
+      yield* f.withReactor(() => Effect.void);
+
+      assert.deepStrictEqual(yield* f.receipts("cp-start:"), [`accepted cp-start:${prompt}`]);
+      assert.strictEqual(yield* f.turnStartsOf(prompt), 1);
+    }),
+  );
+
+  test(
+    "starts a held push and a scheduled prompt for one coordinator one after the other",
+    Effect.gen(function* () {
+      const f = yield* makeFixture;
+      yield* f.createProject;
+      const prompt = scheduled("daily");
+
+      yield* f.withReactor((drain) =>
+        Effect.gen(function* () {
+          yield* f.startTurn(COORDINATOR, M("user-message"));
+          yield* f.beginTurn(COORDINATOR, T("turn-user"));
+          const push = yield* pushResult(f, drain, 1, false);
+          yield* appendScheduled(f, COORDINATOR, prompt);
+          yield* drain;
+          assert.deepStrictEqual(yield* f.receipts("cp-start:"), []);
+
+          yield* f.endTurn(COORDINATOR, T("turn-user"), "Done.");
+          yield* drain;
+          assert.deepStrictEqual(yield* f.receipts("cp-start:"), [`accepted cp-start:${push}`]);
+
+          yield* f.finishTurn(COORDINATOR, T("turn-push"), "Noted.");
+          yield* drain;
+          assert.deepStrictEqual(yield* f.receipts("cp-start:"), [
+            `accepted cp-start:${push}`,
+            `accepted cp-start:${prompt}`,
+          ]);
+        }),
+      );
+    }),
+  );
+
+  test(
+    "pushes a standing agent's scheduled result to the coordinator, and only once it ran",
+    Effect.gen(function* () {
+      const f = yield* makeFixture;
+      yield* f.createProject;
+      yield* f.createThread(SALES, "Sales", { pinned: true });
+      // An idle standing agent's provider session is often stopped.
+      yield* f.setSession(SALES, "stopped", null);
+      const prompt = scheduled("pipeline");
+
+      yield* f.withReactor((drain) =>
+        Effect.gen(function* () {
+          yield* appendScheduled(f, SALES, prompt, COORDINATOR);
+          yield* drain;
+          assert.deepStrictEqual(yield* f.receipts("cp-start:"), [`accepted cp-start:${prompt}`]);
+          assert.deepStrictEqual(yield* f.receipts("cp-push:"), []);
+
+          yield* f.finishTurn(SALES, T("turn-pipeline"), "pong");
+          yield* drain;
+        }),
+      );
+
+      const pushId = pushIdOf(SALES, prompt);
+      const [pushed] = yield* f.userMessages(COORDINATOR);
+      assert.deepStrictEqual(pushed, {
+        id: pushId,
+        text: resultText("Sales", SALES, "finished", "pong"),
+      });
+      assert.include(yield* f.receipts("cp-start:"), `accepted cp-start:${pushId}`);
+    }),
+  );
+
+  test(
+    `starts a pushed answer to a scheduled request after ${AGENT_PUSH_BUDGET} counted pushes`,
+    Effect.gen(function* () {
+      const f = yield* makeFixture;
+      yield* f.createProject;
+      yield* f.createThread(SALES, "Sales", { pinned: true });
+      const prompt = scheduled("pipeline");
+
+      yield* f.withReactor((drain) =>
+        Effect.gen(function* () {
+          for (let index = 1; index <= AGENT_PUSH_BUDGET; index += 1) {
+            yield* pushResult(f, drain, index, true);
+          }
+          yield* appendScheduled(f, SALES, prompt, COORDINATOR);
+          yield* drain;
+          yield* f.finishTurn(SALES, T("turn-pipeline"), "pong");
+          yield* drain;
+        }),
+      );
+
+      assert.include(
+        yield* f.receipts("cp-start:"),
+        `accepted cp-start:${pushIdOf(SALES, prompt)}`,
+      );
+      assert.lengthOf(yield* f.activities(COORDINATOR, "agent-results.paused"), 0);
+    }),
+  );
+
+  test(
+    "starts a scheduled prompt while results are paused, and its turn releases them",
+    Effect.gen(function* () {
+      const f = yield* makeFixture;
+      yield* f.createProject;
+      const prompt = scheduled("daily");
+
+      yield* f.withReactor((drain) =>
+        Effect.gen(function* () {
+          for (let index = 1; index <= AGENT_PUSH_BUDGET; index += 1) {
+            yield* pushResult(f, drain, index, true);
+          }
+          const held = yield* pushResult(f, drain, AGENT_PUSH_BUDGET + 1, false);
+          assert.notInclude(yield* f.receipts("cp-start:"), `accepted cp-start:${held}`);
+
+          yield* appendScheduled(f, COORDINATOR, prompt);
+          yield* drain;
+          assert.include(yield* f.receipts("cp-start:"), `accepted cp-start:${prompt}`);
+          assert.notInclude(yield* f.receipts("cp-start:"), `accepted cp-start:${held}`);
+
+          yield* f.finishTurn(COORDINATOR, T("turn-scheduled"), "Brief sent.");
+          yield* drain;
+          assert.include(yield* f.receipts("cp-start:"), `accepted cp-start:${held}`);
+        }),
+      );
+    }),
+  );
+});

@@ -260,4 +260,44 @@ describe("resolveAgentMessagePresentation", () => {
       }),
     ).toEqual({ kind: "default" });
   });
+
+  it("labels a scheduled prompt by its schedule, ahead of every handoff reading", () => {
+    const scheduleSource = {
+      kind: "agent" as const,
+      threadTitle: "Morning brief",
+      scheduleId: "morning-brief-abc123",
+    };
+    const scheduled = { kind: "scheduled", name: "Morning brief" };
+    // In the coordinator, and outside any Project timeline.
+    for (const assistantTimeline of [timeline("coordinator"), null]) {
+      expect(
+        resolveAgentMessagePresentation({
+          message: { id: "cp-schedule:p:s:slot", role: "user", source: scheduleSource },
+          assistantTimeline,
+        }),
+      ).toEqual(scheduled);
+    }
+    // In a standing agent, where it also carries the coordinator as replyTo.
+    expect(
+      resolveAgentMessagePresentation({
+        message: {
+          id: "cp-schedule:p:s:slot",
+          role: "user",
+          source: { ...scheduleSource, replyTo: coordinatorThreadId },
+        },
+        assistantTimeline: timeline("agent"),
+      }),
+    ).toEqual(scheduled);
+    // Even with a sender and a push id, the schedule wins.
+    expect(
+      resolveAgentMessagePresentation({
+        message: {
+          id: `cp-push:${salesThreadId}:message-request`,
+          role: "user",
+          source: { ...scheduleSource, threadId: coordinatorThreadId },
+        },
+        assistantTimeline: timeline("agent"),
+      }),
+    ).toEqual(scheduled);
+  });
 });

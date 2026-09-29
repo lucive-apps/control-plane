@@ -36,6 +36,7 @@ import {
   ThreadPullRequestSnapshot,
   ThreadPullRequestStack,
   type ThreadPullRequestLink,
+  withoutSchedulePrompts,
 } from "@t3tools/contracts";
 import { legacyLinkedPullRequestOf } from "@t3tools/shared/threadPullRequests";
 import * as Arr from "effect/Array";
@@ -406,8 +407,9 @@ function mapProjectShellRow(
     autoPull: row.autoPull === 1,
     faviconPath: row.faviconPath ?? null,
     projectIcon: row.projectIcon ?? null,
-    // Omitted for workspaces so they stay off the wire.
-    ...(row.assistant ? { assistant: row.assistant } : {}),
+    // Omitted for workspaces so they stay off the wire. Schedule prompts
+    // never ride the shell; `schedules.status` returns them.
+    ...(row.assistant ? { assistant: withoutSchedulePrompts(row.assistant) } : {}),
     scripts: row.scripts,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

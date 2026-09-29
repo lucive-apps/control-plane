@@ -56,6 +56,8 @@ const makeElectronAppLayer = (calls: ElectronAppCalls) =>
         calls.setAboutPanelOptions.push(options);
       }),
     setAppUserModelId: () => Effect.void,
+    getLoginItemSettings: Effect.die("unexpected login item read"),
+    setLoginItemSettings: () => Effect.die("unexpected login item write"),
     getAppMetrics: Effect.succeed([]),
     isDefaultProtocolClient: () => Effect.succeed(false),
     setAsDefaultProtocolClient: () => Effect.succeed(true),

@@ -9,6 +9,7 @@ import { useEnvironments } from "~/state/environments";
 import { useEnvironmentQuery } from "~/state/query";
 import { usePrimarySessionState } from "~/environments/primary";
 import { isWslSettingsRowVisible } from "./ConnectionsSettings.logic";
+import { useOpenAtLogin } from "./OpenAtLoginSetting";
 import { isProviderSettingsEnvironmentAvailable } from "./ProviderSettingsPanel.logic";
 import {
   filterAvailableSettingsSearchItems,
@@ -19,6 +20,7 @@ export function useAvailableSettingsSearchItems() {
   const { environments } = useEnvironments();
   const primarySessionState = usePrimarySessionState();
   const localEnvironmentDisabled = isLocalEnvironmentDisabled();
+  const hasOpenAtLogin = useOpenAtLogin().state?.supported === true;
   const desktopWsl = useEnvironmentQuery(
     isElectron && !localEnvironmentDisabled ? desktopWslStateAtom : null,
   );
@@ -48,12 +50,14 @@ export function useAvailableSettingsSearchItems() {
         }),
         hasThreadAutoSettlement:
           getThreadAutoSettlementSearchAvailability(environments).eligibleEnvironmentIds.length > 0,
+        hasOpenAtLogin,
       }),
     [
       canManageLocalBackend,
       desktopWsl.data,
       desktopWsl.error,
       environments,
+      hasOpenAtLogin,
       localEnvironmentDisabled,
     ],
   );

@@ -37,6 +37,7 @@ import {
   type OrchestrationEngineShape,
 } from "../../../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { ProjectionProjectRepository } from "../../../persistence/Services/ProjectionProjects.ts";
 import {
   ProjectionThreadMessageRepository,
   type ProjectionThreadMessage,
@@ -336,6 +337,8 @@ const makeHarness = Effect.fn("makeAgentsToolkitHarness")(function* (input: Harn
     Layer.mock(ProjectionTurnRepository)({
       listByThreadId: ({ threadId }) => Effect.succeed(turns.get(threadId) ?? []),
     }),
+    // Read only by the schedule tools, which scheduleHandlers.test.ts covers.
+    Layer.mock(ProjectionProjectRepository)({}),
     Layer.mock(ProjectionThreadMessageRepository)({
       getByMessageId: ({ messageId }) =>
         Effect.succeed(Option.fromNullishOr(messages.get(messageId))),

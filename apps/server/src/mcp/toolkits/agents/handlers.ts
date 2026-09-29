@@ -35,6 +35,7 @@ import { OrchestrationCommandPreviouslyRejectedError } from "../../../orchestrat
 import * as OrchestrationEngine from "../../../orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { threadHasQueuedTurnStart } from "../../../orchestration/ThreadSettlementPolicy.ts";
+import { ProjectionProjectRepositoryLive } from "../../../persistence/Layers/ProjectionProjects.ts";
 import { ProjectionThreadMessageRepositoryLive } from "../../../persistence/Layers/ProjectionThreadMessages.ts";
 import { ProjectionTurnRepositoryLive } from "../../../persistence/Layers/ProjectionTurns.ts";
 import { ProjectionThreadMessageRepository } from "../../../persistence/Services/ProjectionThreadMessages.ts";
@@ -54,6 +55,7 @@ import {
   resolveAgentRef,
   stricterRuntimeMode,
 } from "./agentScope.ts";
+import { makeScheduleHandlers } from "./scheduleHandlers.ts";
 import {
   AgentAmbiguousError,
   AgentNotFoundError,
@@ -99,6 +101,7 @@ const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
   // Serializes creates so two calls cannot both pass the running cap.
   const createLock = yield* Semaphore.make(1);
+  const scheduleHandlers = yield* makeScheduleHandlers;
 
   const nowIso = DateTime.now.pipe(Effect.map(DateTime.formatIso));
   const randomUuid = crypto.randomUUIDv4.pipe(Effect.orDie);
@@ -282,6 +285,7 @@ const make = Effect.gen(function* () {
     });
 
   return AgentsToolkit.of({
+    ...scheduleHandlers,
     cp_agent_create: (input) =>
       Effect.gen(function* () {
         const manager = yield* requireManager();
@@ -585,7 +589,7 @@ const make = Effect.gen(function* () {
   });
 });
 
-/** Needs `AgentLineage` and the turn and message repositories; tests provide stubs. */
+/** Needs `AgentLineage` and the turn, message and project repositories; tests provide stubs. */
 export const AgentsToolkitHandlers = AgentsToolkit.toLayer(make);
 
 export const AgentsToolkitHandlersLive = AgentsToolkitHandlers.pipe(
@@ -594,6 +598,7 @@ export const AgentsToolkitHandlersLive = AgentsToolkitHandlers.pipe(
       AgentLineage.layer,
       ProjectionTurnRepositoryLive,
       ProjectionThreadMessageRepositoryLive,
+      ProjectionProjectRepositoryLive,
     ),
   ),
 );
