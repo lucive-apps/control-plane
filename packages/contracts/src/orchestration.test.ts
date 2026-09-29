@@ -1803,7 +1803,7 @@ it.effect("project.reorder accepts fractional order keys and rejects anything el
           orderKey,
         }),
       );
-      assert.strictEqual(result._tag, "Failure", `key ${JSON.stringify(orderKey)}`);
+      assert.strictEqual(result._tag, "Failure", `key "${orderKey}"`);
     }
     const dispatchable = yield* Schema.decodeUnknownEffect(ClientOrchestrationCommand)({
       type: "project.reorder",
