@@ -5,7 +5,11 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NetService from "@t3tools/shared/Net";
 import { resolveGitWorktreePath, resolveWorktreeT3Home } from "@t3tools/shared/devHome";
 import { resolveHome } from "@t3tools/shared/home";
-import { HostProcessEnvironment, HostProcessWorkingDirectory } from "@t3tools/shared/hostProcess";
+import {
+  HostProcessEnvironment,
+  HostProcessHomeDirectory,
+  HostProcessWorkingDirectory,
+} from "@t3tools/shared/hostProcess";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
@@ -749,8 +753,15 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
     const sharedWebPort = BASE_WEB_PORT + webOffset;
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
+    const tailnetHelper = path.join(
+      yield* HostProcessHomeDirectory,
+      ".local",
+      "lib",
+      "dev-tailnet",
+      "dev-tailnet.mjs",
+    );
     const helperInstalled = yield* fs
-      .exists(path.join(NodeOS.homedir(), ".local", "lib", "dev-tailnet", "dev-tailnet.mjs"))
+      .exists(tailnetHelper)
       .pipe(Effect.catch(() => Effect.succeed(false)));
     if (
       shouldShareDevServer({
@@ -808,10 +819,7 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
                 ),
               ),
             )
-          : shareAutomaticDevServer(
-              sharedWebPort,
-              path.join(NodeOS.homedir(), ".local", "lib", "dev-tailnet", "dev-tailnet.mjs"),
-            );
+          : shareAutomaticDevServer(sharedWebPort, tailnetHelper);
         const shared = yield* sharing.pipe(
           Effect.tapError((error: DevShareError) =>
             Effect.logWarning(
