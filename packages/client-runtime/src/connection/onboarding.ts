@@ -1,5 +1,6 @@
 import type { DesktopSshEnvironmentTarget, EnvironmentId } from "@t3tools/contracts";
 import { resolveRemotePairingTarget } from "@t3tools/shared/remote";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -12,7 +13,10 @@ import * as HttpClient from "effect/unstable/http/HttpClient";
 import { bootstrapRemoteBearerSession } from "../authorization/remote.ts";
 import { deriveWsBaseUrl, normalizeHttpBaseUrl } from "../environment/endpoint.ts";
 import { fetchRemoteEnvironmentDescriptor } from "../environment/descriptor.ts";
-import { RemoteEnvironmentAuthUndeclaredStatusError } from "../rpc/http.ts";
+import {
+  RemoteEnvironmentAuthTimeoutError,
+  RemoteEnvironmentAuthUndeclaredStatusError,
+} from "../rpc/http.ts";
 import * as ClientCapabilities from "../platform/capabilities.ts";
 import {
   BearerConnectionCredential,
@@ -39,6 +43,8 @@ export interface PairingConnectionInput {
   readonly pairingUrl?: string;
   readonly host?: string;
   readonly pairingCode?: string;
+  /** Called before each retry while the environment is starting up or overloaded. */
+  readonly onWaiting?: (progress: PairingWaitProgress) => void;
 }
 
 export interface SshConnectionInput {
@@ -86,45 +92,85 @@ const resolvePairingTarget = Effect.fn("clientRuntime.connection.onboarding.reso
   },
 );
 
-// A gateway or overloaded server often recovers within seconds, so pairing
-// retries those statuses twice (about 20s in total) before giving up. The
-// server's Retry-After wins when it asks for a shorter or bounded wait.
+/**
+ * Pairing waits for a server that is starting or briefly overloaded: a hosted
+ * environment can take ~15s to cold start, longer than one descriptor
+ * request's timeout. Timeouts and 502/503/504 retry within one overall
+ * budget, honoring Retry-After; anything else fails at once.
+ */
+export const PAIRING_WAKE_BUDGET_MS = 45_000;
 const PAIRING_RETRY_STATUSES: ReadonlySet<number> = new Set([502, 503, 504]);
-const PAIRING_RETRY_DELAYS_MS: ReadonlyArray<number> = [8_000, 10_000];
+const PAIRING_TIMEOUT_RETRY_DELAY_MS = 1_000;
+const PAIRING_UNAVAILABLE_RETRY_DELAY_MS = 5_000;
 const PAIRING_MAX_RETRY_AFTER_MS = 12_000;
+const PAIRING_DESCRIPTOR_TIMEOUT_MS = 10_000;
+/** A retry needs at least this long left to be worth sending. */
+const PAIRING_MIN_ATTEMPT_MS = 2_000;
 
-export function pairingRetryDelayMs(error: unknown, attempt: number): number | null {
-  const fallback = PAIRING_RETRY_DELAYS_MS[attempt];
-  if (
-    fallback === undefined ||
-    !(error instanceof RemoteEnvironmentAuthUndeclaredStatusError) ||
-    !PAIRING_RETRY_STATUSES.has(error.status)
-  ) {
-    return null;
-  }
-  return error.retryAfterMs === undefined
-    ? fallback
-    : Math.min(error.retryAfterMs, PAIRING_MAX_RETRY_AFTER_MS);
+export type PairingWaitReason = "timeout" | "unavailable";
+
+export interface PairingWaitProgress {
+  readonly reason: PairingWaitReason;
+  /** Time since the first descriptor request. */
+  readonly elapsedMs: number;
 }
 
-const fetchPairingDescriptor = (httpBaseUrl: string, attempt = 0) =>
-  fetchRemoteEnvironmentDescriptor({ httpBaseUrl }).pipe(
-    Effect.catch((error): ReturnType<typeof fetchRemoteEnvironmentDescriptor> => {
-      const delayMs = pairingRetryDelayMs(error, attempt);
-      return delayMs === null
-        ? Effect.fail(error)
-        : Effect.sleep(Duration.millis(delayMs)).pipe(
-            Effect.andThen(fetchPairingDescriptor(httpBaseUrl, attempt + 1)),
-          );
-    }),
-  );
+export function pairingRetryDelayMs(
+  error: unknown,
+  remainingMs: number,
+): { readonly delayMs: number; readonly reason: PairingWaitReason } | null {
+  let retry: { readonly delayMs: number; readonly reason: PairingWaitReason } | null = null;
+  if (error instanceof RemoteEnvironmentAuthTimeoutError) {
+    retry = { delayMs: PAIRING_TIMEOUT_RETRY_DELAY_MS, reason: "timeout" };
+  } else if (
+    error instanceof RemoteEnvironmentAuthUndeclaredStatusError &&
+    PAIRING_RETRY_STATUSES.has(error.status)
+  ) {
+    retry = {
+      delayMs: Math.min(
+        error.retryAfterMs ?? PAIRING_UNAVAILABLE_RETRY_DELAY_MS,
+        PAIRING_MAX_RETRY_AFTER_MS,
+      ),
+      reason: "unavailable",
+    };
+  }
+  if (retry === null || remainingMs - retry.delayMs < PAIRING_MIN_ATTEMPT_MS) return null;
+  return retry;
+}
+
+const fetchPairingDescriptor = Effect.fn("clientRuntime.connection.onboarding.fetchDescriptor")(
+  function* (
+    httpBaseUrl: string,
+    onWaiting: ((progress: PairingWaitProgress) => void) | undefined,
+  ) {
+    const startedAt = yield* Clock.currentTimeMillis;
+    const attempt = (): ReturnType<typeof fetchRemoteEnvironmentDescriptor> =>
+      Effect.gen(function* () {
+        const elapsed = (yield* Clock.currentTimeMillis) - startedAt;
+        const timeoutMs = Math.min(PAIRING_DESCRIPTOR_TIMEOUT_MS, PAIRING_WAKE_BUDGET_MS - elapsed);
+        return yield* fetchRemoteEnvironmentDescriptor({ httpBaseUrl, timeoutMs }).pipe(
+          Effect.catch((error) =>
+            Effect.gen(function* () {
+              const elapsedMs = (yield* Clock.currentTimeMillis) - startedAt;
+              const retry = pairingRetryDelayMs(error, PAIRING_WAKE_BUDGET_MS - elapsedMs);
+              if (retry === null) return yield* Effect.fail(error);
+              yield* Effect.sync(() => onWaiting?.({ reason: retry.reason, elapsedMs }));
+              yield* Effect.sleep(Duration.millis(retry.delayMs));
+              return yield* attempt();
+            }),
+          ),
+        );
+      });
+    return yield* attempt();
+  },
+);
 
 export const preparePairingRegistration = Effect.fn(
   "clientRuntime.connection.onboarding.preparePairingRegistration",
 )(function* (input: PairingConnectionInput) {
   const target = yield* resolvePairingTarget(input);
   const presentation = yield* ClientCapabilities.ClientPresentation;
-  const descriptor = yield* fetchPairingDescriptor(target.httpBaseUrl).pipe(
+  const descriptor = yield* fetchPairingDescriptor(target.httpBaseUrl, input.onWaiting).pipe(
     Effect.mapError(mapRemoteEnvironmentError),
   );
   const compatibilityError = orchestrationProtocolCompatibilityError(descriptor);

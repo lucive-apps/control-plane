@@ -1,3 +1,4 @@
+import { useAtomValue } from "@effect/atom-react";
 import { ScreenScrollView as ScrollView } from "../../components/ScreenScrollView";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/StackHeader";
@@ -18,9 +19,14 @@ import { ErrorBanner } from "../../components/ErrorBanner";
 import { ConnectionFormField } from "./ConnectionFormField";
 import { ConnectionSheetButton } from "./ConnectionSheetButton";
 import { buildPairingUrl, extractPairingUrlFromQrPayload, parsePairingUrl } from "./pairing";
+import { pairingWakingServerAtom } from "../../connection/onboarding";
 import { useEnvironments } from "../../state/environments";
 import { useRemoteConnections } from "../../state/use-remote-environment-registry";
 import { TryDemoButton } from "../demo/TryDemoButton";
+
+const WAKING_SERVER_LABEL = "Waking up the server...";
+const WAKING_SERVER_DETAIL =
+  "The server is starting up. This can take up to 45 seconds; keep this screen open.";
 
 type ConnectionsNewRouteParams = {
   readonly mode?: string;
@@ -64,6 +70,8 @@ export function ConnectionsNewRouteScreen({
   const headerIconColor = useUniwindTheme()["--color-icon"];
 
   const connectDisabled = isSubmitting || hostInput.trim().length === 0;
+  const wakingServer = useAtomValue(pairingWakingServerAtom) && isSubmitting;
+  const submittingLabel = wakingServer ? WAKING_SERVER_LABEL : "Pairing...";
   // Someone without a computer yet (an App Store reviewer, say) can explore sample data.
   const showDemoEntry = useEnvironments().environments.length === 0;
 
@@ -294,14 +302,23 @@ export function ConnectionsNewRouteScreen({
                   onChangeText={handleCodeChange}
                 />
 
-                {pairingError ? (
+                {wakingServer ? (
+                  <Text
+                    accessibilityLiveRegion="polite"
+                    className="text-center text-sm leading-normal text-foreground-muted"
+                  >
+                    {WAKING_SERVER_DETAIL}
+                  </Text>
+                ) : null}
+
+                {pairingError && !isSubmitting ? (
                   <View className="gap-3">
                     <ErrorBanner message={pairingError} />
                     <View className="flex-row flex-wrap items-center justify-center gap-3">
                       <ConnectionSheetButton
                         compact
                         icon="arrow.clockwise"
-                        label={isSubmitting ? "Trying..." : "Try again"}
+                        label={isSubmitting ? submittingLabel : "Try again"}
                         disabled={connectDisabled}
                         tone="secondary"
                         onPress={() => {
@@ -316,7 +333,7 @@ export function ConnectionsNewRouteScreen({
                 <View className={Platform.OS === "android" ? "flex-row justify-end" : undefined}>
                   <ConnectionSheetButton
                     icon="plus"
-                    label={isSubmitting ? "Pairing..." : "Add environment"}
+                    label={isSubmitting ? submittingLabel : "Add environment"}
                     disabled={connectDisabled}
                     tone="primary"
                     onPress={() => {

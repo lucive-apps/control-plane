@@ -38,7 +38,7 @@ function pairingHttpLayer(
     readonly failDescriptor?: boolean;
     readonly protocolVersion?: number;
     /** Served in order before the normal descriptor, one per request. */
-    readonly descriptorFailures?: Array<Response>;
+    readonly descriptorFailures?: Array<Response | Promise<Response>>;
   },
 ) {
   const fetchFn = ((input, init = {}) => {
@@ -52,7 +52,8 @@ function pairingHttpLayer(
         );
       }
       const failure = options?.descriptorFailures?.shift();
-      if (failure !== undefined) return Promise.resolve(failure);
+      if (failure !== undefined)
+        return failure instanceof Promise ? failure : Promise.resolve(failure);
       return Promise.resolve(
         Response.json({
           environmentId: "environment-paired",
@@ -297,26 +298,34 @@ describe("connection onboarding", () => {
       { message: "Review environment unavailable" },
       { status: 503, ...(headers === undefined ? {} : { headers }) },
     );
+  // Never settles, so the request runs into its timeout.
+  const hanging = () => new Promise<Response>(() => {});
+
+  const pair = (
+    calls: Array<{ readonly url: string; readonly init: RequestInit }>,
+    descriptorFailures: Array<Response | Promise<Response>>,
+    waits: Array<{ readonly reason: string; readonly elapsedMs: number }> = [],
+  ) =>
+    preparePairingRegistration({
+      host: "remote.example.test",
+      pairingCode: "pairing-token",
+      onWaiting: (progress) => waits.push(progress),
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(CLIENT_PRESENTATION_LAYER, pairingHttpLayer(calls, { descriptorFailures })),
+      ),
+    );
 
   it.effect("retries a 503 descriptor and then pairs", () =>
     Effect.gen(function* () {
       const calls: Array<{ readonly url: string; readonly init: RequestInit }> = [];
-      const fiber = yield* preparePairingRegistration({
-        host: "remote.example.test",
-        pairingCode: "pairing-token",
-      }).pipe(
-        Effect.provide(
-          Layer.mergeAll(
-            CLIENT_PRESENTATION_LAYER,
-            pairingHttpLayer(calls, { descriptorFailures: [unavailable()] }),
-          ),
-        ),
-        Effect.forkChild,
-      );
-      yield* TestClock.adjust("8 seconds");
+      const waits: Array<{ readonly reason: string; readonly elapsedMs: number }> = [];
+      const fiber = yield* pair(calls, [unavailable()], waits).pipe(Effect.forkChild);
+      yield* TestClock.adjust("5 seconds");
       const registration = yield* Fiber.join(fiber);
 
       expect(registration.target.environmentId).toBe("environment-paired");
+      expect(waits).toEqual([{ reason: "unavailable", elapsedMs: 0 }]);
       expect(calls.map((call) => call.url)).toEqual([
         "https://remote.example.test/.well-known/t3/environment",
         "https://remote.example.test/.well-known/t3/environment",
@@ -328,18 +337,7 @@ describe("connection onboarding", () => {
   it.effect("honors Retry-After when retrying", () =>
     Effect.gen(function* () {
       const calls: Array<{ readonly url: string; readonly init: RequestInit }> = [];
-      const fiber = yield* preparePairingRegistration({
-        host: "remote.example.test",
-        pairingCode: "pairing-token",
-      }).pipe(
-        Effect.provide(
-          Layer.mergeAll(
-            CLIENT_PRESENTATION_LAYER,
-            pairingHttpLayer(calls, {
-              descriptorFailures: [unavailable({ "Retry-After": "2" })],
-            }),
-          ),
-        ),
+      const fiber = yield* pair(calls, [unavailable({ "Retry-After": "2" })]).pipe(
         Effect.forkChild,
       );
       yield* TestClock.adjust("2 seconds");
@@ -348,59 +346,53 @@ describe("connection onboarding", () => {
     }),
   );
 
-  it.effect("reports a server that stays unavailable after two retries", () =>
+  it.effect("waits out a cold start that outlasts one request timeout", () =>
     Effect.gen(function* () {
       const calls: Array<{ readonly url: string; readonly init: RequestInit }> = [];
-      const fiber = yield* preparePairingRegistration({
-        host: "remote.example.test",
-        pairingCode: "pairing-token",
-      }).pipe(
-        Effect.provide(
-          Layer.mergeAll(
-            CLIENT_PRESENTATION_LAYER,
-            pairingHttpLayer(calls, {
-              descriptorFailures: [unavailable(), unavailable(), unavailable()],
-            }),
-          ),
-        ),
-        Effect.flip,
-        Effect.forkChild,
-      );
-      yield* TestClock.adjust("8 seconds");
+      const waits: Array<{ readonly reason: string; readonly elapsedMs: number }> = [];
+      const fiber = yield* pair(calls, [hanging()], waits).pipe(Effect.forkChild);
       yield* TestClock.adjust("10 seconds");
+      yield* TestClock.adjust("1 second");
+      const registration = yield* Fiber.join(fiber);
+
+      expect(registration.target.environmentId).toBe("environment-paired");
+      expect(waits).toEqual([{ reason: "timeout", elapsedMs: 10_000 }]);
+    }),
+  );
+
+  it.effect("gives up once the wake budget is spent", () =>
+    Effect.gen(function* () {
+      const calls: Array<{ readonly url: string; readonly init: RequestInit }> = [];
+      const failures = Array.from({ length: 20 }, () => unavailable());
+      const fiber = yield* pair(calls, failures).pipe(Effect.flip, Effect.forkChild);
+      for (let step = 0; step < 12; step += 1) yield* TestClock.adjust("5 seconds");
       const error = yield* Fiber.join(fiber);
 
       expect(error).toMatchObject({
         _tag: "ConnectionTransientError",
         reason: "remote-unavailable",
       });
-      expect(calls).toHaveLength(3);
+      // One request every 5s until less than a retry's worth of the 45s budget is left.
+      expect(calls).toHaveLength(9);
     }),
   );
 
   it.effect("classifies a 4xx descriptor as a wrong endpoint without retrying", () =>
     Effect.gen(function* () {
       const calls: Array<{ readonly url: string; readonly init: RequestInit }> = [];
-      const error = yield* preparePairingRegistration({
-        host: "remote.example.test",
-        pairingCode: "pairing-token",
-      }).pipe(
-        Effect.provide(
-          Layer.mergeAll(
-            CLIENT_PRESENTATION_LAYER,
-            pairingHttpLayer(calls, {
-              descriptorFailures: [Response.json({ message: "Not found" }, { status: 404 })],
-            }),
-          ),
-        ),
-        Effect.flip,
-      );
+      const waits: Array<{ readonly reason: string; readonly elapsedMs: number }> = [];
+      const error = yield* pair(
+        calls,
+        [Response.json({ message: "Not found" }, { status: 404 })],
+        waits,
+      ).pipe(Effect.flip);
 
       expect(error).toMatchObject({
         _tag: "ConnectionTransientError",
         reason: "endpoint-unavailable",
       });
       expect(calls).toHaveLength(1);
+      expect(waits).toEqual([]);
     }),
   );
 });

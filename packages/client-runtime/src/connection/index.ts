@@ -14,6 +14,7 @@ export {
   type BearerConnectionUpdateInput,
   ConnectionOnboarding,
   type PairingConnectionInput,
+  type PairingWaitProgress,
   type SshConnectionInput,
 } from "./onboarding.ts";
 export * from "./presentation.ts";
