@@ -90,3 +90,21 @@ export function extractPairingUrlFromQrPayload(payload: string): string {
 
   return trimmed;
 }
+
+export const UNREACHABLE_PAIRING_MESSAGE =
+  "Could not reach that computer. Check that Control Plane is running on your Mac and that this phone can reach it, then try again. No computer? Tap Try demo to explore with sample data.";
+
+/**
+ * What the Add Environment screen shows when pairing fails. An unreachable
+ * host or a server error (a 503 from a stopped server, say) gets a message the
+ * user can act on instead of the raw transport or status text. Pairing-code,
+ * permission and compatibility failures keep their specific message.
+ */
+export function pairingErrorMessage(error: unknown): string {
+  if (typeof error === "object" && error !== null && "_tag" in error) {
+    if (error._tag === "ConnectionTransientError") return UNREACHABLE_PAIRING_MESSAGE;
+  }
+  return error instanceof Error && error.message.trim().length > 0
+    ? error.message
+    : "Failed to pair with the environment.";
+}

@@ -1,10 +1,16 @@
+import {
+  ConnectionBlockedError,
+  ConnectionTransientError,
+} from "@t3tools/client-runtime/connection";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
   buildPairingUrl,
   extractPairingUrlFromQrPayload,
   PairingQrPayloadEmptyError,
+  pairingErrorMessage,
   parsePairingUrl,
+  UNREACHABLE_PAIRING_MESSAGE,
 } from "./pairing";
 
 describe("buildPairingUrl", () => {
@@ -60,5 +66,29 @@ describe("parsePairingUrl", () => {
       host: "https://desktop.tailnet.ts.net",
       code: "pairing-token",
     });
+  });
+});
+
+describe("pairingErrorMessage", () => {
+  it("explains an unreachable host or a server error", () => {
+    for (const reason of ["network", "timeout", "remote-unavailable"] as const) {
+      expect(
+        pairingErrorMessage(
+          new ConnectionTransientError({ reason, detail: "Request failed with status 503" }),
+        ),
+      ).toBe(UNREACHABLE_PAIRING_MESSAGE);
+    }
+  });
+
+  it("keeps specific pairing failures", () => {
+    expect(
+      pairingErrorMessage(
+        new ConnectionBlockedError({
+          reason: "authentication",
+          detail: "The environment credential is invalid.",
+        }),
+      ),
+    ).toBe("The environment credential is invalid.");
+    expect(pairingErrorMessage("nope")).toBe("Failed to pair with the environment.");
   });
 });
