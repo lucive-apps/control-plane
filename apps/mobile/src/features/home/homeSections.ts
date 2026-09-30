@@ -18,7 +18,7 @@ import type {
   EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/shell";
 import { getThreadSortTimestamp } from "@t3tools/client-runtime/state/thread-sort";
-import type { EnvironmentId, SidebarProjectGroupingMode } from "@t3tools/contracts";
+import type { EnvironmentId, ServerConfig, SidebarProjectGroupingMode } from "@t3tools/contracts";
 
 import { scopedProjectKey, scopedThreadKey } from "../../lib/scopedEntities";
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
@@ -194,7 +194,7 @@ export interface HomeSectionsInput {
   readonly matchedThreadKeys?: ReadonlySet<string>;
   readonly projectGroupingMode: SidebarProjectGroupingMode;
   readonly projectSortOrder: HomeProjectSortOrder;
-  /** Connected environments whose server advertises `assistants`. */
+  /** Environments whose cached or live server config advertises `assistants`. */
   readonly assistantsEnvironmentIds: ReadonlySet<EnvironmentId>;
   /** Connected environments whose loaded server config lacks `assistants`. */
   readonly assistantsUnsupportedEnvironmentIds?: ReadonlySet<EnvironmentId>;
@@ -946,6 +946,28 @@ export function homeSectionItemsAreEqual(
     case "section-action":
       return item.type === "section-action" && previous.action === item.action;
   }
+}
+
+/**
+ * Which environments offer Projects. Support comes from the config the device
+ * already has, cached or live, so Home lists New Project with the cached
+ * Projects on the first frame instead of popping it in once the socket
+ * connects. Only a connected server's config can say it predates Projects.
+ */
+export function assistantEnvironmentIds(
+  serverConfigs: ReadonlyMap<EnvironmentId, ServerConfig>,
+  connectedEnvironmentIds: ReadonlySet<EnvironmentId>,
+): {
+  readonly assistants: ReadonlySet<EnvironmentId>;
+  readonly assistantsUnsupported: ReadonlySet<EnvironmentId>;
+} {
+  const assistants = new Set<EnvironmentId>();
+  const assistantsUnsupported = new Set<EnvironmentId>();
+  for (const [environmentId, config] of serverConfigs) {
+    if (config.environment.capabilities.assistants === true) assistants.add(environmentId);
+    else if (connectedEnvironmentIds.has(environmentId)) assistantsUnsupported.add(environmentId);
+  }
+  return { assistants, assistantsUnsupported };
 }
 
 /** Which trailing action rows a list shows, decided by its caller. */

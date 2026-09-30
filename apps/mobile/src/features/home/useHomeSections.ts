@@ -28,7 +28,11 @@ import {
 } from "../threads/threadListV2";
 import { createThreadMovePlanner } from "../threads/threadOrder";
 import { useThreadListV2ShelfPreferences } from "../threads/use-thread-list-v2-shelf-preferences";
-import { buildHomeSections, type HomeSelectionReveal } from "./homeSections";
+import {
+  assistantEnvironmentIds,
+  buildHomeSections,
+  type HomeSelectionReveal,
+} from "./homeSections";
 import type { HomeProjectSortOrder } from "./homeThreadList";
 
 // Fork-owned. The state both Home panes feed into `buildHomeSections`: server
@@ -81,22 +85,14 @@ export function useHomeCapabilities() {
     }),
     [serverConfigs],
   );
-  // Connected servers split by whether their config advertises Projects. One
-  // with a config but no flag predates Projects, so Home can say so.
-  const { assistants, assistantsUnsupported } = useMemo(() => {
-    const connected = new Set(connectedKey.length === 0 ? [] : connectedKey.split("\0"));
-    const supported = new Set<EnvironmentId>();
-    const unsupported = new Set<EnvironmentId>();
-    for (const [environmentId, config] of serverConfigs) {
-      if (!connected.has(environmentId)) continue;
-      if (config.environment.capabilities.assistants === true) supported.add(environmentId);
-      else unsupported.add(environmentId);
-    }
-    return {
-      assistants: supported as ReadonlySet<EnvironmentId>,
-      assistantsUnsupported: unsupported as ReadonlySet<EnvironmentId>,
-    };
-  }, [connectedKey, serverConfigs]);
+  const { assistants, assistantsUnsupported } = useMemo(
+    () =>
+      assistantEnvironmentIds(
+        serverConfigs,
+        new Set(connectedKey.length === 0 ? [] : (connectedKey.split("\0") as EnvironmentId[])),
+      ),
+    [connectedKey, serverConfigs],
+  );
   // One identity per change: rows and the list's extraData key off it.
   return useMemo(
     () => ({ serverConfigs, ...capabilities, assistants, assistantsUnsupported }),

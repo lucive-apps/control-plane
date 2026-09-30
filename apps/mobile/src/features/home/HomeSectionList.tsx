@@ -369,7 +369,7 @@ export function HomeSectionList(
   const { openPendingTask, confirmDeletePendingTask } = usePendingTaskListActions();
   const projectActions = useProjectActions();
   const { openNewProject, openConvertToProject } = useOpenNewProject();
-  // New Project needs a connected environment that supports Projects.
+  // New Project needs an environment whose cached or live config supports Projects.
   const canCreateProject = capabilities.assistants.size > 0;
   // The iPhone closes each open section with its action row; search shows hits only.
   const searching = searchQuery.trim().length > 0;
