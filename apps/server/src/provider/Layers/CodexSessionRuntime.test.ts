@@ -671,7 +671,17 @@ describe("T3 browser developer instructions", () => {
       NodeAssert.match(instructions, /preview_open/);
       NodeAssert.match(instructions, /Do not switch to global browser skills/);
       NodeAssert.match(instructions, /Never open or drive the user's desktop browsers/);
-      NodeAssert.doesNotMatch(instructions, /user explicitly requests another browser/);
+      NodeAssert.match(
+        instructions,
+        /Exception: if the user explicitly tells you to use their own browser or computer/,
+      );
+      NodeAssert.match(instructions, /for example 'use my Helium' or 'use my computer'/);
+      NodeAssert.match(instructions, /you may do so for that request/);
+      NodeAssert.match(
+        instructions,
+        /A coordinator relaying the user's explicit instruction counts/,
+      );
+      NodeAssert.match(instructions, /Never decide on your own that you need the user's browser/);
     }
   });
 
