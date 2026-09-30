@@ -11,6 +11,8 @@ import { RegistryContext } from "@effect/atom-react";
 import { ThreadArrangementHost } from "./features/threads/ThreadArrangementSheet";
 import { ConfirmDialogHost } from "./components/ConfirmDialogHost";
 import { CloudAuthProvider } from "./features/cloud/CloudAuthProvider";
+import { appNavigationRef, DemoModeFrame } from "./features/demo/DemoModeFrame";
+import { restoreDemoMode } from "./features/demo/demoMode";
 import { prepareNativeShowcaseCapture } from "./features/showcase/nativeShowcaseScene";
 import { IncomingShareProvider } from "./features/sharing/IncomingShareProvider";
 import {
@@ -33,6 +35,9 @@ if (process.env.EXPO_PUBLIC_SHOWCASE === "1") {
 void SplashScreen.preventAutoHideAsync().catch(() => {
   // The native module can be unavailable in non-native test environments.
 });
+
+// Before the first render, so a relaunch in demo mode never flashes the real app.
+restoreDemoMode();
 
 const appLinking = {
   prefixes: [Linking.createURL("/"), "t3code://", "t3code-dev://", "t3code-preview://"],
@@ -86,9 +91,11 @@ function AppContent() {
                 header (glass buttons, title, materials) is forced light even when
                 the system is in dark mode. */}
             <View style={{ flex: 1 }}>
-              <IncomingShareProvider>
-                <Navigation linking={appLinking} theme={navigationTheme} />
-              </IncomingShareProvider>
+              <DemoModeFrame>
+                <IncomingShareProvider>
+                  <Navigation ref={appNavigationRef} linking={appLinking} theme={navigationTheme} />
+                </IncomingShareProvider>
+              </DemoModeFrame>
               <ConfirmDialogHost />
               <ThreadArrangementHost />
             </View>

@@ -163,9 +163,16 @@ export function mapRemoteEnvironmentError(
         traceId: error.traceId,
       });
     case "RemoteEnvironmentAuthInvalidJsonError":
-    case "RemoteEnvironmentAuthUndeclaredStatusError":
       return new ConnectionTransientError({
         reason: "remote-unavailable",
+        detail: error.message,
+      });
+    case "RemoteEnvironmentAuthUndeclaredStatusError":
+      // Both stay transient so saved environments keep reconnecting; the
+      // reason tells a server outage (5xx) from an endpoint that is not a
+      // Control Plane environment, such as a wrong host (4xx).
+      return new ConnectionTransientError({
+        reason: error.status >= 500 ? "remote-unavailable" : "endpoint-unavailable",
         detail: error.message,
       });
   }

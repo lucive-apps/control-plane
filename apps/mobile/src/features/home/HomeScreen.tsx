@@ -16,6 +16,7 @@ import { cn } from "../../lib/cn";
 import { AppText as Text } from "../../components/AppText";
 import { AppTextInput } from "../../components/AppText";
 import { EmptyState } from "../../components/EmptyState";
+import { TryDemoButton } from "../demo/TryDemoButton";
 import { HomeComposerBar } from "./HomeComposerBar";
 import { MaterialFloatingActionButton } from "../../components/MaterialFloatingActionButton";
 import type { WorkspaceEnvironment, WorkspaceState } from "../../state/workspaceModel";
@@ -237,6 +238,9 @@ export function HomeScreen(props: HomeScreenProps) {
               }
               variant="plain"
             />
+            {!props.catalogState.isLoadingConnections && !props.catalogState.hasConnections ? (
+              <TryDemoButton />
+            ) : null}
             {emptyState.loading ? (
               <View className="mt-4 items-center">
                 <ActivityIndicator colorClassName="accent-icon-muted" />

@@ -5,7 +5,9 @@ import {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as TestClock from "effect/testing/TestClock";
 import * as Option from "effect/Option";
 
 import { remoteHttpClientLayer } from "../rpc/http.ts";
@@ -32,7 +34,12 @@ const CLIENT_PRESENTATION_LAYER = Layer.succeed(
 
 function pairingHttpLayer(
   calls: Array<{ readonly url: string; readonly init: RequestInit }>,
-  options?: { readonly failDescriptor?: boolean; readonly protocolVersion?: number },
+  options?: {
+    readonly failDescriptor?: boolean;
+    readonly protocolVersion?: number;
+    /** Served in order before the normal descriptor, one per request. */
+    readonly descriptorFailures?: Array<Response | Promise<Response>>;
+  },
 ) {
   const fetchFn = ((input, init = {}) => {
     const url = String(input);
@@ -41,9 +48,12 @@ function pairingHttpLayer(
     if (url.endsWith("/.well-known/t3/environment")) {
       if (options?.failDescriptor === true) {
         return Promise.resolve(
-          Response.json({ message: "descriptor unavailable" }, { status: 503 }),
+          Response.json({ message: "descriptor unavailable" }, { status: 500 }),
         );
       }
+      const failure = options?.descriptorFailures?.shift();
+      if (failure !== undefined)
+        return failure instanceof Promise ? failure : Promise.resolve(failure);
       return Promise.resolve(
         Response.json({
           environmentId: "environment-paired",
@@ -280,6 +290,109 @@ describe("connection onboarding", () => {
           target,
         },
       });
+    }),
+  );
+
+  const unavailable = (headers?: Record<string, string>) =>
+    Response.json(
+      { message: "Review environment unavailable" },
+      { status: 503, ...(headers === undefined ? {} : { headers }) },
+    );
+  // Never settles, so the request runs into its timeout.
+  const hanging = () => new Promise<Response>(() => {});
+
+  const pair = (
+    calls: Array<{ readonly url: string; readonly init: RequestInit }>,
+    descriptorFailures: Array<Response | Promise<Response>>,
+    waits: Array<{ readonly reason: string; readonly elapsedMs: number }> = [],
+  ) =>
+    preparePairingRegistration({
+      host: "remote.example.test",
+      pairingCode: "pairing-token",
+      onWaiting: (progress) => waits.push(progress),
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(CLIENT_PRESENTATION_LAYER, pairingHttpLayer(calls, { descriptorFailures })),
+      ),
+    );
+
+  it.effect("retries a 503 descriptor and then pairs", () =>
+    Effect.gen(function* () {
+      const calls: Array<{ readonly url: string; readonly init: RequestInit }> = [];
+      const waits: Array<{ readonly reason: string; readonly elapsedMs: number }> = [];
+      const fiber = yield* pair(calls, [unavailable()], waits).pipe(Effect.forkChild);
+      yield* TestClock.adjust("5 seconds");
+      const registration = yield* Fiber.join(fiber);
+
+      expect(registration.target.environmentId).toBe("environment-paired");
+      expect(waits).toEqual([{ reason: "unavailable", elapsedMs: 0 }]);
+      expect(calls.map((call) => call.url)).toEqual([
+        "https://remote.example.test/.well-known/t3/environment",
+        "https://remote.example.test/.well-known/t3/environment",
+        "https://remote.example.test/oauth/token",
+      ]);
+    }),
+  );
+
+  it.effect("honors Retry-After when retrying", () =>
+    Effect.gen(function* () {
+      const calls: Array<{ readonly url: string; readonly init: RequestInit }> = [];
+      const fiber = yield* pair(calls, [unavailable({ "Retry-After": "2" })]).pipe(
+        Effect.forkChild,
+      );
+      yield* TestClock.adjust("2 seconds");
+      const registration = yield* Fiber.join(fiber);
+      expect(registration.target.environmentId).toBe("environment-paired");
+    }),
+  );
+
+  it.effect("waits out a cold start that outlasts one request timeout", () =>
+    Effect.gen(function* () {
+      const calls: Array<{ readonly url: string; readonly init: RequestInit }> = [];
+      const waits: Array<{ readonly reason: string; readonly elapsedMs: number }> = [];
+      const fiber = yield* pair(calls, [hanging()], waits).pipe(Effect.forkChild);
+      yield* TestClock.adjust("10 seconds");
+      yield* TestClock.adjust("1 second");
+      const registration = yield* Fiber.join(fiber);
+
+      expect(registration.target.environmentId).toBe("environment-paired");
+      expect(waits).toEqual([{ reason: "timeout", elapsedMs: 10_000 }]);
+    }),
+  );
+
+  it.effect("gives up once the wake budget is spent", () =>
+    Effect.gen(function* () {
+      const calls: Array<{ readonly url: string; readonly init: RequestInit }> = [];
+      const failures = Array.from({ length: 20 }, () => unavailable());
+      const fiber = yield* pair(calls, failures).pipe(Effect.flip, Effect.forkChild);
+      for (let step = 0; step < 12; step += 1) yield* TestClock.adjust("5 seconds");
+      const error = yield* Fiber.join(fiber);
+
+      expect(error).toMatchObject({
+        _tag: "ConnectionTransientError",
+        reason: "remote-unavailable",
+      });
+      // One request every 5s until less than a retry's worth of the 45s budget is left.
+      expect(calls).toHaveLength(9);
+    }),
+  );
+
+  it.effect("classifies a 4xx descriptor as a wrong endpoint without retrying", () =>
+    Effect.gen(function* () {
+      const calls: Array<{ readonly url: string; readonly init: RequestInit }> = [];
+      const waits: Array<{ readonly reason: string; readonly elapsedMs: number }> = [];
+      const error = yield* pair(
+        calls,
+        [Response.json({ message: "Not found" }, { status: 404 })],
+        waits,
+      ).pipe(Effect.flip);
+
+      expect(error).toMatchObject({
+        _tag: "ConnectionTransientError",
+        reason: "endpoint-unavailable",
+      });
+      expect(calls).toHaveLength(1);
+      expect(waits).toEqual([]);
     }),
   );
 });

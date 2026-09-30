@@ -9,6 +9,7 @@ import {
   type EnvironmentScopeRequiredError,
 } from "@t3tools/contracts";
 import { httpHeaderRedactionLayer } from "@t3tools/shared/httpObservability";
+import * as Clock from "effect/Clock";
 import * as Data from "effect/Data";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -40,14 +41,29 @@ export class RemoteEnvironmentAuthUndeclaredStatusError extends Data.TaggedError
   readonly message: string;
   readonly status: number;
   readonly requestUrl: string;
+  /** From the response's Retry-After header, when it had a usable one. */
+  readonly retryAfterMs?: number;
 }> {
-  constructor(requestUrl: string, status: number) {
+  constructor(requestUrl: string, status: number, retryAfterMs?: number) {
     super({
       message: `Remote environment endpoint ${requestUrl} returned undeclared status ${status}.`,
       requestUrl,
       status,
+      ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
     });
   }
+}
+
+/** Reads a Retry-After header given as delay seconds or an HTTP date. */
+export function parseRetryAfterMs(
+  value: string | null | undefined,
+  nowMs: number,
+): number | undefined {
+  if (value === null || value === undefined) return undefined;
+  const trimmed = value.trim();
+  if (/^\d+$/.test(trimmed)) return Number(trimmed) * 1_000;
+  const dateMs = Date.parse(trimmed);
+  return Number.isNaN(dateMs) ? undefined : Math.max(0, dateMs - nowMs);
 }
 
 export class RemoteEnvironmentAuthTimeoutError extends Data.TaggedError(
@@ -140,8 +156,16 @@ const failRemoteRequest = (
   if (HttpClientError.isHttpClientError(cause) && cause.response !== undefined) {
     const response = cause.response;
     if (response.status < 200 || response.status >= 300) {
-      return Effect.fail(
-        new RemoteEnvironmentAuthUndeclaredStatusError(requestUrl, response.status),
+      return Clock.currentTimeMillis.pipe(
+        Effect.flatMap((nowMs) =>
+          Effect.fail(
+            new RemoteEnvironmentAuthUndeclaredStatusError(
+              requestUrl,
+              response.status,
+              parseRetryAfterMs(response.headers["retry-after"], nowMs),
+            ),
+          ),
+        ),
       );
     }
     return Effect.fail(
