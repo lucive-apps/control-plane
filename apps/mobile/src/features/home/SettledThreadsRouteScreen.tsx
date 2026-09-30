@@ -1,5 +1,8 @@
 import { partitionAssistants } from "@t3tools/client-runtime/state/assistants";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import type {
+  EnvironmentProject,
+  EnvironmentThreadShell,
+} from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { LegendList } from "@legendapp/list/react-native";
 import { StackActions, useFocusEffect, useNavigation } from "@react-navigation/native";
@@ -10,17 +13,19 @@ import type { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSw
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { EmptyState } from "../../components/EmptyState";
+import { ProjectFavicon } from "../../components/ProjectFavicon";
 import { useProjects, useThreadShells } from "../../state/entities";
 import { GROUPED_CHILD_INSET, ThreadListV2Row } from "../threads/thread-list-v2-items";
 import { resolveThreadProviderInstance } from "../threads/thread-provider-instance";
 import { useHomeListOptions } from "./home-list-options";
-import { buildSettledWorkspaceGroups } from "./settledThreads";
+import { buildSettledProjectGroups, buildSettledWorkspaceGroups } from "./settledThreads";
 import { useHomeCapabilities } from "./useHomeSections";
 import { useThreadListActions } from "./useThreadListActions";
 
-// Fork-owned. Settled Tasks threads, off the iPhone Home: one group per
-// workspace in the Home's plain row style, collapsed until tapped so a large
-// repo doesn't bury the rest. Swipe or long-press unsettles.
+// Fork-owned. Settled threads, off the Home: Project agents first, one group
+// per Project, then Tasks threads, one group per workspace, in the Home's plain
+// row style. Groups are collapsed until tapped so a large repo doesn't bury the
+// rest. Swipe or long-press unsettles.
 
 type SettledItem =
   | {
@@ -30,8 +35,17 @@ type SettledItem =
       readonly first: boolean;
       readonly count: number;
       readonly expanded: boolean;
+      /** Set for a Project group: its favicon replaces the folder glyph. */
+      readonly project?: EnvironmentProject;
     }
   | { readonly type: "thread"; readonly key: string; readonly thread: EnvironmentThreadShell };
+
+interface SettledGroup {
+  readonly key: string;
+  readonly title: string;
+  readonly threads: ReadonlyArray<EnvironmentThreadShell>;
+  readonly project?: EnvironmentProject;
+}
 
 const NO_ENVIRONMENTS: ReadonlySet<EnvironmentId> = new Set();
 const SEPARATOR_STYLE = { marginLeft: GROUPED_CHILD_INSET, marginRight: 20 } as const;
@@ -60,14 +74,20 @@ export function SettledThreadsRouteScreen() {
 
   const items = useMemo(() => {
     const partition = partitionAssistants(projects, threads, null);
-    const groups = buildSettledWorkspaceGroups({
+    const projectGroups: SettledGroup[] = buildSettledProjectGroups({
+      assistants: partition.assistants,
+      snoozeEnvironmentIds: capabilities.snooze,
+      settlementEnvironmentIds: capabilities.settlement,
+      now: `${nowMinute}:00.000Z`,
+    }).map((group) => ({ ...group, title: group.project.title }));
+    const workspaceGroups: SettledGroup[] = buildSettledWorkspaceGroups({
       projects: partition.workspaceProjects,
       threads: partition.workspaceThreads,
       projectGroupingMode,
       settlementEnvironmentIds: capabilities.settlement,
       now: `${nowMinute}:00.000Z`,
     });
-    return groups.flatMap((group, index): SettledItem[] => {
+    return [...projectGroups, ...workspaceGroups].flatMap((group, index): SettledItem[] => {
       const key = `group:${group.key}`;
       const expanded = expandedGroups.has(key);
       return [
@@ -78,6 +98,7 @@ export function SettledThreadsRouteScreen() {
           first: index === 0,
           count: group.threads.length,
           expanded,
+          ...(group.project ? { project: group.project } : {}),
         },
         ...(expanded
           ? group.threads.map((thread): SettledItem => ({
@@ -88,7 +109,15 @@ export function SettledThreadsRouteScreen() {
           : []),
       ];
     });
-  }, [capabilities.settlement, expandedGroups, nowMinute, projectGroupingMode, projects, threads]);
+  }, [
+    capabilities.settlement,
+    capabilities.snooze,
+    expandedGroups,
+    nowMinute,
+    projectGroupingMode,
+    projects,
+    threads,
+  ]);
 
   const openSwipeableRef = useRef<SwipeableMethods | null>(null);
   const handleSwipeableWillOpen = useCallback((methods: SwipeableMethods) => {
@@ -122,12 +151,25 @@ export function SettledThreadsRouteScreen() {
               className="min-h-[54px] flex-row items-center gap-3 px-5 py-2"
               style={item.first ? undefined : { marginTop: 16 }}
             >
-              <SymbolView
-                name={{ ios: "folder", android: "folder" }}
-                size={20}
-                tintColorClassName="accent-foreground"
-                type="monochrome"
-              />
+              {item.project ? (
+                <ProjectFavicon
+                  environmentId={item.project.environmentId}
+                  faviconPath={item.project.faviconPath}
+                  projectIcon={item.project.projectIcon}
+                  projectTitle={item.project.title}
+                  size={20}
+                  workspaceRoot={
+                    item.project.workspaceRoot === "" ? null : item.project.workspaceRoot
+                  }
+                />
+              ) : (
+                <SymbolView
+                  name={{ ios: "folder", android: "folder" }}
+                  size={20}
+                  tintColorClassName="accent-foreground"
+                  type="monochrome"
+                />
+              )}
               <Text className="flex-1 text-[17px] text-foreground" numberOfLines={1}>
                 {item.title}
               </Text>
@@ -208,7 +250,7 @@ export function SettledThreadsRouteScreen() {
         ListEmptyComponent={
           <EmptyState
             title="Nothing settled yet"
-            detail="Settled threads from your workspaces show up here."
+            detail="Settled Project agents and workspace threads show up here."
             variant="plain"
           />
         }

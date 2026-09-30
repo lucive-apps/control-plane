@@ -422,6 +422,10 @@ function AdaptiveWorkspaceLayoutContent(
     });
   }, [navigation]);
 
+  const handleOpenSettled = useCallback(() => {
+    navigation.navigate("Settled");
+  }, [navigation]);
+
   const handleStartNewTask = useCallback(() => {
     navigation.navigate("NewTaskSheet", { screen: "NewTaskDraft" });
   }, [navigation]);
@@ -594,6 +598,7 @@ function AdaptiveWorkspaceLayoutContent(
                     onRequestVisibility={revealPrimarySidebar}
                     selectedThreadKey={selectedThreadKey}
                     onOpenSettings={handleOpenSettings}
+                    onOpenSettled={handleOpenSettled}
                     onOpenEnvironmentSettings={handleOpenEnvironmentSettings}
                     onNewThreadInProject={handleNewThreadInProject}
                     onAddWorkspace={handleAddWorkspace}

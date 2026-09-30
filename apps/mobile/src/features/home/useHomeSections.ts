@@ -236,19 +236,6 @@ export function useHomeSections(input: {
       })),
     [],
   );
-  // Settled agents page per Project for the session, like the settled tail.
-  const [assistantSettledCounts, setAssistantSettledCounts] = useState<ReadonlyMap<string, number>>(
-    () => new Map(),
-  );
-  const setAssistantSettledCount = useCallback((key: string, count: number) => {
-    setAssistantSettledCounts((current) => {
-      const next = new Map(current);
-      if (count > 0) next.set(key, count);
-      else next.delete(key);
-      return next;
-    });
-  }, []);
-
   const partition = useMemo(
     () => partitionAssistants(input.projects, input.threads, null),
     [input.projects, input.threads],
@@ -281,12 +268,10 @@ export function useHomeSections(input: {
       settledShelf: input.settledShelf ?? true,
       collapsedKeys: sectionPreferences.collapsedKeys,
       expandedAssistantKeys: sectionPreferences.expandedAssistantKeys,
-      assistantSettledCounts,
       selectedThreadKey: input.selectedThreadKey,
       lastVisitedAtById,
     });
   }, [
-    assistantSettledCounts,
     capabilities.assistants,
     capabilities.assistantsUnsupported,
     capabilities.settlement,
@@ -375,7 +360,6 @@ export function useHomeSections(input: {
     shelf,
     sectionPreferences,
     showMoreSettled,
-    setAssistantSettledCount,
   };
 }
 

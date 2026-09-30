@@ -13,9 +13,7 @@ import { orderItemsByPreferredIds } from "../Sidebar.logic";
 // helpers shared with mobile live in client-runtime and are re-exported here.
 
 export {
-  ASSISTANT_SETTLED_PAGE_SIZE,
   assistantExpansionKey,
-  assistantSettledToggle,
   isAssistantExpanded,
   rollupAssistantsStatus,
   rollupThreadGroupStatus,
