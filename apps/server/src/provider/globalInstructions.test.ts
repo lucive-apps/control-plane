@@ -190,11 +190,8 @@ describe("prepareAssistantRuntime with global instructions", () => {
   /** Every provider path, as the adapters call it. */
   const promptsFor = (threadId: ThreadId) => ({
     claude: buildRuntimeInstructions({ harness: "Claude Code", threadId }),
-    codex: buildCodexDeveloperInstructions("default", {
-      model: "gpt-5.5",
-      reasoningEffort: "high",
-      threadId,
-    }),
+    // Codex carries the block in developer_instructions, not additionalContext.
+    codex: buildCodexDeveloperInstructions("default", threadId),
     opencode: buildRuntimeInstructions({ harness: "OpenCode", model: "a/b", threadId }),
     cursor: buildRuntimeInstructions({ harness: "Cursor", model: "m", threadId }),
     grok: buildRuntimeInstructions({ harness: "Grok", threadId }),
