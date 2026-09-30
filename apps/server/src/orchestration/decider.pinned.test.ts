@@ -79,6 +79,64 @@ it.layer(NodeServices.layer)("pinned thread decider", (it) => {
     }),
   );
 
+  it.effect("puts a fresh pin with no client key above every pinned thread", () =>
+    Effect.gen(function* () {
+      const base = makeReadModel({});
+      const pinned = (id: string, pinOrderKey: string | null) => ({
+        ...base.threads[0]!,
+        id: ThreadId.make(id),
+        pinnedAt: PINNED_AT,
+        pinOrderKey,
+      });
+      const readModel = {
+        ...base,
+        threads: [
+          ...base.threads,
+          pinned("keyed-top", "d"),
+          pinned("keyed", "m"),
+          pinned("keyless", null),
+        ],
+      };
+      const pin = (orderKey?: string) =>
+        decideOrchestrationCommand({
+          command: {
+            type: "thread.pin",
+            commandId: CommandId.make("cmd-pin-top"),
+            threadId: ThreadId.make("thread-1"),
+            ...(orderKey === undefined ? {} : { orderKey }),
+          },
+          readModel,
+        }).pipe(Effect.map((event) => (Array.isArray(event) ? event[0] : event)));
+      const serverPlaced = yield* pin();
+      expect(serverPlaced?.type).toBe("thread.pinned");
+      if (serverPlaced?.type === "thread.pinned") {
+        expect(serverPlaced.payload.pinOrderKey! < "d").toBe(true);
+      }
+      // A client's own slot still wins.
+      const clientPlaced = yield* pin("t");
+      if (clientPlaced?.type === "thread.pinned") {
+        expect(clientPlaced.payload.pinOrderKey).toBe("t");
+      }
+    }),
+  );
+
+  it.effect("re-pinning keeps the existing slot", () =>
+    Effect.gen(function* () {
+      const event = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.pin",
+          commandId: CommandId.make("cmd-pin-again-slot"),
+          threadId: ThreadId.make("thread-1"),
+        },
+        readModel: makeReadModel({ pinnedAt: PINNED_AT, pinOrderKey: "q" }),
+      });
+      const events = Array.isArray(event) ? event : [event];
+      if (events[0]?.type === "thread.pinned") {
+        expect(events[0].payload.pinOrderKey).toBeUndefined();
+      }
+    }),
+  );
+
   it.effect("re-pinning preserves the original pinnedAt and updatedAt", () =>
     Effect.gen(function* () {
       const event = yield* decideOrchestrationCommand({
@@ -282,9 +340,8 @@ it.layer(NodeServices.layer)("pinned thread decider", (it) => {
       expect(events[0]?.type).toBe("thread.pin-reordered");
       if (events[0]?.type === "thread.pin-reordered") {
         expect(events[0].payload.orderKey).toBe("m");
-        // A real move stamps the command time (the test clock), not the
-        // thread's previous updatedAt.
-        expect(events[0].payload.updatedAt).not.toBe(NOW);
+        // Arranging is not activity: the row keeps its time and sort slot.
+        expect(events[0].payload.updatedAt).toBe(NOW);
       }
     }),
   );

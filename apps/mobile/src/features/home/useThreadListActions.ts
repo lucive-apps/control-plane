@@ -1,4 +1,6 @@
 import type { ThreadMoveDestination } from "../threads/threadOrder";
+import { planAssistantAgentReorder } from "@t3tools/client-runtime/state/assistant-lists";
+import type { AssistantAgentSections } from "@t3tools/client-runtime/state/assistants";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import { canSnooze, effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
 import * as Cause from "effect/Cause";
@@ -240,6 +242,11 @@ export function useThreadListActions(): {
   readonly moveThread: (
     thread: EnvironmentThreadShell,
     direction: ThreadMoveDestination,
+  ) => Promise<boolean>;
+  readonly moveAgent: (
+    thread: EnvironmentThreadShell,
+    sections: AssistantAgentSections<EnvironmentThreadShell>,
+    direction: "up" | "down",
   ) => Promise<boolean>;
   readonly renameThread: (thread: EnvironmentThreadShell) => void;
   readonly regenerateThreadTitle: (thread: EnvironmentThreadShell) => Promise<boolean>;
@@ -687,6 +694,66 @@ export function useThreadListActions(): {
     ],
   );
 
+  // A Project agent moves one place among its standing or active agents,
+  // with the same order keys web writes, so the order syncs everywhere.
+  const moveAgent = useCallback(
+    async (
+      thread: EnvironmentThreadShell,
+      sections: AssistantAgentSections<EnvironmentThreadShell>,
+      direction: "up" | "down",
+    ) => {
+      const plan = planAssistantAgentReorder(
+        sections,
+        scopedThreadKey(thread.environmentId, thread.id),
+        { direction: direction === "up" ? -1 : 1 },
+      );
+      if (plan === null) return false;
+      const capabilities = appAtomRegistry
+        .get(environmentServerConfigsAtom)
+        .get(thread.environmentId)?.environment.capabilities;
+      const supported =
+        plan.section === "pinned"
+          ? capabilities?.threadPinReorder === true
+          : capabilities?.threadActiveReorder === true;
+      if (!supported) return false;
+      const byKey = new Map(
+        [...sections.standing, ...sections.active].map((agent) => [
+          scopedThreadKey(agent.environmentId, agent.id),
+          agent,
+        ]),
+      );
+      const reorder = plan.section === "pinned" ? reorderPinnedMutation : reorderActiveMutation;
+      selectionHaptic();
+      // Each write patches the shell before it is sent, so the Project re-sorts at once.
+      const results = await Promise.all(
+        plan.assignments.flatMap(({ id, orderKey }) => {
+          const target = byKey.get(id);
+          return target === undefined
+            ? []
+            : [
+                reorder({
+                  environmentId: target.environmentId,
+                  input: { threadId: target.id, orderKey },
+                }),
+              ];
+        }),
+      );
+      const failure = results.find((result) => result._tag === "Failure");
+      if (failure !== undefined && failure._tag === "Failure") {
+        const error = Cause.squash(failure.cause);
+        Alert.alert(
+          "Could not move agent",
+          error instanceof Error && error.message.trim().length > 0
+            ? error.message
+            : "The agent could not be moved.",
+        );
+        return false;
+      }
+      return true;
+    },
+    [reorderActiveMutation, reorderPinnedMutation],
+  );
+
   const confirmDeleteThread = useConfirmDeleteThread(executeAction);
 
   return {
@@ -699,6 +766,7 @@ export function useThreadListActions(): {
     pinThread,
     unpinThread,
     moveThread,
+    moveAgent,
     renameThread,
     regenerateThreadTitle,
   };

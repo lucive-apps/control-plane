@@ -14,7 +14,7 @@ import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/model
 import { hasScheduleAttention } from "@t3tools/client-runtime/state/schedules";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId, ScopedProjectRef, ServerConfig } from "@t3tools/contracts";
-import { useSortable } from "@dnd-kit/sortable";
+import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { ChevronRightIcon, PlusIcon } from "lucide-react";
 import {
@@ -340,6 +340,16 @@ function SidebarAssistantRow(props: {
     rollupAssistantsStatus([model], state.threadLastVisitedAtById),
   );
   const running = useMemo(() => countRunningAgents(model.entry.agents), [model.entry.agents]);
+  // Each Project's agents sort in their own context, so a drag never shifts
+  // another Project's rows. The sidebar's collision detection keeps the drop
+  // inside the dragged agent's block.
+  const agentSortableIds = useMemo(
+    () =>
+      [...model.sections.standing, ...model.sections.active].map((agent) =>
+        scopedThreadKey(scopeThreadRef(agent.environmentId, agent.id)),
+      ),
+    [model.sections.active, model.sections.standing],
+  );
 
   // Opening an agent (or a draft in the Project) reveals it, like a Tasks
   // folder does; opening the coordinator leaves the agents as they are.
@@ -438,10 +448,12 @@ function SidebarAssistantRow(props: {
         {props.jumpHint}
       </div>
       {expanded ? (
-        <ul className="flex flex-col gap-px pl-4">
-          {props.snapshot !== null ? props.renderDrafts(props.snapshot) : null}
-          {rows.map((row) => props.renderThreadRow(row.thread, row.section))}
-        </ul>
+        <SortableContext items={agentSortableIds} strategy={verticalListSortingStrategy}>
+          <ul className="flex flex-col gap-px pl-4">
+            {props.snapshot !== null ? props.renderDrafts(props.snapshot) : null}
+            {rows.map((row) => props.renderThreadRow(row.thread, row.section))}
+          </ul>
+        </SortableContext>
       ) : null}
     </li>
   );

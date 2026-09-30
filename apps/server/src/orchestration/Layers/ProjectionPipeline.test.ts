@@ -531,6 +531,50 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         assert.deepEqual(rows, [{ activeOrderKey: "gm", updatedAt: orderUpdatedAt }]);
       }
 
+      // A dragged standing agent (or pinned task) keeps its new slot in the
+      // projection, which is what every client's snapshot reads.
+      const pinOrderEvents = [
+        { type: "thread.pinned", payload: { pinnedAt: now, pinOrderKey: "m" } },
+        { type: "thread.pin-reordered", payload: { orderKey: "c" } },
+      ] as const;
+      for (const [index, event] of pinOrderEvents.entries()) {
+        yield* eventStore.append({
+          type: event.type,
+          eventId: EventId.make(`evt-pin-order-${index}`),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.make("thread-1"),
+          occurredAt: "2026-01-01T00:00:00.600Z",
+          commandId: CommandId.make(`cmd-pin-order-${index}`),
+          causationEventId: null,
+          correlationId: null,
+          metadata: {},
+          payload: {
+            ...event.payload,
+            threadId: ThreadId.make("thread-1"),
+            updatedAt: orderUpdatedAt,
+          },
+        });
+      }
+      yield* projectionPipeline.bootstrap;
+      const pinRows = yield* sql<{ readonly pinOrderKey: string | null }>`
+        SELECT pin_order_key AS "pinOrderKey"
+        FROM projection_threads WHERE thread_id = 'thread-1'
+      `;
+      assert.deepEqual(pinRows, [{ pinOrderKey: "c" }]);
+      yield* eventStore.append({
+        type: "thread.unpinned",
+        eventId: EventId.make("evt-pin-order-unpin"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.make("thread-1"),
+        occurredAt: "2026-01-01T00:00:00.700Z",
+        commandId: CommandId.make("cmd-pin-order-unpin"),
+        causationEventId: null,
+        correlationId: null,
+        metadata: {},
+        payload: { threadId: ThreadId.make("thread-1"), updatedAt: orderUpdatedAt },
+      });
+      yield* projectionPipeline.bootstrap;
+
       // Settled lifecycle through the DB pipeline: thread.settled writes the
       // override + timestamp, thread.unsettled(user) flips to the active pin.
       yield* eventStore.append({

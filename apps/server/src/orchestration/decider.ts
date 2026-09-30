@@ -30,6 +30,7 @@ import * as Schema from "effect/Schema";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import type * as PlatformError from "effect/PlatformError";
+import { pinOrderKeyBetween } from "@t3tools/shared/pinOrderKey";
 
 import {
   OrchestrationCommandInvariantError,
@@ -187,6 +188,22 @@ const decideCommandSequence = Effect.fn("decideCommandSequence")(function* ({
 
   return plannedEvents;
 });
+
+/** Slot for a fresh pin: the caller's key, else one above every pinned thread. */
+function freshPinOrderKey(
+  readModel: OrchestrationReadModel,
+  requested: string | undefined,
+): { readonly pinOrderKey?: string } {
+  if (requested !== undefined) return { pinOrderKey: requested };
+  let topKey: string | null = null;
+  for (const thread of readModel.threads) {
+    const key = thread.pinOrderKey;
+    if (thread.pinnedAt == null || thread.deletedAt !== null || key == null) continue;
+    if (topKey === null || key < topKey) topKey = key;
+  }
+  const pinOrderKey = pinOrderKeyBetween(null, topKey);
+  return pinOrderKey === null ? {} : { pinOrderKey };
+}
 
 export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand")(function* ({
   command,
@@ -812,12 +829,11 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           pinnedAt: existingPinnedAt ?? occurredAt,
-          // A fresh pin takes the client's slot in the arranged order; on a
-          // re-pin the existing key wins so raced duplicates cannot move a
-          // thread the user already placed.
-          ...(existingPinnedAt === null && command.orderKey !== undefined
-            ? { pinOrderKey: command.orderKey }
-            : {}),
+          // A fresh pin takes the client's slot in the arranged order, or the
+          // top of the pinned threads when the caller sent none (a standing
+          // agent a coordinator creates). On a re-pin the existing key wins
+          // so raced duplicates cannot move a thread the user already placed.
+          ...(existingPinnedAt === null ? freshPinOrderKey(readModel, command.orderKey) : {}),
           updatedAt: existingPinnedAt !== null ? thread.updatedAt : occurredAt,
         },
       };
@@ -904,9 +920,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           }),
         );
       }
-      // Idempotent by re-emission (see thread.settle): a duplicate drop on
-      // the same slot keeps the existing updatedAt so it projects as a no-op.
-      const keyUnchanged = thread.pinOrderKey === command.orderKey;
       const occurredAt = yield* nowIso;
       return {
         ...(yield* withEventBase({
@@ -919,7 +932,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           orderKey: command.orderKey,
-          updatedAt: keyUnchanged ? thread.updatedAt : occurredAt,
+          // Arranging is not thread activity (see thread.active.reorder):
+          // a drag must not reset the row's time or its activity sort.
+          updatedAt: thread.updatedAt,
         },
       };
     }

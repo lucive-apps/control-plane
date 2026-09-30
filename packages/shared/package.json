@@ -115,6 +115,10 @@
       "types": "./src/backgroundActivitySettings.ts",
       "import": "./src/backgroundActivitySettings.ts"
     },
+    "./pinOrderKey": {
+      "types": "./src/pinOrderKey.ts",
+      "import": "./src/pinOrderKey.ts"
+    },
     "./String": {
       "types": "./src/String.ts",
       "import": "./src/String.ts"
