@@ -68,6 +68,7 @@ function commandToAggregateRef(command: OrchestrationCommand): {
   switch (command.type) {
     case "project.create":
     case "project.meta.update":
+    case "project.reorder":
     case "project.delete":
     case "project.schedule.record":
     case "project.schedule.agent-change":

@@ -379,4 +379,63 @@ describe("home project scopes", () => {
       }),
     ).toHaveLength(2);
   });
+
+  it("manual lists arranged folders by synced key first, then the rest by activity", () => {
+    const environmentId = EnvironmentId.make("environment-1");
+    const remoteEnvironmentId = EnvironmentId.make("environment-2");
+    const late = makeProject({
+      environmentId,
+      id: ProjectId.make("project-late"),
+      title: "Late",
+      orderKey: "t",
+    });
+    const early = makeProject({
+      environmentId: remoteEnvironmentId,
+      id: ProjectId.make("project-early"),
+      title: "Early",
+      orderKey: "d",
+    });
+    const busy = makeProject({
+      environmentId,
+      id: ProjectId.make("project-busy"),
+      title: "Busy",
+    });
+    const idle = makeProject({
+      environmentId,
+      id: ProjectId.make("project-idle"),
+      title: "Idle",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    const scopes = buildHomeProjectScopes({
+      projects: [idle, late, busy, early],
+      environmentId: null,
+      projectGroupingMode: "separate",
+    });
+    const threads = [
+      makeThread({
+        environmentId,
+        id: ThreadId.make("thread-busy"),
+        projectId: busy.id,
+        title: "Recent",
+        updatedAt: "2026-06-05T00:00:00.000Z",
+      }),
+    ];
+
+    expect(
+      sortHomeProjectScopes({
+        scopes,
+        threads,
+        pendingTasks: [],
+        projectSortOrder: "manual",
+      }).map((scope) => scope.representative.id),
+    ).toEqual([early.id, late.id, busy.id, idle.id]);
+    expect(
+      sortHomeProjectScopes({
+        scopes,
+        threads,
+        pendingTasks: [],
+        projectSortOrder: "updated_at",
+      }).map((scope) => scope.representative.id)[0],
+    ).toBe(busy.id);
+  });
 });

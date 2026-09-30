@@ -1,4 +1,5 @@
 import { buildProjectGroups } from "@t3tools/client-runtime/state/project-grouping";
+import { minProjectOrderKey } from "@t3tools/client-runtime/state/project-order";
 import type {
   EnvironmentProject,
   EnvironmentThreadShell,
@@ -19,7 +20,13 @@ import * as Order from "effect/Order";
 import { scopedProjectKey } from "../../lib/scopedEntities";
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
 
-export type HomeProjectSortOrder = Exclude<SidebarProjectSortOrder, "manual">;
+/**
+ * `manual` lists arranged folders first in their synced order (the desktop drag order), then
+ * the rest by activity. Pickers that want plain activity order pass `updated_at`.
+ */
+export type HomeProjectSortOrder = SidebarProjectSortOrder;
+
+type HomeActivitySortOrder = Exclude<HomeProjectSortOrder, "manual">;
 
 export interface HomeProjectScope {
   readonly key: string;
@@ -31,7 +38,7 @@ export interface HomeProjectScope {
 
 function getProjectSortTimestamp(
   project: EnvironmentProject,
-  sortOrder: HomeProjectSortOrder,
+  sortOrder: HomeActivitySortOrder,
 ): number {
   return sortOrder === "created_at"
     ? (toSortableTimestamp(project.createdAt) ?? Number.NEGATIVE_INFINITY)
@@ -79,6 +86,9 @@ export function sortHomeProjectScopes(input: {
       ),
     ),
   );
+  // Activity still orders the folders nobody has arranged; `manual` falls back to updates.
+  const activityOrder: HomeActivitySortOrder =
+    input.projectSortOrder === "manual" ? "updated_at" : input.projectSortOrder;
   const latestActivityByScope = new Map<string, number>();
   const recordActivity = (scopeKey: string | undefined, timestamp: number) => {
     if (!scopeKey || !Number.isFinite(timestamp)) return;
@@ -92,7 +102,7 @@ export function sortHomeProjectScopes(input: {
     if (thread.archivedAt !== null) continue;
     recordActivity(
       scopeKeyByProjectRef.get(scopedProjectKey(thread.environmentId, thread.projectId)),
-      getThreadSortTimestamp(thread, input.projectSortOrder),
+      getThreadSortTimestamp(thread, activityOrder),
     );
   }
   for (const pendingTask of input.pendingTasks) {
@@ -102,21 +112,31 @@ export function sortHomeProjectScopes(input: {
     );
   }
 
+  const arrangedKeyByScope = new Map<string, string>();
+  if (input.projectSortOrder === "manual") {
+    for (const scope of input.scopes) {
+      // A folder holds one project per environment; it sits at its lowest key.
+      const key = minProjectOrderKey(scope.projects.map((project) => project.orderKey));
+      if (key !== null) arrangedKeyByScope.set(scope.key, key);
+    }
+  }
+
   return Arr.sort(
     input.scopes,
     Order.mapInput(
       Order.Struct({
+        // "0" + key sorts every arranged folder ahead of "1" (no key), then by key.
+        arranged: Order.String,
         timestamp: Order.flip(Order.Number),
         title: Order.String,
         key: Order.String,
       }),
       (scope: HomeProjectScope) => ({
+        arranged: arrangedKeyByScope.has(scope.key) ? `0${arrangedKeyByScope.get(scope.key)}` : "1",
         timestamp:
           latestActivityByScope.get(scope.key) ??
           Math.max(
-            ...scope.projects.map((project) =>
-              getProjectSortTimestamp(project, input.projectSortOrder),
-            ),
+            ...scope.projects.map((project) => getProjectSortTimestamp(project, activityOrder)),
           ),
         title: scope.title,
         key: scope.key,

@@ -268,6 +268,15 @@ export function readEnvironmentSupportsActiveReorder(environmentId: EnvironmentI
   );
 }
 
+/** Whether the environment's server stores a manual order for Projects and Tasks folders
+    (`project.reorder`). Same version-skew contract as thread reordering. */
+export function readEnvironmentSupportsProjectReorder(environmentId: EnvironmentId): boolean {
+  return (
+    appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.environment.capabilities
+      .projectReorder === true
+  );
+}
+
 export function readEnvironmentThreadRefs(
   environmentId: EnvironmentId,
 ): ReadonlyArray<ScopedThreadRef> {

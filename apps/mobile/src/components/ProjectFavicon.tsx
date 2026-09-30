@@ -1,5 +1,6 @@
 import { SymbolView } from "./AppSymbol";
 import { AppText } from "./AppText";
+import { LucideProjectIcon } from "./LucideProjectIcon";
 import { Image } from "expo-image";
 import { useLayoutEffect, useMemo, useState } from "react";
 import { View } from "react-native";
@@ -85,6 +86,13 @@ export function ProjectFavicon(props: {
 
 function ProjectIconGlyphView(props: { readonly glyph: ProjectIconGlyph; readonly size: number }) {
   const { glyph, size } = props;
+  if (glyph.kind === "lucide") {
+    return (
+      <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
+        <LucideProjectIcon nodes={glyph.nodes} color={glyph.color} size={size} />
+      </View>
+    );
+  }
   if (glyph.kind === "image") {
     return (
       <Image

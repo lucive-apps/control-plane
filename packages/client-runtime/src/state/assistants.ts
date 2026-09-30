@@ -9,6 +9,7 @@ import {
 } from "@t3tools/contracts";
 
 import { derivePhysicalProjectKey } from "./projectGrouping.ts";
+import { compareProjectOrder } from "./projectOrder.ts";
 import { effectiveSnoozed, type ThreadSnoozeShell } from "./threadSettled.ts";
 import {
   resolveSettledThreadTimestamp,
@@ -30,6 +31,7 @@ export interface AssistantProjectInput {
   readonly title: string;
   readonly workspaceRoot: string;
   readonly assistant?: ProjectAssistant | null | undefined;
+  readonly orderKey?: string | null | undefined;
 }
 
 export interface AssistantThreadInput {
@@ -53,7 +55,7 @@ export interface AssistantEntry<P, T> {
 }
 
 export interface AssistantPartition<P, T> {
-  /** Unarchived Projects, primary environment first, then by title. */
+  /** Unarchived Projects: arranged ones by synced key, then primary environment first, then by title. */
   readonly assistants: readonly AssistantEntry<P, T>[];
   readonly archivedAssistants: readonly AssistantEntry<P, T>[];
   readonly workspaceProjects: readonly P[];
@@ -133,6 +135,9 @@ export function partitionAssistants<
     (isArchivedAssistant(draft.project) ? archivedAssistants : assistants).push(entry);
   }
   const compare = (left: AssistantEntry<P, T>, right: AssistantEntry<P, T>) => {
+    // Arranged Projects (synced `orderKey`) lead; the rest keep the default order below.
+    const arranged = compareProjectOrder(left.project, right.project);
+    if (arranged !== 0) return arranged;
     const leftPrimary = left.project.environmentId === primaryEnvironmentId ? 0 : 1;
     const rightPrimary = right.project.environmentId === primaryEnvironmentId ? 0 : 1;
     return (

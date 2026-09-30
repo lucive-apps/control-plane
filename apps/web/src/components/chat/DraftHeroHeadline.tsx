@@ -1,3 +1,4 @@
+import { orderProjectsByKey } from "@t3tools/client-runtime/state/project-order";
 import type { DraftId } from "~/composerDraftStore";
 import { useComposerDraftStore } from "~/composerDraftStore";
 import type { ScopedProjectRef } from "@t3tools/contracts";
@@ -66,7 +67,8 @@ export function DraftHeroHeadline({
     () =>
       sortLogicalProjectsForSidebar(
         buildSidebarProjectSnapshots({
-          projects,
+          // Manual keeps the synced folder order the sidebar shows.
+          projects: projectSortOrder === "manual" ? orderProjectsByKey(projects) : projects,
           settings: projectGroupingSettings,
           primaryEnvironmentId,
           resolveEnvironmentLabel: (environmentId) =>

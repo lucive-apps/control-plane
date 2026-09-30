@@ -73,6 +73,7 @@ import {
   resolveScheduleBackend,
   type ScheduleBackendMode,
 } from "./scheduleBackend.ts";
+import { isProjectReorderOnlyPayload } from "../orchestration/projectOrderEvents.ts";
 import { makeSystemdBackend, renderScheduleUnits, systemdUnitDir } from "./systemdBackend.ts";
 import {
   ScheduleRunner,
@@ -516,7 +517,8 @@ export const make = Effect.gen(function* () {
         yield* worker.enqueue("startup");
         yield* noteSeen(head);
         yield* Stream.runForEach(events, (event) =>
-          (event.type === "project.meta-updated" || event.type === "project.deleted"
+          ((event.type === "project.meta-updated" && !isProjectReorderOnlyPayload(event.payload)) ||
+          event.type === "project.deleted"
             ? enqueueReconcile
             : Effect.void
           ).pipe(Effect.andThen(noteSeen(event.sequence))),

@@ -42,7 +42,7 @@ import { animateSidebarLayoutChanges, type SidebarSection } from "../Sidebar.log
 import {
   assistantExpansionKey,
   isAssistantExpanded,
-  orderAssistantsByPreference,
+  orderAssistantModels,
   rollupAssistantsStatus,
   rollupThreadGroupStatus,
   visibleAssistantAgentRows,
@@ -135,7 +135,7 @@ export function useSidebarAssistants(input: {
     });
   }, [entries, nowMinute, serverConfigs, snoozeWakeTick]);
   const models = useMemo(
-    () => orderAssistantsByPreference(unorderedModels, assistantOrder),
+    () => orderAssistantModels(unorderedModels, assistantOrder),
     [assistantOrder, unorderedModels],
   );
   const coordinatorKeys = useMemo(

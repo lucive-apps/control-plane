@@ -30,6 +30,7 @@ import {
 } from "@t3tools/client-runtime/state/thread-settled";
 import { resolveSettledThreadTimestamp } from "@t3tools/client-runtime/state/thread-sort";
 import { partitionAssistants } from "@t3tools/client-runtime/state/assistants";
+import { orderProjectsByKey } from "@t3tools/client-runtime/state/project-order";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import {
   parseScopedThreadKey,
@@ -43,6 +44,7 @@ import {
   resolveEnvironmentMachineKind,
   type EnvironmentMachineKind,
   type ProjectIconOverride,
+  type ScopedProjectRef,
   type ScopedThreadRef,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -148,10 +150,12 @@ import { useNowMinute } from "../hooks/useNowMinute";
 import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
 import {
   readThreadShell,
+  readEnvironmentSupportsProjectReorder,
   useAllEnvironmentProjectSnapshotsReady,
-  useProjects,
   useThreadShells,
 } from "../state/entities";
+import { useProjectsWithOrderOverrides } from "../projectOrderOverrides";
+import { useProjectOrderWriter } from "../hooks/useProjectOrderWriter";
 import { environmentServerConfigsAtom, primaryServerKeybindingsAtom } from "../state/server";
 import { projectEnvironment } from "../state/projects";
 import { threadEnvironment } from "../state/threads";
@@ -248,7 +252,9 @@ import {
   useSidebarAssistants,
   useThreadGroupRollup,
 } from "./sidebar/SidebarAssistantsSection";
+import { planEntryArrange, planEntrySeed, type ArrangeEntry } from "./sidebar/projectArrange";
 import {
+  assistantExpansionKey,
   flattenAssistantJumpOrder,
   selectableThreadKeys,
   settleableSelection,
@@ -2393,7 +2399,8 @@ const SidebarProjectFolderBlock = memo(function SidebarProjectFolderBlock({
 });
 
 export default function Sidebar() {
-  const projects = useProjects();
+  const projects = useProjectsWithOrderOverrides();
+  const writeProjectOrder = useProjectOrderWriter();
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const reorderProjects = useUiStateStore((store) => store.reorderProjects);
   const reorderAssistants = useUiStateStore((store) => store.reorderAssistants);
@@ -2549,17 +2556,21 @@ export default function Sidebar() {
     [primaryEnvironmentId, projects, threads],
   );
   const { workspaceProjects, workspaceThreads } = assistantPartition;
+  // Folders arranged on any client (synced `orderKey`) lead; the rest keep this client's
+  // saved order, which is also what seeds the synced order the first time.
   const orderedProjects = useMemo(
     () =>
-      orderItemsByPreferredIds({
-        items: workspaceProjects,
-        preferredIds: projectOrder,
-        getId: getProjectOrderKey,
-        getPreferenceIds: (project) => [
-          getProjectOrderKey(project),
-          legacyProjectCwdPreferenceKey(project.workspaceRoot),
-        ],
-      }),
+      orderProjectsByKey(workspaceProjects, (keyless) =>
+        orderItemsByPreferredIds({
+          items: keyless,
+          preferredIds: projectOrder,
+          getId: getProjectOrderKey,
+          getPreferenceIds: (project) => [
+            getProjectOrderKey(project),
+            legacyProjectCwdPreferenceKey(project.workspaceRoot),
+          ],
+        }),
+      ),
     [projectOrder, workspaceProjects],
   );
   const useManualProjectOrder = sidebarProjectSortOrder === "manual" || folderOrderLocked;
@@ -3132,6 +3143,49 @@ export default function Sidebar() {
     [projectFolders, settledViewOpen, tasksSectionExpanded],
   );
   // Projects reorder among themselves. Two or more, or there is nothing to move.
+  // Publish this client's saved order once, the first time it meets a server without one.
+  // Only after every environment is live (a cached snapshot could hide keys another client
+  // already wrote), and never over an existing arrangement: seed writes are `ifKeyless`.
+  const savedAssistantOrder = useUiStateStore((store) => store.assistantOrder);
+  const seededProjectOrderRef = useRef(false);
+  useEffect(() => {
+    if (seededProjectOrderRef.current || !allProjectSnapshotsReady) return;
+    if (savedAssistantOrder.length === 0 && projectOrder.length === 0) return;
+    if (projects.some((project) => !serverConfigs.has(project.environmentId))) return;
+    const toEntry = (project: EnvironmentProject): ArrangeEntry => ({
+      id: `${project.environmentId}:${project.id}`,
+      members: [
+        {
+          environmentId: project.environmentId,
+          projectId: project.id,
+          orderKey: project.orderKey,
+          writable: readEnvironmentSupportsProjectReorder(project.environmentId),
+        },
+      ],
+    });
+    const writes = [
+      ...(savedAssistantOrder.length > 0
+        ? (planEntrySeed({
+            entries: assistantModels.map((model) => toEntry(model.entry.project)),
+          }) ?? [])
+        : []),
+      ...(projectOrder.length > 0
+        ? (planEntrySeed({ entries: orderedProjects.map(toEntry) }) ?? [])
+        : []),
+    ];
+    if (writes.length === 0) return;
+    seededProjectOrderRef.current = true;
+    void writeProjectOrder(writes, { ifKeyless: true });
+  }, [
+    allProjectSnapshotsReady,
+    assistantModels,
+    orderedProjects,
+    projectOrder.length,
+    projects,
+    savedAssistantOrder.length,
+    serverConfigs,
+    writeProjectOrder,
+  ]);
   const assistantSortableIds = useMemo(
     () =>
       settledViewOpen || !showAssistantsSection || !assistantsSectionExpanded
@@ -4850,6 +4904,53 @@ export default function Sidebar() {
       if (sidebarProjectSortOrder !== "manual") {
         updateSettings({ sidebarProjectSortOrder: "manual" });
       }
+      // Synced order first: the drop is one key per folder, written to the servers that own
+      // its projects. Folders on servers that predate it keep the local order below.
+      const toEntry = (id: string, refs: readonly ScopedProjectRef[]): ArrangeEntry => ({
+        id,
+        members: refs.flatMap((ref) => {
+          const project = projectByKey.get(`${ref.environmentId}:${ref.projectId}`);
+          return project === undefined
+            ? []
+            : [
+                {
+                  environmentId: project.environmentId,
+                  projectId: project.id,
+                  orderKey: project.orderKey,
+                  writable: readEnvironmentSupportsProjectReorder(project.environmentId),
+                },
+              ];
+        }),
+      });
+      const visibleEntries = folders.flatMap((folder) =>
+        folder.project === null
+          ? []
+          : [toEntry(folder.projectKey, folder.project.memberProjectRefs)],
+      );
+      const shownRefKeys = new Set(
+        folders.flatMap((folder) =>
+          (folder.project?.memberProjectRefs ?? []).map(
+            (ref) => `${ref.environmentId}:${ref.projectId}`,
+          ),
+        ),
+      );
+      const hiddenEntries = orderedProjects
+        .filter((project) => !shownRefKeys.has(`${project.environmentId}:${project.id}`))
+        .map((project) =>
+          toEntry(`hidden:${project.environmentId}:${project.id}`, [
+            scopeProjectRef(project.environmentId, project.id),
+          ]),
+        );
+      const writes = planEntryArrange({
+        visible: visibleEntries,
+        hidden: hiddenEntries,
+        activeId: activeFolder.projectKey,
+        overId: overFolder.projectKey,
+      });
+      if (writes !== null) {
+        void writeProjectOrder(writes);
+        return;
+      }
       reorderProjects(
         [...visualOrder, ...rest],
         activeFolder.project.memberProjects.map((member) => member.physicalProjectKey),
@@ -4858,35 +4959,73 @@ export default function Sidebar() {
     },
     [
       orderedProjects,
+      projectByKey,
       projectFolders,
       reorderProjects,
       settledProjectFolders,
       settledViewOpen,
       sidebarProjectSortOrder,
       updateSettings,
+      writeProjectOrder,
     ],
   );
 
+  // Projects arrange one project per row. A drop is one key written to the owning server;
+  // Projects on a server that predates synced order keep the local order.
+  const arrangeAssistant = useCallback(
+    (activeKey: string, overKey: string) => {
+      const toEntry = (project: EnvironmentProject): ArrangeEntry => ({
+        id: assistantExpansionKey(project.environmentId, project.id),
+        members: [
+          {
+            environmentId: project.environmentId,
+            projectId: project.id,
+            orderKey: project.orderKey,
+            writable: readEnvironmentSupportsProjectReorder(project.environmentId),
+          },
+        ],
+      });
+      const shown = new Set(assistantModels.map((model) => model.key));
+      const writes = planEntryArrange({
+        visible: assistantModels.map((model) => toEntry(model.entry.project)),
+        hidden: projects
+          .filter(
+            (project) =>
+              project.assistant != null &&
+              !shown.has(assistantExpansionKey(project.environmentId, project.id)),
+          )
+          .map(toEntry),
+        activeId: activeKey,
+        overId: overKey,
+      });
+      if (writes !== null) {
+        void writeProjectOrder(writes);
+        return;
+      }
+      reorderAssistants(
+        assistantModels.map((model) => model.key),
+        activeKey,
+        overKey,
+      );
+    },
+    [assistantModels, projects, reorderAssistants, writeProjectOrder],
+  );
   const handleAssistantDragEnd = useCallback(
     (event: DragEndEvent) => {
       setFolderDragActive(false);
       const { active, over } = event;
       if (!over || active.id === over.id) return;
-      reorderAssistants(
-        assistantModels.map((model) => model.key),
-        String(active.id),
-        String(over.id),
-      );
+      arrangeAssistant(String(active.id), String(over.id));
     },
-    [assistantModels, reorderAssistants],
+    [arrangeAssistant],
   );
   const handleAssistantMove = useCallback(
     (key: string, direction: -1 | 1) => {
       const order = assistantModels.map((model) => model.key);
       const neighbor = order[order.indexOf(key) + direction];
-      if (neighbor !== undefined) reorderAssistants(order, key, neighbor);
+      if (neighbor !== undefined) arrangeAssistant(key, neighbor);
     },
-    [assistantModels, reorderAssistants],
+    [arrangeAssistant, assistantModels],
   );
 
   const newThreadShortcutLabel =
