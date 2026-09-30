@@ -11,6 +11,7 @@ import { RegistryContext } from "@effect/atom-react";
 import { ThreadArrangementHost } from "./features/threads/ThreadArrangementSheet";
 import { ConfirmDialogHost } from "./components/ConfirmDialogHost";
 import { CloudAuthProvider } from "./features/cloud/CloudAuthProvider";
+import { appNavigationRef, DemoModeFrame } from "./features/demo/DemoModeFrame";
 import { prepareNativeShowcaseCapture } from "./features/showcase/nativeShowcaseScene";
 import { IncomingShareProvider } from "./features/sharing/IncomingShareProvider";
 import {
@@ -86,9 +87,11 @@ function AppContent() {
                 header (glass buttons, title, materials) is forced light even when
                 the system is in dark mode. */}
             <View style={{ flex: 1 }}>
-              <IncomingShareProvider>
-                <Navigation linking={appLinking} theme={navigationTheme} />
-              </IncomingShareProvider>
+              <DemoModeFrame>
+                <IncomingShareProvider>
+                  <Navigation ref={appNavigationRef} linking={appLinking} theme={navigationTheme} />
+                </IncomingShareProvider>
+              </DemoModeFrame>
               <ConfirmDialogHost />
               <ThreadArrangementHost />
             </View>

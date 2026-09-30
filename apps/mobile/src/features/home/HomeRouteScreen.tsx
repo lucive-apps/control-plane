@@ -147,7 +147,7 @@ export function HomeRouteScreen() {
         ) : null}
         <WorkspaceEmptyDetail
           onAddConnection={
-            Platform.OS === "android" && !catalogState.hasConnections
+            !catalogState.isLoadingConnections && !catalogState.hasConnections
               ? () =>
                   navigation.navigate("SettingsSheet", {
                     screen: "SettingsContent",

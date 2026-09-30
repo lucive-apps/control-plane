@@ -17,6 +17,7 @@ import { MaterialScreenContent } from "../../components/MaterialScreenContent";
 import { MaterialButton } from "../../components/MaterialButton";
 import { ScreenScrollView as ScrollView } from "../../components/ScreenScrollView";
 import { AppText as Text } from "../../components/AppText";
+import { TryDemoButton } from "../demo/TryDemoButton";
 import { ProjectFavicon } from "../../components/ProjectFavicon";
 import { useProjects } from "../../state/entities";
 import type { WorkspaceState } from "../../state/workspaceModel";
@@ -275,14 +276,17 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                   }
                 />
               ) : !catalogState.hasReadyEnvironment ? (
-                <Pressable
-                  className="mt-1 rounded-full bg-primary px-4 py-2.5 active:opacity-70"
-                  onPress={() => navigation.navigate("ConnectionsNew")}
-                >
-                  <Text className="text-sm font-t3-bold text-primary-foreground">
-                    Add environment
-                  </Text>
-                </Pressable>
+                <>
+                  <Pressable
+                    className="mt-1 rounded-full bg-primary px-4 py-2.5 active:opacity-70"
+                    onPress={() => navigation.navigate("ConnectionsNew")}
+                  >
+                    <Text className="text-sm font-t3-bold text-primary-foreground">
+                      Add environment
+                    </Text>
+                  </Pressable>
+                  {!catalogState.hasConnections ? <TryDemoButton /> : null}
+                </>
               ) : (
                 <Pressable
                   className="mt-1 rounded-full bg-primary px-4 py-2.5 active:opacity-70"

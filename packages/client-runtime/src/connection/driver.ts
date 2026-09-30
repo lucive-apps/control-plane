@@ -1,6 +1,7 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import type * as Scope from "effect/Scope";
 
 import type { ConnectionCatalogEntry } from "./catalog.ts";
@@ -36,10 +37,26 @@ export class ConnectionDriver extends Context.Service<
   }
 >()("@t3tools/client-runtime/connection/driver/ConnectionDriver") {}
 
+/**
+ * Lets a platform serve an environment from an in-process session instead of
+ * the network, such as the mobile app's local demo environment. Returning
+ * `None` falls through to the normal resolver and socket connection.
+ */
+export class ConnectionDriverOverride extends Context.Reference<{
+  readonly connect: (
+    entry: ConnectionCatalogEntry,
+  ) => Option.Option<
+    Effect.Effect<EnvironmentConnectionLease, ConnectionAttemptError, Scope.Scope>
+  >;
+}>("@t3tools/client-runtime/connection/driver/ConnectionDriverOverride", {
+  defaultValue: () => ({ connect: () => Option.none() }),
+}) {}
+
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
   const resolver = yield* ConnectionResolver.ConnectionResolver;
   const sessions = yield* RpcSession.RpcSessionFactory;
+  const override = yield* ConnectionDriverOverride;
 
   const connect = Effect.fn("ConnectionDriver.connect")(function* (
     entry: ConnectionCatalogEntry,
@@ -50,6 +67,10 @@ export const make = Effect.gen(function* () {
       "connection.environment.id": target.environmentId,
       "connection.target.kind": target._tag,
     });
+    const overridden = override.connect(entry);
+    if (Option.isSome(overridden)) {
+      return yield* overridden.value;
+    }
     yield* reportProgress({ stage: "preparing" });
     const prepared = yield* resolver.prepare(entry);
     yield* reportProgress({ stage: "opening", prepared });

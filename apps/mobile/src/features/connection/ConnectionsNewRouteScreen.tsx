@@ -18,7 +18,9 @@ import { ErrorBanner } from "../../components/ErrorBanner";
 import { ConnectionFormField } from "./ConnectionFormField";
 import { ConnectionSheetButton } from "./ConnectionSheetButton";
 import { buildPairingUrl, extractPairingUrlFromQrPayload, parsePairingUrl } from "./pairing";
+import { useEnvironments } from "../../state/environments";
 import { useRemoteConnections } from "../../state/use-remote-environment-registry";
+import { TryDemoButton } from "../demo/TryDemoButton";
 
 type ConnectionsNewRouteParams = {
   readonly mode?: string;
@@ -49,6 +51,11 @@ export function ConnectionsNewRouteScreen({
   const [hostInput, setHostInput] = useState("");
   const [codeInput, setCodeInput] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // The connection error is app-wide state that sends and other flows also
+  // write. Only show it here after this sheet tried to pair, so the sheet
+  // never opens already showing an unrelated or stale failure.
+  const [attemptedPairing, setAttemptedPairing] = useState(false);
+  const pairingError = attemptedPairing ? pairingConnectionError : null;
   const [showScanner, setShowScanner] = useState(params.mode === "scan_qr");
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [scannerLocked, setScannerLocked] = useState(false);
@@ -57,6 +64,8 @@ export function ConnectionsNewRouteScreen({
   const headerIconColor = useUniwindTheme()["--color-icon"];
 
   const connectDisabled = isSubmitting || hostInput.trim().length === 0;
+  // Someone without a computer yet (an App Store reviewer, say) can explore sample data.
+  const showDemoEntry = useEnvironments().environments.length === 0;
 
   useEffect(() => {
     const { host, code } = parsePairingUrl(connectionPairingUrl);
@@ -157,6 +166,7 @@ export function ConnectionsNewRouteScreen({
   const connectAndClose = useCallback(
     async (pairingUrl: string, replaceWithHome: boolean) => {
       setIsSubmitting(true);
+      setAttemptedPairing(true);
       onChangeConnectionPairingUrl(pairingUrl);
       try {
         const result = await onConnectPress(pairingUrl);
@@ -262,40 +272,43 @@ export function ConnectionsNewRouteScreen({
               </View>
             )
           ) : (
-            <View collapsable={false} className="gap-4 rounded-[24px] bg-card p-4">
-              <ConnectionFormField
-                label="Host"
-                autoCapitalize="none"
-                autoCorrect={false}
-                keyboardType="url"
-                placeholder="192.168.1.100:8080"
-                value={hostInput}
-                onChangeText={handleHostChange}
-              />
-
-              <ConnectionFormField
-                label="Pairing code"
-                autoCapitalize="none"
-                autoCorrect={false}
-                placeholder="abc-123-xyz"
-                value={codeInput}
-                onChangeText={handleCodeChange}
-              />
-
-              {pairingConnectionError ? <ErrorBanner message={pairingConnectionError} /> : null}
-
-              <View className={Platform.OS === "android" ? "flex-row justify-end" : undefined}>
-                <ConnectionSheetButton
-                  icon="plus"
-                  label={isSubmitting ? "Pairing..." : "Add environment"}
-                  disabled={connectDisabled}
-                  tone="primary"
-                  onPress={() => {
-                    void handleSubmit();
-                  }}
+            <>
+              {showDemoEntry ? <TryDemoButton layout="row" /> : null}
+              <View collapsable={false} className="gap-4 rounded-[24px] bg-card p-4">
+                <ConnectionFormField
+                  label="Host"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="url"
+                  placeholder="192.168.1.100:8080"
+                  value={hostInput}
+                  onChangeText={handleHostChange}
                 />
+
+                <ConnectionFormField
+                  label="Pairing code"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  placeholder="abc-123-xyz"
+                  value={codeInput}
+                  onChangeText={handleCodeChange}
+                />
+
+                {pairingError ? <ErrorBanner message={pairingError} /> : null}
+
+                <View className={Platform.OS === "android" ? "flex-row justify-end" : undefined}>
+                  <ConnectionSheetButton
+                    icon="plus"
+                    label={isSubmitting ? "Pairing..." : "Add environment"}
+                    disabled={connectDisabled}
+                    tone="primary"
+                    onPress={() => {
+                      void handleSubmit();
+                    }}
+                  />
+                </View>
               </View>
-            </View>
+            </>
           )}
         </View>
       </ScrollView>
