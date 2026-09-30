@@ -12,9 +12,6 @@ import {
 // Fork-owned. Pure list helpers behind the Projects section, shared by the web
 // sidebar and the mobile home and iPad sidebar.
 
-/** Settled agents under a Project page in like the settled tail. */
-export const ASSISTANT_SETTLED_PAGE_SIZE = 10;
-
 /** The collapsed dot of a section, folder or Project. Null shows no dot. */
 export type SidebarRollupStatus = SidebarThreadStatus | "unread" | null;
 
@@ -72,31 +69,6 @@ export function visibleAssistantAgentRows<T extends ScopedThreadLike>(
   for (const thread of sections.snoozed) rows.push({ thread, section: "snoozed" });
   for (const thread of settled) rows.push({ thread, section: "settled" });
   return { rows, hiddenSettledCount: sections.settled.length - settled.length };
-}
-
-/**
- * The settled button under a Project: "3 settled", then "N more settled",
- * then "Hide settled" once a page is open and nothing is left. No button when
- * nothing is hidden and no page is open (the open thread can pull the only
- * settled agent in).
- */
-export function assistantSettledToggle(input: {
-  readonly settledCount: number;
-  readonly settledTotal: number;
-  readonly hiddenSettledCount: number;
-}): { readonly label: string; readonly nextSettledCount: number } | null {
-  const settledCount = Math.max(0, input.settledCount);
-  if (input.settledTotal === 0) return null;
-  if (input.hiddenSettledCount === 0) {
-    return settledCount > 0 ? { label: "Hide settled", nextSettledCount: 0 } : null;
-  }
-  return {
-    label:
-      settledCount === 0
-        ? `${input.hiddenSettledCount} settled`
-        : `${input.hiddenSettledCount} more settled`,
-    nextSettledCount: settledCount + ASSISTANT_SETTLED_PAGE_SIZE,
-  };
 }
 
 const isUnreadThread = (
