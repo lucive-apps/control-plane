@@ -117,8 +117,8 @@ Tasks, and never pins or unpins it. Releasing anywhere else cancels the move.
 
 The order is saved on the agent threads, so it appears on every connected device, mobile
 included. On mobile, open an agent's menu and choose **Move up** or **Move down**. New agents
-appear at the top of the active agents. An agent you pin appears at the top of the pinned ones;
-a standing agent the coordinator creates appears below the pinned agents you have arranged.
+appear at the top of the active agents, and any newly pinned agent (pinned by you or created
+pinned by the coordinator) appears at the top of the pinned ones.
 Status changes and new messages never reorder agents; only a move does.
 
 ## Settle finished work
