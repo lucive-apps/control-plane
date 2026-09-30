@@ -26,6 +26,7 @@ import {
   DEMO_HTTP_BASE_URL,
   DEMO_WS_BASE_URL,
 } from "./demoFixtures";
+import { readDemoModeFlag, writeDemoModeFlag } from "./demoModeFlag";
 import { DemoServer } from "./demoServer";
 
 /**
@@ -33,9 +34,10 @@ import { DemoServer } from "./demoServer";
  * explore the app on sample data. It registers one platform environment,
  * "Demo Mac", whose connection is served by an in-process `DemoServer`, so
  * the real connection supervisor, shell and thread state, and screens all run
- * unchanged. Nothing is persisted: relaunching the app or exiting demo mode
- * removes the environment and its cached data, and real environments are
- * never touched.
+ * unchanged. Only an "in demo" flag is persisted, so relaunching returns to
+ * the demo with fresh sample data. Exiting demo mode clears the flag and
+ * removes the environment and its cached data; real environments are never
+ * touched.
  */
 
 export const demoModeActiveAtom = Atom.make(false).pipe(
@@ -65,10 +67,17 @@ export function enterDemoMode(options?: { readonly server?: DemoServer }): void 
   if (appAtomRegistry.get(demoModeActiveAtom)) return;
   demoServer = options?.server ?? new DemoServer();
   appAtomRegistry.set(demoModeActiveAtom, true);
+  writeDemoModeFlag(true);
+}
+
+/** Re-enters demo mode at launch if the app was closed while in it. */
+export function restoreDemoMode(): void {
+  if (readDemoModeFlag()) enterDemoMode();
 }
 
 export function exitDemoMode(): void {
   if (!appAtomRegistry.get(demoModeActiveAtom) && demoServer === null) return;
+  writeDemoModeFlag(false);
   appAtomRegistry.set(demoModeActiveAtom, false);
   demoServer?.dispose();
   demoServer = null;

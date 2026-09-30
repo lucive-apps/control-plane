@@ -20,12 +20,24 @@ import {
   enterDemoMode,
   exitDemoMode,
   isDemoModeActive,
+  restoreDemoMode,
 } from "./demoMode";
+import { readDemoModeFlag } from "./demoModeFlag";
 import { DemoServer } from "./demoServer";
 
 vi.mock("../../state/atom-registry", async () => {
   const { AtomRegistry } = await import("effect/unstable/reactivity");
   return { appAtomRegistry: AtomRegistry.make() };
+});
+
+vi.mock("./demoModeFlag", () => {
+  let stored = false;
+  return {
+    readDemoModeFlag: () => stored,
+    writeDemoModeFlag: (active: boolean) => {
+      stored = active;
+    },
+  };
 });
 
 const demoEntry: ConnectionCatalogEntry = {
@@ -75,6 +87,30 @@ describe("demo mode state", () => {
     exitDemoMode();
     enterDemoMode();
     assert.notStrictEqual(currentDemoServer(), first);
+  });
+});
+
+describe("demo mode across relaunches", () => {
+  it("remembers the demo until Exit demo clears it", () => {
+    enterDemoMode();
+    assert.isTrue(readDemoModeFlag());
+
+    // A relaunch starts with fresh in-memory state and restores from the flag.
+    appAtomRegistry.set(demoModeActiveAtom, false);
+    restoreDemoMode();
+    assert.isTrue(isDemoModeActive());
+    assert.isNotNull(currentDemoServer());
+
+    exitDemoMode();
+    assert.isFalse(readDemoModeFlag());
+    restoreDemoMode();
+    assert.isFalse(isDemoModeActive());
+  });
+
+  it("does not enter the demo on a first launch", () => {
+    assert.isFalse(readDemoModeFlag());
+    restoreDemoMode();
+    assert.isFalse(isDemoModeActive());
   });
 });
 
