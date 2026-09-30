@@ -4,9 +4,9 @@
  *
  * A pass over a Project has two phases:
  * 1. Every finished request whose result is still owed is appended into its
- *    recipient at once (frozen when the agent finished), and a one-off agent
- *    settles. A request that ended with no reply, and was answered by a later
- *    turn no message started, owes that reply once more.
+ *    recipient at once (frozen when the agent finished). A request that ended
+ *    with no reply, and was answered by a later turn no message started, owes
+ *    that reply once more.
  * 2. Each idle thread starts its oldest appended delivery: a pushed result, a
  *    `cp_thread_send` that was held for it, or a Project schedule's prompt.
  *    Pushes pause after a budget until the user, a manager or a schedule
@@ -65,7 +65,6 @@ import {
   agentPushFailedId,
   agentPushId,
   agentPushPausedId,
-  agentPushSettleId,
 } from "./agentProtocol.ts";
 import {
   formatAgentResult,
@@ -85,6 +84,12 @@ export class AgentCompletionReactor extends Context.Service<
     readonly start: () => Effect.Effect<void, never, Scope.Scope>;
     /** Resolves once every event committed so far has been handled. */
     readonly drain: Effect.Effect<void>;
+    /**
+     * Queues a pass for a Project. The remote agent bridge calls this after it
+     * appends a result of its own, since that append is not an event the
+     * reactor watches.
+     */
+    readonly enqueueProject: (projectId: ProjectId) => Effect.Effect<void>;
   }
 >()("t3/orchestration/AgentCompletionReactor") {}
 
@@ -209,7 +214,7 @@ export const make = Effect.gen(function* () {
     const questions = openMessageQuestions(
       yield* activities.listUserInputLifecycleByThreadId({ threadId: agentThreadId }),
     );
-    const appended = yield* engine
+    yield* engine
       .dispatch({
         type: "thread.message.user.append",
         commandId: CommandId.make(pushId),
@@ -234,7 +239,6 @@ export const make = Effect.gen(function* () {
         createdAt,
       })
       .pipe(
-        Effect.as(true),
         Effect.catchIf(isOrchestrationCommandRejection, (error) =>
           Effect.logWarning("agent result append rejected", {
             agentThreadId,
@@ -253,24 +257,7 @@ export const make = Effect.gen(function* () {
                 createdAt,
               }),
             ),
-            Effect.as(false),
           ),
-        ),
-      );
-    // A later message to the agent is new work, so it stays unsettled.
-    if (!appended || agent.pinnedAt !== null || !result.isLatestRequest) return;
-    yield* engine
-      .dispatch({
-        type: "thread.settle",
-        commandId: CommandId.make(agentPushSettleId(agentThreadId, requestId)),
-        threadId: agentThreadId,
-      })
-      .pipe(
-        Effect.catchIf(isOrchestrationCommandRejection, (error) =>
-          Effect.logDebug("agent not settled after its result", {
-            agentThreadId,
-            detail: error.message,
-          }),
         ),
       );
   });
@@ -511,7 +498,7 @@ export const make = Effect.gen(function* () {
     }
   });
 
-  return { start, drain } satisfies AgentCompletionReactor["Service"];
+  return { start, drain, enqueueProject: enqueue } satisfies AgentCompletionReactor["Service"];
 });
 
 const RepositoriesLive = Layer.mergeAll(

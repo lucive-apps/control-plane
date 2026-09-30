@@ -77,6 +77,7 @@ import {
 } from "../persistence/Services/ProjectionThreads.ts";
 import { ProjectionThreadSessionRepository } from "../persistence/Services/ProjectionThreadSessions.ts";
 import { ProjectionTurnRepository } from "../persistence/Services/ProjectionTurns.ts";
+import { isProjectReorderOnlyPayload } from "../orchestration/projectOrderEvents.ts";
 import { forkParked } from "../serverActivation.ts";
 import { HostTimeZoneSource } from "./hostZone.ts";
 import { makeScheduleQueries } from "./scheduleQueries.ts";
@@ -669,6 +670,9 @@ export const make = Effect.gen(function* () {
         );
       // A pause, edit, delete or archive drops the Project's held runs.
       case "project.meta-updated":
+        return !isProjectReorderOnlyPayload(event.payload) && hasHoldIn(event.payload.projectId)
+          ? enqueueRelease
+          : Effect.void;
       case "project.deleted":
         return hasHoldIn(event.payload.projectId) ? enqueueRelease : Effect.void;
       default:

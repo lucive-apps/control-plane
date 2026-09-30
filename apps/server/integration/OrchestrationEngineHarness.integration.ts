@@ -419,6 +419,7 @@ export const makeOrchestrationIntegrationHarness = (
         Layer.succeed(AgentCompletionReactor.AgentCompletionReactor, {
           start: () => Effect.void,
           drain: Effect.void,
+          enqueueProject: () => Effect.void,
         }),
       ),
       Layer.provideMerge(Layer.mock(ScheduleRunner)({ start: () => Effect.void })),

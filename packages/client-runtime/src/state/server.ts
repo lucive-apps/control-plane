@@ -1102,6 +1102,20 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:signal-process",
       tag: WS_METHODS.serverSignalProcess,
     }),
+    // Link, unlink and check machines this environment may start agents on.
+    // Kept off the config lane: check probes peers for seconds and must not
+    // hold back settings writes. The server serializes machine edits.
+    agentMachines: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:agent-machines",
+      tag: WS_METHODS.serverAgentMachines,
+    }),
+    // Reads or replaces the environment's GLOBAL_AGENTS.md.
+    globalInstructions: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:global-instructions",
+      tag: WS_METHODS.serverGlobalInstructions,
+      scheduler: configScheduler,
+      concurrency: configConcurrency,
+    }),
     refreshUsageRates: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:refresh-usage-rates",
       tag: WS_METHODS.serverRefreshUsageRates,

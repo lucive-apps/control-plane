@@ -4,6 +4,7 @@ import * as Tool from "effect/unstable/ai/Tool";
 import * as Toolkit from "effect/unstable/ai/Toolkit";
 
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
+import * as RemoteAgents from "../../../agentMachines/RemoteAgents.ts";
 import * as OrchestrationEngine from "../../../orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
 
@@ -11,6 +12,7 @@ const dependencies = [
   McpInvocationContext.McpInvocationContext,
   OrchestrationEngine.OrchestrationEngineService,
   ProjectionSnapshotQuery.ProjectionSnapshotQuery,
+  RemoteAgents.RemoteAgents,
 ];
 
 export class ThreadSendTargetMissingError extends Schema.TaggedError<ThreadSendTargetMissingError>()(

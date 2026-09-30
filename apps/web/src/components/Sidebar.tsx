@@ -30,6 +30,7 @@ import {
 } from "@t3tools/client-runtime/state/thread-settled";
 import { resolveSettledThreadTimestamp } from "@t3tools/client-runtime/state/thread-sort";
 import { partitionAssistants } from "@t3tools/client-runtime/state/assistants";
+import { orderProjectsByKey } from "@t3tools/client-runtime/state/project-order";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import {
   parseScopedThreadKey,
@@ -43,6 +44,7 @@ import {
   resolveEnvironmentMachineKind,
   type EnvironmentMachineKind,
   type ProjectIconOverride,
+  type ScopedProjectRef,
   type ScopedThreadRef,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -148,10 +150,12 @@ import { useNowMinute } from "../hooks/useNowMinute";
 import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
 import {
   readThreadShell,
+  readEnvironmentSupportsProjectReorder,
   useAllEnvironmentProjectSnapshotsReady,
-  useProjects,
   useThreadShells,
 } from "../state/entities";
+import { useProjectsWithOrderOverrides } from "../projectOrderOverrides";
+import { useProjectOrderWriter } from "../hooks/useProjectOrderWriter";
 import { environmentServerConfigsAtom, primaryServerKeybindingsAtom } from "../state/server";
 import { projectEnvironment } from "../state/projects";
 import { threadEnvironment } from "../state/threads";
@@ -248,7 +252,15 @@ import {
   useSidebarAssistants,
   useThreadGroupRollup,
 } from "./sidebar/SidebarAssistantsSection";
+import { planEntryArrange, planEntrySeed, type ArrangeEntry } from "./sidebar/projectArrange";
 import {
+  agentDropTargetFilter,
+  indexAgentOrderSlots,
+  planAgentOrderMove,
+  type AgentOrderMove,
+} from "./sidebar/assistantAgentOrder.logic";
+import {
+  assistantExpansionKey,
   flattenAssistantJumpOrder,
   selectableThreadKeys,
   settleableSelection,
@@ -1014,6 +1026,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
    * composer. Absent when the sidebar cannot open server threads.
    */
   onFileDropThreads?: ((threadRef: ScopedThreadRef, files: File[]) => void) | undefined;
+  /** Alt+Arrow on the focused row moves it one place. Only Project agents. */
+  onMove?: ((threadRef: ScopedThreadRef, direction: -1 | 1) => void) | undefined;
 }) {
   const {
     isRenaming,
@@ -1239,14 +1253,25 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     },
     [onContextMenu, threadRef],
   );
+  const { onMove } = props;
   const handleKeyDown = useCallback(
     (event: ReactKeyboardEvent) => {
       if (event.target !== event.currentTarget) return;
+      if (onMove && event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+        event.preventDefault();
+        const row = event.currentTarget as HTMLElement;
+        onMove(threadRef, event.key === "ArrowUp" ? -1 : 1);
+        // React may reinsert the row's node to reorder it, which drops focus.
+        requestAnimationFrame(() => {
+          if (row.isConnected && document.activeElement !== row) row.focus();
+        });
+        return;
+      }
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
       onThreadActivate(threadRef);
     },
-    [onThreadActivate, threadRef],
+    [onMove, onThreadActivate, threadRef],
   );
   const handleDoubleClick = useCallback(
     (event: ReactMouseEvent) => {
@@ -1585,6 +1610,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                 tabIndex={0}
                 data-testid="sidebar-row-slim"
                 aria-busy={isRegeneratingTitle || undefined}
+                aria-keyshortcuts={onMove ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
                 className={cn(rowSurfaceClassName, "flex h-8 items-center gap-2 px-2")}
                 onClick={handleClick}
                 onDoubleClick={handleDoubleClick}
@@ -1754,6 +1780,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               tabIndex={0}
               data-testid="sidebar-row-card"
               aria-busy={isRegeneratingTitle || undefined}
+              aria-keyshortcuts={onMove ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
               className={rowSurfaceClassName}
               onClick={handleClick}
               onDoubleClick={handleDoubleClick}
@@ -2393,7 +2420,8 @@ const SidebarProjectFolderBlock = memo(function SidebarProjectFolderBlock({
 });
 
 export default function Sidebar() {
-  const projects = useProjects();
+  const projects = useProjectsWithOrderOverrides();
+  const writeProjectOrder = useProjectOrderWriter();
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const reorderProjects = useUiStateStore((store) => store.reorderProjects);
   const reorderAssistants = useUiStateStore((store) => store.reorderAssistants);
@@ -2549,17 +2577,21 @@ export default function Sidebar() {
     [primaryEnvironmentId, projects, threads],
   );
   const { workspaceProjects, workspaceThreads } = assistantPartition;
+  // Folders arranged on any client (synced `orderKey`) lead; the rest keep this client's
+  // saved order, which is also what seeds the synced order the first time.
   const orderedProjects = useMemo(
     () =>
-      orderItemsByPreferredIds({
-        items: workspaceProjects,
-        preferredIds: projectOrder,
-        getId: getProjectOrderKey,
-        getPreferenceIds: (project) => [
-          getProjectOrderKey(project),
-          legacyProjectCwdPreferenceKey(project.workspaceRoot),
-        ],
-      }),
+      orderProjectsByKey(workspaceProjects, (keyless) =>
+        orderItemsByPreferredIds({
+          items: keyless,
+          preferredIds: projectOrder,
+          getId: getProjectOrderKey,
+          getPreferenceIds: (project) => [
+            getProjectOrderKey(project),
+            legacyProjectCwdPreferenceKey(project.workspaceRoot),
+          ],
+        }),
+      ),
     [projectOrder, workspaceProjects],
   );
   const useManualProjectOrder = sidebarProjectSortOrder === "manual" || folderOrderLocked;
@@ -3132,6 +3164,49 @@ export default function Sidebar() {
     [projectFolders, settledViewOpen, tasksSectionExpanded],
   );
   // Projects reorder among themselves. Two or more, or there is nothing to move.
+  // Publish this client's saved order once, the first time it meets a server without one.
+  // Only after every environment is live (a cached snapshot could hide keys another client
+  // already wrote), and never over an existing arrangement: seed writes are `ifKeyless`.
+  const savedAssistantOrder = useUiStateStore((store) => store.assistantOrder);
+  const seededProjectOrderRef = useRef(false);
+  useEffect(() => {
+    if (seededProjectOrderRef.current || !allProjectSnapshotsReady) return;
+    if (savedAssistantOrder.length === 0 && projectOrder.length === 0) return;
+    if (projects.some((project) => !serverConfigs.has(project.environmentId))) return;
+    const toEntry = (project: EnvironmentProject): ArrangeEntry => ({
+      id: `${project.environmentId}:${project.id}`,
+      members: [
+        {
+          environmentId: project.environmentId,
+          projectId: project.id,
+          orderKey: project.orderKey,
+          writable: readEnvironmentSupportsProjectReorder(project.environmentId),
+        },
+      ],
+    });
+    const writes = [
+      ...(savedAssistantOrder.length > 0
+        ? (planEntrySeed({
+            entries: assistantModels.map((model) => toEntry(model.entry.project)),
+          }) ?? [])
+        : []),
+      ...(projectOrder.length > 0
+        ? (planEntrySeed({ entries: orderedProjects.map(toEntry) }) ?? [])
+        : []),
+    ];
+    if (writes.length === 0) return;
+    seededProjectOrderRef.current = true;
+    void writeProjectOrder(writes, { ifKeyless: true });
+  }, [
+    allProjectSnapshotsReady,
+    assistantModels,
+    orderedProjects,
+    projectOrder.length,
+    projects,
+    savedAssistantOrder.length,
+    serverConfigs,
+    writeProjectOrder,
+  ]);
   const assistantSortableIds = useMemo(
     () =>
       settledViewOpen || !showAssistantsSection || !assistantsSectionExpanded
@@ -4768,6 +4843,71 @@ export default function Sidebar() {
     },
     [copyPathToClipboard, handleRemoveProjectMembers, openProjectSettings, serverConfigs],
   );
+  // Standing and active agents under each Project, for drag and Alt+Arrow.
+  const agentOrderSlots = useMemo(
+    () =>
+      settledViewOpen
+        ? new Map()
+        : indexAgentOrderSlots(assistantModels, {
+            pinReorder: (environmentId) => {
+              const capabilities = serverConfigs.get(environmentId)?.environment.capabilities;
+              return capabilities?.threadPinning === true && capabilities.threadPinReorder === true;
+            },
+            activeReorder: (environmentId) =>
+              serverConfigs.get(environmentId)?.environment.capabilities.threadActiveReorder ===
+              true,
+          }),
+    [assistantModels, serverConfigs, settledViewOpen],
+  );
+  const applyAgentOrderMove = useCallback(
+    (move: AgentOrderMove) => {
+      const write = move.plan.section === "pinned" ? reorderPinnedThread : reorderActiveThread;
+      // Every write patches the shell optimistically before it is sent, so
+      // issuing them together re-sorts the Project once, with no hold state.
+      void Promise.all(
+        move.writes.map(({ threadRef, orderKey }) => write(threadRef, orderKey)),
+      ).then((results) => {
+        const failure = results.find(
+          (result) => result._tag === "Failure" && !isAtomCommandInterrupted(result),
+        );
+        if (failure === undefined || failure._tag !== "Failure") return;
+        const error = squashAtomCommandFailure(failure);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Failed to reorder agents",
+            description: error instanceof Error ? error.message : "An error occurred.",
+          }),
+        );
+      });
+    },
+    [reorderActiveThread, reorderPinnedThread],
+  );
+  const handleAgentDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      if (event.over === null) return;
+      const move = planAgentOrderMove({
+        models: assistantModels,
+        slots: agentOrderSlots,
+        movedKey: String(event.active.id),
+        target: { overKey: String(event.over.id) },
+      });
+      if (move !== null) applyAgentOrderMove(move);
+    },
+    [agentOrderSlots, applyAgentOrderMove, assistantModels],
+  );
+  const handleAgentMove = useCallback(
+    (threadRef: ScopedThreadRef, direction: -1 | 1) => {
+      const move = planAgentOrderMove({
+        models: assistantModels,
+        slots: agentOrderSlots,
+        movedKey: scopedThreadKey(threadRef),
+        target: { direction },
+      });
+      if (move !== null) applyAgentOrderMove(move);
+    },
+    [agentOrderSlots, applyAgentOrderMove, assistantModels],
+  );
   const folderCollisionDetection = useCallback<CollisionDetection>(
     (args) => {
       const activeKey = String(args.active.id);
@@ -4780,6 +4920,19 @@ export default function Sidebar() {
         };
         const within = pointerWithin(scoped);
         return within.length > 0 ? within : closestCorners(scoped);
+      }
+      const acceptsAgentDrop = agentDropTargetFilter(agentOrderSlots, activeKey);
+      if (acceptsAgentDrop !== null) {
+        // An agent stays in its own Project and block: never another
+        // Project, the Tasks section, or across the standing line.
+        const scoped = {
+          ...args,
+          droppableContainers: args.droppableContainers.filter((container) =>
+            acceptsAgentDrop(String(container.id)),
+          ),
+        };
+        // Like a task, releasing outside the block cancels the move.
+        return pointerWithin(scoped);
       }
       const source = projectThreadRowByKey.get(activeKey);
       const droppableContainers = args.droppableContainers.filter((container) => {
@@ -4815,6 +4968,7 @@ export default function Sidebar() {
     [
       activeKeys,
       activeKeysById,
+      agentOrderSlots,
       activeReorderableThreadKeys,
       assistantSortableIds,
       draggableThreadKeys,
@@ -4850,6 +5004,53 @@ export default function Sidebar() {
       if (sidebarProjectSortOrder !== "manual") {
         updateSettings({ sidebarProjectSortOrder: "manual" });
       }
+      // Synced order first: the drop is one key per folder, written to the servers that own
+      // its projects. Folders on servers that predate it keep the local order below.
+      const toEntry = (id: string, refs: readonly ScopedProjectRef[]): ArrangeEntry => ({
+        id,
+        members: refs.flatMap((ref) => {
+          const project = projectByKey.get(`${ref.environmentId}:${ref.projectId}`);
+          return project === undefined
+            ? []
+            : [
+                {
+                  environmentId: project.environmentId,
+                  projectId: project.id,
+                  orderKey: project.orderKey,
+                  writable: readEnvironmentSupportsProjectReorder(project.environmentId),
+                },
+              ];
+        }),
+      });
+      const visibleEntries = folders.flatMap((folder) =>
+        folder.project === null
+          ? []
+          : [toEntry(folder.projectKey, folder.project.memberProjectRefs)],
+      );
+      const shownRefKeys = new Set(
+        folders.flatMap((folder) =>
+          (folder.project?.memberProjectRefs ?? []).map(
+            (ref) => `${ref.environmentId}:${ref.projectId}`,
+          ),
+        ),
+      );
+      const hiddenEntries = orderedProjects
+        .filter((project) => !shownRefKeys.has(`${project.environmentId}:${project.id}`))
+        .map((project) =>
+          toEntry(`hidden:${project.environmentId}:${project.id}`, [
+            scopeProjectRef(project.environmentId, project.id),
+          ]),
+        );
+      const writes = planEntryArrange({
+        visible: visibleEntries,
+        hidden: hiddenEntries,
+        activeId: activeFolder.projectKey,
+        overId: overFolder.projectKey,
+      });
+      if (writes !== null) {
+        void writeProjectOrder(writes);
+        return;
+      }
       reorderProjects(
         [...visualOrder, ...rest],
         activeFolder.project.memberProjects.map((member) => member.physicalProjectKey),
@@ -4858,35 +5059,73 @@ export default function Sidebar() {
     },
     [
       orderedProjects,
+      projectByKey,
       projectFolders,
       reorderProjects,
       settledProjectFolders,
       settledViewOpen,
       sidebarProjectSortOrder,
       updateSettings,
+      writeProjectOrder,
     ],
   );
 
+  // Projects arrange one project per row. A drop is one key written to the owning server;
+  // Projects on a server that predates synced order keep the local order.
+  const arrangeAssistant = useCallback(
+    (activeKey: string, overKey: string) => {
+      const toEntry = (project: EnvironmentProject): ArrangeEntry => ({
+        id: assistantExpansionKey(project.environmentId, project.id),
+        members: [
+          {
+            environmentId: project.environmentId,
+            projectId: project.id,
+            orderKey: project.orderKey,
+            writable: readEnvironmentSupportsProjectReorder(project.environmentId),
+          },
+        ],
+      });
+      const shown = new Set(assistantModels.map((model) => model.key));
+      const writes = planEntryArrange({
+        visible: assistantModels.map((model) => toEntry(model.entry.project)),
+        hidden: projects
+          .filter(
+            (project) =>
+              project.assistant != null &&
+              !shown.has(assistantExpansionKey(project.environmentId, project.id)),
+          )
+          .map(toEntry),
+        activeId: activeKey,
+        overId: overKey,
+      });
+      if (writes !== null) {
+        void writeProjectOrder(writes);
+        return;
+      }
+      reorderAssistants(
+        assistantModels.map((model) => model.key),
+        activeKey,
+        overKey,
+      );
+    },
+    [assistantModels, projects, reorderAssistants, writeProjectOrder],
+  );
   const handleAssistantDragEnd = useCallback(
     (event: DragEndEvent) => {
       setFolderDragActive(false);
       const { active, over } = event;
       if (!over || active.id === over.id) return;
-      reorderAssistants(
-        assistantModels.map((model) => model.key),
-        String(active.id),
-        String(over.id),
-      );
+      arrangeAssistant(String(active.id), String(over.id));
     },
-    [assistantModels, reorderAssistants],
+    [arrangeAssistant],
   );
   const handleAssistantMove = useCallback(
     (key: string, direction: -1 | 1) => {
       const order = assistantModels.map((model) => model.key);
       const neighbor = order[order.indexOf(key) + direction];
-      if (neighbor !== undefined) reorderAssistants(order, key, neighbor);
+      if (neighbor !== undefined) arrangeAssistant(key, neighbor);
     },
-    [assistantModels, reorderAssistants],
+    [arrangeAssistant, assistantModels],
   );
 
   const newThreadShortcutLabel =
@@ -4999,6 +5238,8 @@ export default function Sidebar() {
                 ]}
                 onDragStart={(event) => {
                   const id = String(event.active.id);
+                  // Agents nest outside the list motion; nothing to suspend.
+                  if (agentOrderSlots.has(id)) return;
                   if (sortableFolderIds.includes(id) || assistantSortableIds.includes(id)) {
                     handleFolderDragStart();
                     return;
@@ -5007,12 +5248,22 @@ export default function Sidebar() {
                 }}
                 onDragOver={(event) => {
                   const id = String(event.active.id);
-                  if (sortableFolderIds.includes(id) || assistantSortableIds.includes(id)) return;
+                  if (
+                    agentOrderSlots.has(id) ||
+                    sortableFolderIds.includes(id) ||
+                    assistantSortableIds.includes(id)
+                  ) {
+                    return;
+                  }
                   handleThreadDragOver(event);
                 }}
                 onDragCancel={() => setFolderDragActive(false)}
                 onDragEnd={(event) => {
                   const id = String(event.active.id);
+                  if (agentOrderSlots.has(id)) {
+                    handleAgentDragEnd(event);
+                    return;
+                  }
                   if (sortableFolderIds.includes(id)) {
                     handleFolderDragEnd(event);
                     return;
@@ -5040,6 +5291,7 @@ export default function Sidebar() {
                         thread: EnvironmentThreadShell,
                         section: SidebarSection,
                         sortable?: SortableThreadRowBag,
+                        agentOrder?: { readonly onMove: typeof handleAgentMove },
                       ) => {
                         const threadKey = scopedThreadKey(
                           scopeThreadRef(thread.environmentId, thread.id),
@@ -5084,8 +5336,11 @@ export default function Sidebar() {
                                 ? resolveSidebarDropVerb(dragState.activeSection, dragTargetSection)
                                 : null
                             }
+                            // A dragged agent never changes block, so a standing
+                            // agent keeps its pin while it moves.
                             dragOverPinned={
-                              dragState?.activeKey === threadKey && dragTargetSection === "pinned"
+                              agentOrder !== undefined ||
+                              (dragState?.activeKey === threadKey && dragTargetSection === "pinned")
                             }
                             snoozeWakeLabelText={
                               section === "snoozed" && thread.snoozedUntil != null
@@ -5141,6 +5396,7 @@ export default function Sidebar() {
                             onUnpin={attemptUnpin}
                             onAcknowledgeWoke={acknowledgeWoke}
                             onFileDropThreads={handleThreadFileDrop}
+                            onMove={agentOrder?.onMove}
                           />
                         );
                       };
@@ -5223,10 +5479,37 @@ export default function Sidebar() {
                                       onNavigateToDraft={navigateToDraft}
                                     />
                                   )}
-                                  // Agents are never draggable: no sortable bag.
-                                  renderThreadRow={(thread, section) =>
-                                    renderThreadRowInner(thread, section)
-                                  }
+                                  // Standing and active agents arrange within their
+                                  // own Project; other agents render still.
+                                  renderThreadRow={(thread, section) => {
+                                    const threadKey = scopedThreadKey(
+                                      scopeThreadRef(thread.environmentId, thread.id),
+                                    );
+                                    const slot = agentOrderSlots.get(threadKey);
+                                    if (slot === undefined) {
+                                      return renderThreadRowInner(thread, section);
+                                    }
+                                    return (
+                                      <SortableThreadRow
+                                        key={threadKey}
+                                        id={threadKey}
+                                        disabled={
+                                          !slot.reorderable || renamingThreadKey === threadKey
+                                        }
+                                      >
+                                        {(sortable) =>
+                                          renderThreadRowInner(
+                                            thread,
+                                            section,
+                                            sortable,
+                                            slot.reorderable
+                                              ? { onMove: handleAgentMove }
+                                              : undefined,
+                                          )
+                                        }
+                                      </SortableThreadRow>
+                                    );
+                                  }}
                                   sortable={!settledViewOpen}
                                   consumeDragSuppression={consumeFolderToggleSuppression}
                                   onMove={handleAssistantMove}

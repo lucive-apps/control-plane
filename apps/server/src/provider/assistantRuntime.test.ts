@@ -131,19 +131,20 @@ describe("buildAssistantRuntimeBlock", () => {
     }
   });
 
-  it("tells the coordinator to send agents to the built-in browser, and every agent to use it", () => {
+  it("gives coordinators and agents their own thread browser instructions", () => {
     const project = makeProject();
     const build = (thread: ReturnType<typeof makeThread>) =>
       buildAssistantRuntimeBlock({ project, thread, memory: "", roleFile: "" });
     const coordinatorRule =
-      "When you delegate, tell each agent to use the built-in Control Plane browser (the preview_* tools) for browsing, testing and screenshots, and not the user's own browser.";
+      "Every delegation message must tell the agent to use its own built-in Control Plane browser (preview_* tools) for all browsing, including logged-in sites, and never the user's desktop browsers. Only when the user explicitly asks for an agent to use their own browser or computer, say so in the delegation message and quote the user's request. Never grant it on your own. Each coordinator and agent has its own browser tabs; do not send browser work to another coordinator or reuse another thread's browser.";
     const agentRule =
-      "Use the built-in Control Plane browser (the preview_* tools) for browsing, testing and screenshots. If the preview_* tools are not loaded yet, load them, then call preview_status or preview_open before concluding the built-in browser is unavailable. Do not launch or drive the user's desktop browsers. Only when a task explicitly needs the user's logged-in session, open the URL in their default browser with `open <url>`.";
+      "Always use your own thread's built-in Control Plane browser via the preview_* tools for all browsing, testing and screenshots, including logged-in sites. Load the tools if they are not loaded yet, then call preview_status or preview_open (without tabId) before preview_navigate, preview_snapshot and the other preview_* tools. Never open or drive the user's desktop browsers: never run `open <url>`, never AppleScript a browser, never use computer-use tools for one. Exception: if the user explicitly tells you to use their own browser or computer (for example 'use my Helium' or 'use my computer'), you may do so for that request. A coordinator relaying the user's explicit instruction counts. Never decide on your own that you need the user's browser. Logins persist in the built-in browser profile. If a site needs a login you don't have, stop and ask the user to sign in once in the Control Plane browser panel (or import from their browser with the browser's import option), then continue. If preview_open reports no automation host, report the tool error; switching to another thread's browser does not repair the host connection.";
 
     const coordinator = build(makeThread("coordinator"));
     expect(coordinator?.inline).toContain(coordinatorRule);
     expect(coordinator?.pointer).toContain(coordinatorRule);
-    expect(coordinator?.inline).not.toContain(agentRule);
+    expect(coordinator?.inline).toContain(agentRule);
+    expect(coordinator?.pointer).toContain(agentRule);
 
     for (const agent of [
       build(makeThread("agent", { title: "Research", pinnedAt: PINNED_AT })),
@@ -159,7 +160,7 @@ describe("buildAssistantRuntimeBlock", () => {
       build(makeThread("agent", { title: "Research", pinnedAt: PINNED_AT })),
       build(makeThread("agent")),
     ]) {
-      expect(block?.inline).not.toMatch(/chrome|safari|helium|firefox/i);
+      expect(block?.inline).not.toMatch(/chrome|safari|firefox/i);
       expect(block?.inline).not.toContain("\u2014");
     }
   });
@@ -169,10 +170,14 @@ describe("buildAssistantRuntimeBlock", () => {
     const build = (thread: ReturnType<typeof makeThread>) =>
       buildAssistantRuntimeBlock({ project, thread, memory: "", roleFile: "" });
     const rule =
-      "Settle agents with cp_agent_settle once their work is complete and merged, or when they are one-off and have reported. It fails while an agent is working; a settled agent wakes on a new message.";
+      "Settle agents with cp_agent_settle once their work is complete (for example, merged) and no follow-ups remain. Reporting a result does not settle an agent. It fails while an agent is working; a settled agent wakes on a new message.";
 
     const coordinator = build(makeThread("coordinator"));
     expect(coordinator?.inline).toContain(rule);
+    expect(coordinator?.inline).toContain(
+      "An agent is one-off by default and stays available for follow-ups after it reports.",
+    );
+    expect(coordinator?.inline).not.toContain("settles after it reports");
     // Cursor, Grok and Antigravity see only the pointer.
     expect(coordinator?.pointer).toContain(rule);
     for (const agent of [

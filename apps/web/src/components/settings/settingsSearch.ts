@@ -306,6 +306,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["notification sound alert completion input approval desktop"],
   },
   {
+    id: "global-instructions",
+    title: "Global instructions",
+    to: "/settings/general",
+    searchTerms: [
+      "agents md rules prompt system coordinator agent tasks every project all providers claude codex",
+    ],
+  },
+  {
     id: "in-app-notifications",
     title: "In-app notifications",
     to: "/settings/general",
@@ -796,6 +804,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/connections",
     searchTerms: [
       "automatic machine environment resources cpu memory capacity preference weight shared workspaces projects",
+    ],
+  },
+  {
+    id: "agent-machines",
+    title: "Agent machines",
+    to: "/settings/connections",
+    searchTerms: [
+      "coordinator agents other machine remote link pair mac mini balance placement fallback where new agents run",
     ],
   },
   {

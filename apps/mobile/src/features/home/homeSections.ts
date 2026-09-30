@@ -1,9 +1,8 @@
 import {
   assistantExpansionKey,
-  assistantSettledToggle,
+  planAssistantAgentReorder,
   rollupAssistantsStatus,
   rollupThreadGroupStatus,
-  visibleAssistantAgentRows,
   type SidebarRollupStatus,
 } from "@t3tools/client-runtime/state/assistant-lists";
 import {
@@ -18,7 +17,7 @@ import type {
   EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/shell";
 import { getThreadSortTimestamp } from "@t3tools/client-runtime/state/thread-sort";
-import type { EnvironmentId, SidebarProjectGroupingMode } from "@t3tools/contracts";
+import type { EnvironmentId, ServerConfig, SidebarProjectGroupingMode } from "@t3tools/contracts";
 
 import { scopedProjectKey, scopedThreadKey } from "../../lib/scopedEntities";
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
@@ -49,7 +48,7 @@ export const HOME_TASKS_SECTION_KEY = "home-section:tasks";
 
 export type HomeSectionKind = "projects" | "tasks";
 
-type AgentSectionRow = "pinned" | "active" | "snoozed" | "settled";
+type AgentSectionRow = "pinned" | "active" | "snoozed";
 
 /** Where Move up/down puts a Tasks row: next to its folder neighbor in the same block. */
 export interface FolderMoveDestination {
@@ -105,20 +104,21 @@ export interface HomeAgentItem {
   /** Pinned agents are standing agents: pin glyph, no Settle. */
   readonly standing: boolean;
   readonly snoozeWakeLabelText: string | undefined;
+  /** Move up/down within the Project's standing or active agents; null on parked rows and while searching. */
+  readonly move: HomeAgentMove | null;
+}
+
+export interface HomeAgentMove {
+  readonly canMoveUp: boolean;
+  readonly canMoveDown: boolean;
+  /** The Project's complete sections, which a move plans against. */
+  readonly sections: AssistantAgentSections<EnvironmentThreadShell>;
 }
 
 export interface HomeAgentPendingItem {
   readonly type: "agent-pending";
   readonly key: string;
   readonly pendingTask: PendingNewTask;
-}
-
-export interface HomeAgentSettledToggleItem {
-  readonly type: "agent-settled-toggle";
-  readonly key: string;
-  readonly expansionKey: string;
-  readonly label: string;
-  readonly nextSettledCount: number;
 }
 
 export interface HomeFolderItem {
@@ -172,7 +172,6 @@ export type HomeSectionItem =
   | HomeProjectItem
   | HomeAgentItem
   | HomeAgentPendingItem
-  | HomeAgentSettledToggleItem
   | HomeFolderItem
   | HomeTaskThreadItem
   | ThreadListV2PendingListItem
@@ -194,7 +193,7 @@ export interface HomeSectionsInput {
   readonly matchedThreadKeys?: ReadonlySet<string>;
   readonly projectGroupingMode: SidebarProjectGroupingMode;
   readonly projectSortOrder: HomeProjectSortOrder;
-  /** Connected environments whose server advertises `assistants`. */
+  /** Environments whose cached or live server config advertises `assistants`. */
   readonly assistantsEnvironmentIds: ReadonlySet<EnvironmentId>;
   /** Connected environments whose loaded server config lacks `assistants`. */
   readonly assistantsUnsupportedEnvironmentIds?: ReadonlySet<EnvironmentId>;
@@ -216,8 +215,6 @@ export interface HomeSectionsInput {
   /** Collapsed section and folder keys. */
   readonly collapsedKeys: ReadonlySet<string>;
   readonly expandedAssistantKeys: ReadonlySet<string>;
-  /** Settled agents paged in per Project, by expansion key. */
-  readonly assistantSettledCounts: ReadonlyMap<string, number>;
   /** The thread open in the detail pane (iPad); null on the phone. */
   readonly selectedThreadKey: string | null;
   readonly lastVisitedAtById: Readonly<Record<string, string>>;
@@ -282,6 +279,7 @@ function agentListItem(
   thread: EnvironmentThreadShell,
   section: AgentSectionRow,
   snoozeLabelNow: string | undefined,
+  move: HomeAgentMove | null,
 ): HomeAgentItem {
   const snoozed = section === "snoozed";
   return {
@@ -295,11 +293,23 @@ function agentListItem(
       isLast: false,
     },
     standing: section === "pinned",
+    move,
     snoozeWakeLabelText:
       snoozed && thread.snoozedUntil != null && snoozeLabelNow !== undefined
         ? snoozeWakeLabel(thread.snoozedUntil, { now: snoozeLabelNow })
         : undefined,
   };
+}
+
+/** A Project's agents in rendered order: standing, active, snoozed. Settled agents never list here. */
+function agentRows(
+  sections: AssistantAgentSections<EnvironmentThreadShell>,
+): { readonly thread: EnvironmentThreadShell; readonly section: AgentSectionRow }[] {
+  return [
+    ...sections.standing.map((thread) => ({ thread, section: "pinned" as const })),
+    ...sections.active.map((thread) => ({ thread, section: "active" as const })),
+    ...sections.snoozed.map((thread) => ({ thread, section: "snoozed" as const })),
+  ];
 }
 
 function filterSections(
@@ -441,7 +451,8 @@ export function buildHomeSections(input: HomeSectionsInput): HomeSections {
       rollupEntries.push(rollupEntry);
       const coordinatorKey = scopedThreadKey(environmentId, coordinatorThreadId);
       const selectedAgent =
-        selectedKey !== null && entry.agents.some((agent) => threadKeyOf(agent) === selectedKey);
+        selectedKey !== null &&
+        agentRows(sections).some((row) => threadKeyOf(row.thread) === selectedKey);
       if (selectedKey === coordinatorKey || selectedAgent) {
         selectionReveal = {
           collapsedKeys: collapsed ? [HOME_PROJECTS_SECTION_KEY] : [],
@@ -459,7 +470,6 @@ export function buildHomeSections(input: HomeSectionsInput): HomeSections {
         shownSections.standing.length +
           shownSections.active.length +
           shownSections.snoozed.length +
-          shownSections.settled.length +
           pending.length >
         0;
       if (searching && !projectMatches && !hasHits) continue;
@@ -480,13 +490,8 @@ export function buildHomeSections(input: HomeSectionsInput): HomeSections {
       if (entry.coordinator !== null) projectJumpThreads.push(entry.coordinator);
       if (!expanded) continue;
 
-      const settledCount = searching
-        ? shownSections.settled.length
-        : (input.assistantSettledCounts.get(expansionKey) ?? 0);
-      const { rows, hiddenSettledCount } = visibleAssistantAgentRows(shownSections, {
-        settledCount,
-        routeThreadKey: selectedKey,
-      });
+      // Settled Project agents live on the Settled screen, never under their Project.
+      const rows = agentRows(shownSections);
       let pendingPlaced = false;
       const placePending = () => {
         if (pendingPlaced) return;
@@ -501,28 +506,22 @@ export function buildHomeSections(input: HomeSectionsInput): HomeSections {
       };
       for (const row of rows) {
         // Unsent agents sit after the active agents, before the parked ones.
-        if (row.section === "snoozed" || row.section === "settled") placePending();
-        projectItems.push(agentListItem(row.thread, row.section, input.snoozeLabelNow));
+        if (row.section === "snoozed") placePending();
+        const threadKey = threadKeyOf(row.thread);
+        const move =
+          searching || (row.section !== "pinned" && row.section !== "active")
+            ? null
+            : {
+                canMoveUp:
+                  planAssistantAgentReorder(sections, threadKey, { direction: -1 }) !== null,
+                canMoveDown:
+                  planAssistantAgentReorder(sections, threadKey, { direction: 1 }) !== null,
+                sections,
+              };
+        projectItems.push(agentListItem(row.thread, row.section, input.snoozeLabelNow, move));
         projectJumpThreads.push(row.thread);
       }
       placePending();
-      // Search shows every matching settled agent, so there is nothing to page.
-      const toggle = searching
-        ? null
-        : assistantSettledToggle({
-            settledCount,
-            settledTotal: shownSections.settled.length,
-            hiddenSettledCount,
-          });
-      if (toggle !== null) {
-        projectItems.push({
-          type: "agent-settled-toggle",
-          key: `agent-settled:${expansionKey}`,
-          expansionKey,
-          label: toggle.label,
-          nextSettledCount: toggle.nextSettledCount,
-        });
-      }
     }
 
     if (!searching || projectItems.length > 0) {
@@ -901,12 +900,6 @@ export function homeSectionItemsAreEqual(
       );
     case "agent-pending":
       return item.type === "agent-pending" && previous.pendingTask === item.pendingTask;
-    case "agent-settled-toggle":
-      return (
-        item.type === "agent-settled-toggle" &&
-        previous.label === item.label &&
-        previous.nextSettledCount === item.nextSettledCount
-      );
     case "folder":
       return (
         item.type === "folder" &&
@@ -946,6 +939,28 @@ export function homeSectionItemsAreEqual(
     case "section-action":
       return item.type === "section-action" && previous.action === item.action;
   }
+}
+
+/**
+ * Which environments offer Projects. Support comes from the config the device
+ * already has, cached or live, so Home lists New Project with the cached
+ * Projects on the first frame instead of popping it in once the socket
+ * connects. Only a connected server's config can say it predates Projects.
+ */
+export function assistantEnvironmentIds(
+  serverConfigs: ReadonlyMap<EnvironmentId, ServerConfig>,
+  connectedEnvironmentIds: ReadonlySet<EnvironmentId>,
+): {
+  readonly assistants: ReadonlySet<EnvironmentId>;
+  readonly assistantsUnsupported: ReadonlySet<EnvironmentId>;
+} {
+  const assistants = new Set<EnvironmentId>();
+  const assistantsUnsupported = new Set<EnvironmentId>();
+  for (const [environmentId, config] of serverConfigs) {
+    if (config.environment.capabilities.assistants === true) assistants.add(environmentId);
+    else if (connectedEnvironmentIds.has(environmentId)) assistantsUnsupported.add(environmentId);
+  }
+  return { assistants, assistantsUnsupported };
 }
 
 /** Which trailing action rows a list shows, decided by its caller. */

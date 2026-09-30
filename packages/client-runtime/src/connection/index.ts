@@ -1,7 +1,11 @@
 export * from "./catalog.ts";
 export * as Connectivity from "./connectivity.ts";
 export * as CredentialStore from "./credentialStore.ts";
-export { type ConnectionDriverProgress, type EnvironmentConnectionLease } from "./driver.ts";
+export {
+  type ConnectionDriverProgress,
+  ConnectionDriverOverride,
+  type EnvironmentConnectionLease,
+} from "./driver.ts";
 export * from "./errors.ts";
 export * from "./githubRoutingPermissions.ts";
 export * as Connection from "./layer.ts";
@@ -10,6 +14,7 @@ export {
   type BearerConnectionUpdateInput,
   ConnectionOnboarding,
   type PairingConnectionInput,
+  type PairingWaitProgress,
   type SshConnectionInput,
 } from "./onboarding.ts";
 export * from "./presentation.ts";

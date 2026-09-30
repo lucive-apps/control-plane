@@ -5,6 +5,7 @@ import { AsyncResult, Atom } from "effect/unstable/reactivity";
 import { useCallback, useMemo } from "react";
 import { Alert } from "react-native";
 
+import { pairingErrorMessage } from "../features/connection/pairing";
 import { useConnectionController } from "../features/connection/useConnectionController";
 import { environmentPresentations } from "./presentation";
 import { useWorkspaceState } from "../state/workspace";
@@ -126,8 +127,7 @@ export function useRemoteConnections() {
       const result = await controller.connectPairingUrl(nextPairingUrl);
       if (AsyncResult.isFailure(result)) {
         const error = Cause.squash(result.cause);
-        const message =
-          error instanceof Error ? error.message : "Failed to pair with the environment.";
+        const message = pairingErrorMessage(error);
         if (
           error !== null &&
           typeof error === "object" &&

@@ -602,6 +602,66 @@ it.layer(NodeServices.layer)("assistant decider", (it) => {
     }),
   );
 
+  describe("agent order", () => {
+    // Sidebar arrangement of a Project's agents rides the thread order keys,
+    // so it syncs to every client like Tasks order does.
+    it.effect("stores a standing agent's pin order and an active agent's slot", () =>
+      Effect.gen(function* () {
+        let readModel = makeReadModel(coordinatorProject);
+        readModel = yield* apply(
+          readModel,
+          yield* decide(readModel, {
+            type: "thread.pin.reorder",
+            commandId: CommandId.make("cmd-pin-reorder"),
+            threadId: PINNED_AGENT,
+            orderKey: "g",
+          }),
+        );
+        readModel = yield* apply(
+          readModel,
+          yield* decide(readModel, {
+            type: "thread.active.reorder",
+            commandId: CommandId.make("cmd-active-reorder"),
+            threadId: AGENT,
+            orderKey: "t",
+          }),
+        );
+        const byId = new Map(readModel.threads.map((thread) => [thread.id, thread]));
+        // Arranging is not activity, so neither agent's time label moves.
+        expect(byId.get(PINNED_AGENT)).toMatchObject({
+          pinOrderKey: "g",
+          projectId: PROJECT_ID,
+          updatedAt: NOW,
+        });
+        expect(byId.get(AGENT)).toMatchObject({
+          activeOrderKey: "t",
+          projectId: PROJECT_ID,
+          updatedAt: NOW,
+        });
+      }),
+    );
+
+    it.effect("rejects arranging across the standing line", () =>
+      Effect.gen(function* () {
+        const readModel = makeReadModel(coordinatorProject);
+        const pinReorder = yield* rejection(readModel, {
+          type: "thread.pin.reorder",
+          commandId: CommandId.make("cmd-pin-reorder"),
+          threadId: AGENT,
+          orderKey: "g",
+        });
+        expect(pinReorder._tag).toBe("OrchestrationCommandInvariantError");
+        const activeReorder = yield* rejection(readModel, {
+          type: "thread.active.reorder",
+          commandId: CommandId.make("cmd-active-reorder"),
+          threadId: PINNED_AGENT,
+          orderKey: "g",
+        });
+        expect(activeReorder._tag).toBe("OrchestrationCommandInvariantError");
+      }),
+    );
+  });
+
   describe("agent lineage", () => {
     const NEW_AGENT = ThreadId.make("thread-new-agent");
     const createAgent = (createdByThreadId: ThreadId): OrchestrationCommand => ({

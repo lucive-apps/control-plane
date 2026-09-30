@@ -84,6 +84,7 @@ import * as ProviderEventLoggers from "./ProviderEventLoggers.ts";
 import * as AnalyticsService from "../../telemetry/AnalyticsService.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import * as AssistantRuntime from "../assistantRuntime.ts";
+import * as GlobalInstructions from "../globalInstructions.ts";
 import * as McpSessionRegistry from "../../mcp/McpSessionRegistry.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import * as ProjectionSnapshotQuery from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
@@ -941,15 +942,28 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     } satisfies Record<string, string>;
   });
 
-  /** Stores the thread's Project role block for this session, or clears it. */
+  const readFileOrEmpty = (absolutePath: string) =>
+    fileSystem.readFileString(absolutePath).pipe(Effect.orElseSucceed(() => ""));
+
+  /** The user's global instructions; undefined when settings are unreadable, which injects nothing. */
+  const globalInstructionsSource = Effect.gen(function* () {
+    const settings = yield* serverSettings.getSettings;
+    const path = GlobalInstructions.globalInstructionsPath(serverConfig.stateDir);
+    const text = yield* readFileOrEmpty(path);
+    return { path, text, scopes: settings.globalInstructions };
+  }).pipe(Effect.orElseSucceed(() => undefined));
+
+  /** Stores the thread's global and Project role block for this session, or clears it. */
   const prepareAssistantRuntime = (threadId: ThreadId) =>
     Option.isSome(projectionQuery)
-      ? AssistantRuntime.prepareAssistantRuntime({
-          threadId,
-          projection: projectionQuery.value,
-          readFile: (absolutePath) =>
-            fileSystem.readFileString(absolutePath).pipe(Effect.orElseSucceed(() => "")),
-        })
+      ? Effect.flatMap(globalInstructionsSource, (global) =>
+          AssistantRuntime.prepareAssistantRuntime({
+            threadId,
+            projection: projectionQuery.value,
+            readFile: readFileOrEmpty,
+            global,
+          }),
+        )
       : Effect.sync(() => AssistantRuntime.clearAssistantRuntime(threadId));
 
   const prepareMcpSession = (threadId: ThreadId, providerInstanceId: ProviderInstanceId) =>

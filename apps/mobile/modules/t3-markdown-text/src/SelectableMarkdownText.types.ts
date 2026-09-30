@@ -14,6 +14,10 @@ export interface NativeMarkdownTextStyle {
   readonly quoteMarkerColor: string;
   readonly dividerColor: string;
   readonly contextChipBorderColor?: string;
+  /** Opaque colour the markdown sits on; wide tables fade into it at a scrollable edge. */
+  readonly surfaceColor?: string;
+  /** Opaque colour behind code block text; wide code fades into it at a scrollable edge. */
+  readonly codeBlockSurfaceColor?: string;
   readonly fontSize: number;
   readonly lineHeight: number;
   readonly fontFamily: string;

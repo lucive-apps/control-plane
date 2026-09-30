@@ -552,6 +552,16 @@ export const ProjectIconOverride = Schema.Union([
 );
 export type ProjectIconOverride = typeof ProjectIconOverride.Type;
 
+// Fractional index key for the user-arranged order of Projects and Tasks folders. Same
+// alphabet as thread order keys: a plain string comparison sorts, and a drag writes one key
+// to one project on its own server. A trailing "a" is never generated (no room before it).
+export const PROJECT_ORDER_KEY_MAX_LENGTH = 64;
+export const ProjectOrderKey = TrimmedNonEmptyString.check(
+  Schema.isMaxLength(PROJECT_ORDER_KEY_MAX_LENGTH),
+  Schema.isPattern(/^[a-z]*[b-z]$/),
+);
+export type ProjectOrderKey = typeof ProjectOrderKey.Type;
+
 export const OrchestrationProject = Schema.Struct({
   id: ProjectId,
   title: TrimmedNonEmptyString,
@@ -567,6 +577,9 @@ export const OrchestrationProject = Schema.Struct({
   // Optional on the wire so cached snapshots from older servers still decode.
   faviconPath: Schema.optional(Schema.NullOr(ProjectFaviconPath)),
   projectIcon: Schema.optional(Schema.NullOr(ProjectIconOverride)),
+  // Optional on the wire so cached snapshots from older servers still decode. Null or absent
+  // means "not arranged": clients place the project after arranged ones.
+  orderKey: Schema.optional(Schema.NullOr(ProjectOrderKey)),
   assistant: Schema.optional(Schema.NullOr(ProjectAssistant)),
   scripts: Schema.Array(ProjectScript),
   createdAt: IsoDateTime,
@@ -966,6 +979,9 @@ export const OrchestrationProjectShell = Schema.Struct({
   // Optional on the wire so cached snapshots from older servers still decode.
   faviconPath: Schema.optional(Schema.NullOr(ProjectFaviconPath)),
   projectIcon: Schema.optional(Schema.NullOr(ProjectIconOverride)),
+  // Optional on the wire so cached snapshots from older servers still decode. Null or absent
+  // means "not arranged": clients place the project after arranged ones.
+  orderKey: Schema.optional(Schema.NullOr(ProjectOrderKey)),
   assistant: Schema.optional(Schema.NullOr(ProjectAssistant)),
   scripts: Schema.Array(ProjectScript),
   createdAt: IsoDateTime,
@@ -1200,6 +1216,16 @@ const ProjectMetaUpdateCommand = Schema.Struct({
   scripts: Schema.optional(Schema.Array(ProjectScript)),
   // Absent = leave unchanged; null = clear the marker (back to a workspace).
   assistant: Schema.optional(Schema.NullOr(ProjectAssistantPatch)),
+});
+
+const ProjectReorderCommand = Schema.Struct({
+  type: Schema.Literal("project.reorder"),
+  commandId: CommandId,
+  projectId: ProjectId,
+  orderKey: ProjectOrderKey,
+  // Seeding from a client's saved local order must not overwrite an arrangement another client
+  // already published: the server ignores the write when the project already has a key.
+  ifKeyless: Schema.optional(Schema.Literal(true)),
 });
 
 const ProjectDeleteCommand = Schema.Struct({
@@ -1516,6 +1542,7 @@ const ThreadSessionStopCommand = Schema.Struct({
 const DispatchableClientOrchestrationCommand = Schema.Union([
   ProjectCreateCommand,
   ProjectMetaUpdateCommand,
+  ProjectReorderCommand,
   ProjectDeleteCommand,
   ThreadCreateCommand,
   ThreadDeleteCommand,
@@ -1549,6 +1576,7 @@ export type DispatchableClientOrchestrationCommand =
 export const ClientOrchestrationCommand = Schema.Union([
   ProjectCreateCommand,
   ProjectMetaUpdateCommand,
+  ProjectReorderCommand,
   ProjectDeleteCommand,
   ThreadCreateCommand,
   ThreadDeleteCommand,
@@ -1862,6 +1890,8 @@ export const ProjectMetaUpdatedPayload = Schema.Struct({
   autoPull: Schema.optional(Schema.Boolean),
   faviconPath: Schema.optional(Schema.NullOr(ProjectFaviconPath)),
   projectIcon: Schema.optional(Schema.NullOr(ProjectIconOverride)),
+  // Null clears the key (the project changed between Projects and workspaces).
+  orderKey: Schema.optional(Schema.NullOr(ProjectOrderKey)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
   // The full resolved marker, never the command's patch.
   assistant: Schema.optional(Schema.NullOr(ProjectAssistant)),

@@ -1,3 +1,5 @@
+import { AgentPlacementSettings, AgentPlacementSettingsPatch } from "./agentPlacement.ts";
+import { GlobalInstructionsScopes, GlobalInstructionsScopesPatch } from "./globalInstructions.ts";
 import { SshDeviceHostConfigs } from "./device.ts";
 import * as Effect from "effect/Effect";
 import * as Duration from "effect/Duration";
@@ -1248,6 +1250,10 @@ export const ServerSettings = Schema.Struct({
   usagePriceOverrides: Schema.Record(TrimmedNonEmptyString, UsageModelPriceOverride).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
+  /** Where this environment's coordinators start new agents. Fork-owned. */
+  agentPlacement: AgentPlacementSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  /** Which sessions receive `<stateDir>/GLOBAL_AGENTS.md`. Fork-owned. */
+  globalInstructions: GlobalInstructionsScopes.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
 });
 export type ServerSettings = typeof ServerSettings.Type;
 
@@ -1519,6 +1525,8 @@ export const ServerSettingsPatch = Schema.Struct({
   usagePriceOverrides: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, Schema.NullOr(UsageModelPriceOverride)),
   ),
+  agentPlacement: Schema.optionalKey(AgentPlacementSettingsPatch),
+  globalInstructions: Schema.optionalKey(GlobalInstructionsScopesPatch),
 });
 export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;
 

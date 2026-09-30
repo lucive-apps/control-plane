@@ -5,6 +5,7 @@ import { AppText as Text } from "../../components/AppText";
 import { MaterialNewThreadButton } from "../../components/MaterialNewThreadButton";
 import { MaterialFloatingActionButton } from "../../components/MaterialFloatingActionButton";
 import { EmptyState } from "../../components/EmptyState";
+import { TryDemoButton } from "../demo/TryDemoButton";
 
 export function WorkspaceEmptyDetail(props: {
   readonly onStartNewTask?: () => void;
@@ -24,16 +25,21 @@ export function WorkspaceEmptyDetail(props: {
             title="No environments connected"
             detail="Add an environment to load workspaces and start coding sessions."
             variant="plain"
-            action={
-              <MaterialFloatingActionButton
-                label="Add environment"
-                icon="plus"
-                variant="extended"
-                tone="primary"
-                onPress={props.onAddConnection}
-              />
-            }
+            {...(Platform.OS === "android"
+              ? {
+                  action: (
+                    <MaterialFloatingActionButton
+                      label="Add environment"
+                      icon="plus"
+                      variant="extended"
+                      tone="primary"
+                      onPress={props.onAddConnection}
+                    />
+                  ),
+                }
+              : { actionLabel: "Add environment", onAction: props.onAddConnection })}
           />
+          <TryDemoButton />
         </View>
       ) : (
         <View className="max-w-[360px] items-center gap-3">

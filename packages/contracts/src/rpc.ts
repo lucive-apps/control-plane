@@ -2,6 +2,12 @@ import * as Schema from "effect/Schema";
 import * as Rpc from "effect/unstable/rpc/Rpc";
 import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
 import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { AgentMachinesError, AgentMachinesInput, AgentMachinesResult } from "./agentPlacement.ts";
+import {
+  GlobalInstructionsError,
+  GlobalInstructionsInput,
+  GlobalInstructionsResult,
+} from "./globalInstructions.ts";
 import {
   ProviderAuthCancelInput,
   ProviderAuthCompleteInput,
@@ -387,6 +393,8 @@ export const WS_METHODS = {
   serverGetResourceTelemetryHistory: "server.getResourceTelemetryHistory",
   serverRetryResourceTelemetry: "server.retryResourceTelemetry",
   serverSignalProcess: "server.signalProcess",
+  serverAgentMachines: "server.agentMachines",
+  serverGlobalInstructions: "server.globalInstructions",
   serverReportClientActivity: "server.reportClientActivity",
   serverReportHostPowerState: "server.reportHostPowerState",
   serverGetBackgroundPolicy: "server.getBackgroundPolicy",
@@ -659,6 +667,18 @@ const WsServerSignalProcessRpc = Rpc.make(WS_METHODS.serverSignalProcess, {
   payload: ServerSignalProcessInput,
   success: ServerSignalProcessResult,
   error: EnvironmentAuthorizationError,
+});
+
+const WsServerAgentMachinesRpc = Rpc.make(WS_METHODS.serverAgentMachines, {
+  payload: AgentMachinesInput,
+  success: AgentMachinesResult,
+  error: Schema.Union([EnvironmentAuthorizationError, AgentMachinesError]),
+});
+
+const WsServerGlobalInstructionsRpc = Rpc.make(WS_METHODS.serverGlobalInstructions, {
+  payload: GlobalInstructionsInput,
+  success: GlobalInstructionsResult,
+  error: Schema.Union([EnvironmentAuthorizationError, GlobalInstructionsError]),
 });
 
 const WsCloudGetRelayClientStatusRpc = Rpc.make(WS_METHODS.cloudGetRelayClientStatus, {
@@ -1429,6 +1449,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetUsageSummaryRpc,
   WsServerRefreshUsageRatesRpc,
   WsServerSignalProcessRpc,
+  WsServerAgentMachinesRpc,
+  WsServerGlobalInstructionsRpc,
   WsServerReportClientActivityRpc,
   WsServerReportHostPowerStateRpc,
   WsServerGetBackgroundPolicyRpc,

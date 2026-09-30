@@ -13,9 +13,7 @@ import { orderItemsByPreferredIds } from "../Sidebar.logic";
 // helpers shared with mobile live in client-runtime and are re-exported here.
 
 export {
-  ASSISTANT_SETTLED_PAGE_SIZE,
   assistantExpansionKey,
-  assistantSettledToggle,
   isAssistantExpanded,
   rollupAssistantsStatus,
   rollupThreadGroupStatus,
@@ -36,6 +34,23 @@ export function orderAssistantsByPreference<T extends { readonly key: string }>(
   return order.length === 0
     ? models
     : orderItemsByPreferredIds({ items: models, preferredIds: order, getId: (model) => model.key });
+}
+
+/**
+ * The Projects section order: arranged Projects (synced `orderKey`, already first and in key
+ * order) lead, then this client's saved order applies to the rest, so a client that has not
+ * seeded the synced order yet (or talks to an older server) still shows its own arrangement.
+ */
+export function orderAssistantModels<
+  T extends {
+    readonly key: string;
+    readonly entry: { readonly project: { readonly orderKey?: string | null | undefined } };
+  },
+>(models: readonly T[], legacyOrder: readonly string[]): readonly T[] {
+  const arranged = models.filter((model) => model.entry.project.orderKey != null);
+  if (arranged.length === 0) return orderAssistantsByPreference(models, legacyOrder);
+  const rest = models.filter((model) => model.entry.project.orderKey == null);
+  return [...arranged, ...orderAssistantsByPreference(rest, legacyOrder)];
 }
 
 interface ScopedThreadLike {

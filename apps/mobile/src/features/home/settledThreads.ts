@@ -1,3 +1,7 @@
+import {
+  sectionAssistantAgents,
+  type AssistantPartition,
+} from "@t3tools/client-runtime/state/assistants";
 import type {
   EnvironmentProject,
   EnvironmentThreadShell,
@@ -8,8 +12,41 @@ import { scopedProjectKey } from "../../lib/scopedEntities";
 import { buildThreadListV2Items } from "../threads/threadListV2";
 import { buildHomeProjectScopes } from "./homeThreadList";
 
-// Fork-owned. The Settled screen's model: settled Tasks threads, the same set
-// the Home Settled shelf held, grouped under their workspace folder.
+// Fork-owned. The Settled screen's model: settled Project agents grouped by
+// Project, then settled Tasks threads, the same set the Home Settled shelf held,
+// grouped under their workspace folder.
+
+export interface SettledProjectGroup {
+  readonly key: string;
+  readonly project: EnvironmentProject;
+  /** Most recently settled first. */
+  readonly threads: ReadonlyArray<EnvironmentThreadShell>;
+}
+
+/** Projects that hold settled agents, in the Home's Project order. Settled agents show nowhere else. */
+export function buildSettledProjectGroups(input: {
+  readonly assistants: AssistantPartition<EnvironmentProject, EnvironmentThreadShell>["assistants"];
+  readonly snoozeEnvironmentIds?: ReadonlySet<EnvironmentId>;
+  readonly settlementEnvironmentIds?: ReadonlySet<EnvironmentId>;
+  readonly now: string;
+}): SettledProjectGroup[] {
+  const groups: SettledProjectGroup[] = [];
+  for (const entry of input.assistants) {
+    const { environmentId, id } = entry.project;
+    const { settled } = sectionAssistantAgents(entry.agents, {
+      now: input.now,
+      supportsSnooze: input.snoozeEnvironmentIds?.has(environmentId) ?? true,
+      supportsSettlement: input.settlementEnvironmentIds?.has(environmentId) ?? true,
+    });
+    if (settled.length === 0) continue;
+    groups.push({
+      key: `project:${scopedProjectKey(environmentId, id)}`,
+      project: entry.project,
+      threads: settled,
+    });
+  }
+  return groups;
+}
 
 export interface SettledWorkspaceGroup {
   readonly key: string;

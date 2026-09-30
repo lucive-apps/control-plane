@@ -88,6 +88,114 @@ const makeHarness = Effect.fn("TestEnvironmentRpc.makeHarness")(function* () {
 });
 
 describe("environment RPC", () => {
+  it.effect.each(["completion", "rpc failure", "remote interruption"] as const)(
+    "re-registers a preview host after stream %s while its socket remains connected",
+    (termination) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const subscriptions = yield* Ref.make(0);
+          const firstConnected = yield* Deferred.make<void>();
+          const replacementConnected = yield* Deferred.make<void>();
+          const connections: string[] = [];
+          const client = {
+            [WS_METHODS.previewAutomationConnect]: () =>
+              Stream.unwrap(
+                Ref.getAndUpdate(subscriptions, (count) => count + 1).pipe(
+                  Effect.map((count) =>
+                    Stream.succeed({
+                      type: "connected" as const,
+                      connectionId: `host-${count}`,
+                    }).pipe(
+                      Stream.concat(
+                        count > 0
+                          ? Stream.never
+                          : termination === "completion"
+                            ? Stream.empty
+                            : termination === "remote interruption"
+                              ? Stream.failCause(Cause.interrupt(123))
+                              : Stream.fail(
+                                  new RpcClientError.RpcClientError({
+                                    reason: new RpcClientError.RpcClientDefect({
+                                      message: "Host request stream ended",
+                                      cause: new Error("Host request stream ended"),
+                                    }),
+                                  }),
+                                ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          } as unknown as WsRpcProtocolClient;
+          const { activeSession, supervisor, retryCount } = yield* makeHarness();
+          yield* SubscriptionRef.set(activeSession, Option.some(session(client)));
+          const fiber = yield* subscribe(
+            WS_METHODS.previewAutomationConnect,
+            { clientId: "preview-host", environmentId: TARGET.environmentId },
+            { restartAfter: "250 millis" },
+          ).pipe(
+            Stream.runForEach((event) => {
+              connections.push(event.connectionId);
+              return Deferred.succeed(
+                connections.length === 1 ? firstConnected : replacementConnected,
+                undefined,
+              );
+            }),
+            Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+            Effect.forkScoped,
+          );
+          yield* Deferred.await(firstConnected);
+          yield* TestClock.adjust("249 millis");
+          expect(yield* Ref.get(subscriptions)).toBe(1);
+          yield* TestClock.adjust("1 millis");
+          yield* Deferred.await(replacementConnected);
+          yield* Fiber.interrupt(fiber);
+          expect(connections).toEqual(["host-0", "host-1"]);
+          expect(yield* Ref.get(retryCount)).toBe(0);
+        }),
+      ),
+  );
+
+  it.effect.each(["owner", "session", "active owner", "active session"] as const)(
+    "cancels preview host re-registration when its %s disconnects",
+    (cancellation) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const subscriptions = yield* Ref.make(0);
+          const ended = yield* Deferred.make<void>();
+          const started = yield* Deferred.make<void>();
+          const client = {
+            [WS_METHODS.previewAutomationConnect]: () =>
+              Stream.fromEffect(
+                Ref.update(subscriptions, (count) => count + 1).pipe(
+                  Effect.andThen(Deferred.succeed(started, undefined)),
+                ),
+              ).pipe(
+                Stream.drain,
+                Stream.concat(cancellation.startsWith("active") ? Stream.never : Stream.empty),
+                Stream.ensuring(Deferred.succeed(ended, undefined)),
+              ),
+          } as unknown as WsRpcProtocolClient;
+          const { activeSession, supervisor } = yield* makeHarness();
+          yield* SubscriptionRef.set(activeSession, Option.some(session(client)));
+          const fiber = yield* subscribe(
+            WS_METHODS.previewAutomationConnect,
+            { clientId: "preview-host", environmentId: TARGET.environmentId },
+            { restartAfter: "250 millis" },
+          ).pipe(
+            Stream.runDrain,
+            Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+            Effect.forkScoped,
+          );
+          yield* Deferred.await(cancellation.startsWith("active") ? started : ended);
+          if (cancellation.endsWith("owner")) yield* Fiber.interrupt(fiber);
+          else yield* SubscriptionRef.set(activeSession, Option.none());
+          yield* TestClock.adjust("1 second");
+          expect(yield* Ref.get(subscriptions)).toBe(1);
+        }),
+      ),
+  );
+
   it.effect("reuses the session config stream instead of opening a duplicate subscription", () =>
     Effect.gen(function* () {
       const event: ServerConfigStreamEvent = {

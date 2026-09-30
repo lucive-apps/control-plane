@@ -102,11 +102,30 @@ export function buildAgentRowMenu(input: {
   readonly canBeCoordinator: boolean;
   readonly titleRegenerationSupported: boolean;
   readonly isRegenerating: boolean;
+  /** Arranging within the Project's standing or active agents; absent when the server cannot store it. */
+  readonly move?: { readonly canMoveUp: boolean; readonly canMoveDown: boolean } | undefined;
 }): MenuAction[] {
+  const { move } = input;
   return [
     input.standing
       ? { id: "unpin", title: "Unpin", image: "pin.slash" }
       : { id: "pin", title: "Pin", image: "pin" },
+    ...(move === undefined
+      ? []
+      : [
+          {
+            id: "move-up",
+            title: "Move up",
+            image: "arrow.up",
+            ...(move.canMoveUp ? {} : { attributes: { disabled: true } }),
+          },
+          {
+            id: "move-down",
+            title: "Move down",
+            image: "arrow.down",
+            ...(move.canMoveDown ? {} : { attributes: { disabled: true } }),
+          },
+        ]),
     ...(input.snoozable
       ? [
           {

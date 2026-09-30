@@ -6,6 +6,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   assistantExpansionKey,
   flattenAssistantJumpOrder,
+  orderAssistantModels,
   orderAssistantsByPreference,
   selectableThreadKeys,
   settleableSelection,
@@ -165,5 +166,24 @@ describe("orderAssistantsByPreference", () => {
 
   it("puts Projects without a saved place after the ordered ones", () => {
     expect(keys(orderAssistantsByPreference(rows, ["c", "b"]))).toEqual(["c", "b", "a"]);
+  });
+});
+
+describe("orderAssistantModels", () => {
+  const model = (key: string, orderKey?: string) => ({
+    key,
+    entry: { project: { orderKey } },
+  });
+  const keys = (list: readonly { key: string }[]) => list.map((row) => row.key);
+
+  it("applies the saved order when nothing is arranged", () => {
+    const rows = [model("a"), model("b"), model("c")];
+    expect(keys(orderAssistantModels(rows, ["c", "a"]))).toEqual(["c", "a", "b"]);
+  });
+
+  it("lets arranged Projects lead and the saved order arrange only the rest", () => {
+    // The partition hands arranged Projects over first and already in key order.
+    const rows = [model("x", "d"), model("y", "m"), model("a"), model("b"), model("c")];
+    expect(keys(orderAssistantModels(rows, ["c", "y", "a"]))).toEqual(["x", "y", "c", "a", "b"]);
   });
 });

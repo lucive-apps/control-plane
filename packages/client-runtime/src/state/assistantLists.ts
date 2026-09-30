@@ -8,12 +8,10 @@ import {
   rollupSidebarThreadStatus,
   type SidebarThreadStatus,
 } from "./threadStatus.ts";
+import { planPinnedReorder } from "./threadSort.ts";
 
 // Fork-owned. Pure list helpers behind the Projects section, shared by the web
 // sidebar and the mobile home and iPad sidebar.
-
-/** Settled agents under a Project page in like the settled tail. */
-export const ASSISTANT_SETTLED_PAGE_SIZE = 10;
 
 /** The collapsed dot of a section, folder or Project. Null shows no dot. */
 export type SidebarRollupStatus = SidebarThreadStatus | "unread" | null;
@@ -74,31 +72,6 @@ export function visibleAssistantAgentRows<T extends ScopedThreadLike>(
   return { rows, hiddenSettledCount: sections.settled.length - settled.length };
 }
 
-/**
- * The settled button under a Project: "3 settled", then "N more settled",
- * then "Hide settled" once a page is open and nothing is left. No button when
- * nothing is hidden and no page is open (the open thread can pull the only
- * settled agent in).
- */
-export function assistantSettledToggle(input: {
-  readonly settledCount: number;
-  readonly settledTotal: number;
-  readonly hiddenSettledCount: number;
-}): { readonly label: string; readonly nextSettledCount: number } | null {
-  const settledCount = Math.max(0, input.settledCount);
-  if (input.settledTotal === 0) return null;
-  if (input.hiddenSettledCount === 0) {
-    return settledCount > 0 ? { label: "Hide settled", nextSettledCount: 0 } : null;
-  }
-  return {
-    label:
-      settledCount === 0
-        ? `${input.hiddenSettledCount} settled`
-        : `${input.hiddenSettledCount} more settled`,
-    nextSettledCount: settledCount + ASSISTANT_SETTLED_PAGE_SIZE,
-  };
-}
-
 const isUnreadThread = (
   thread: RollupThread,
   lastVisitedAtById: Readonly<Record<string, string>>,
@@ -154,4 +127,58 @@ export function rollupAssistantsStatus(
     }
   }
   return rollupAssistantStatus({ statuses, coordinatorUnread, agentsUnread, scheduleAttention });
+}
+
+type ReorderableAgent = ScopedThreadLike & {
+  readonly pinOrderKey?: string | null | undefined;
+  readonly activeOrderKey?: string | null | undefined;
+};
+
+export interface AssistantAgentReorderPlan {
+  /** Standing agents arrange by pin key, active agents by active key. */
+  readonly section: "pinned" | "active";
+  /** The block's agent keys in their new order, for an optimistic hold. */
+  readonly order: readonly string[];
+  readonly assignments: ReadonlyArray<{ readonly id: string; readonly orderKey: string }>;
+}
+
+/**
+ * Moves one agent within its Project's standing or active block, by a drop
+ * target or one step. Null for a move that crosses blocks (a pin change, not
+ * an arrangement), leaves the Project, or falls off either end. Keys of the
+ * Project's other agents stay reserved so a move never reuses one.
+ */
+export function planAssistantAgentReorder<T extends ReorderableAgent>(
+  sections: AssistantAgentSections<T>,
+  movedKey: string,
+  target: { readonly overKey: string } | { readonly direction: -1 | 1 },
+): AssistantAgentReorderPlan | null {
+  const standingKeys = sections.standing.map(threadKeyOf);
+  const section = standingKeys.includes(movedKey)
+    ? "pinned"
+    : sections.active.some((thread) => threadKeyOf(thread) === movedKey)
+      ? "active"
+      : null;
+  if (section === null) return null;
+  const order =
+    section === "pinned" ? [...standingKeys] : sections.active.map((agent) => threadKeyOf(agent));
+  const from = order.indexOf(movedKey);
+  const to = "overKey" in target ? order.indexOf(target.overKey) : from + target.direction;
+  if (to < 0 || to >= order.length || to === from) return null;
+  order.splice(from, 1);
+  order.splice(to, 0, movedKey);
+  const keysById = new Map<string, string | null>();
+  for (const agent of [
+    ...sections.standing,
+    ...sections.active,
+    ...sections.snoozed,
+    ...sections.settled,
+  ]) {
+    keysById.set(
+      threadKeyOf(agent),
+      (section === "pinned" ? agent.pinOrderKey : agent.activeOrderKey) ?? null,
+    );
+  }
+  const assignments = planPinnedReorder({ orderedIds: order, keysById, movedId: movedKey });
+  return assignments.length === 0 ? null : { section, order, assignments };
 }

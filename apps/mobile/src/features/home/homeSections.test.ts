@@ -12,11 +12,13 @@ import {
   ProjectId,
   ProviderInstanceId,
   ThreadId,
+  type ServerConfig,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import type { PendingQueuedTask } from "../../state/use-pending-new-tasks";
 import {
+  assistantEnvironmentIds,
   buildHomeSections,
   folderMoveDestination,
   HOME_PROJECTS_SECTION_KEY,
@@ -26,7 +28,7 @@ import {
   type HomeSectionItem,
   type HomeSectionsInput,
 } from "./homeSections";
-import { buildSettledWorkspaceGroups } from "./settledThreads";
+import { buildSettledProjectGroups, buildSettledWorkspaceGroups } from "./settledThreads";
 
 const env = EnvironmentId.make("env-1");
 const otherEnv = EnvironmentId.make("env-2");
@@ -175,7 +177,6 @@ function input(
     settledShelfExpanded: true,
     collapsedKeys: new Set(),
     expandedAssistantKeys: new Set(),
-    assistantSettledCounts: new Map(),
     selectedThreadKey: null,
     lastVisitedAtById: {},
     ...rest,
@@ -201,8 +202,6 @@ function trace(items: readonly HomeSectionItem[]): string[] {
         return `agent:${item.item.thread.id}`;
       case "agent-pending":
         return `agent-pending:${item.pendingTask.title}`;
-      case "agent-settled-toggle":
-        return `agent-settled:${item.label}`;
       case "folder":
         return `folder:${item.title}${item.collapsed ? " (collapsed)" : ""}`;
       case "v2-thread":
@@ -224,7 +223,6 @@ describe("buildHomeSections partition", () => {
       "agent:sales",
       "agent:flights",
       "agent:later",
-      "agent-settled:1 settled",
       "section:tasks",
       "folder:api",
       "task:api-a",
@@ -403,34 +401,43 @@ describe("buildHomeSections Project rows", () => {
     expect(jumpThreads[0]?.id).toBe("sales");
   });
 
-  it("puts unsent agents after the active agents and pages settled agents by ten", () => {
+  it("puts unsent agents after the active agents and lists no settled agent under the Project", () => {
     const settledAgents = Array.from({ length: 12 }, (_, index) =>
       thread(`settled-${index}`, "personal", {
         ...settled,
         settledAt: `2026-09-2${index < 10 ? 0 : 1}T0${index % 10}:00:00.000Z`,
       }),
     );
-    const base = input({
-      threads: [...fixtureThreads, ...settledAgents],
-      pendingTasks: [pendingTask("draft", "personal", "Book hotel")],
-      expandedAssistantKeys: new Set([personalKey]),
-    });
-    const collapsedPage = trace(buildHomeSections(base).items);
-    expect(collapsedPage.slice(1, 7)).toEqual([
+    const traced = trace(
+      buildHomeSections(
+        input({
+          threads: [...fixtureThreads, ...settledAgents],
+          pendingTasks: [pendingTask("draft", "personal", "Book hotel")],
+          expandedAssistantKeys: new Set([personalKey]),
+        }),
+      ).items,
+    );
+    expect(traced.slice(1, 6)).toEqual([
       "project:personal (open)",
       "agent:sales",
       "agent:flights",
       "agent-pending:Book hotel",
       "agent:later",
-      "agent-settled:13 settled",
     ]);
-    const firstPage = trace(
-      buildHomeSections({ ...base, assistantSettledCounts: new Map([[personalKey, 10]]) }).items,
-    );
     expect(
-      firstPage.filter((entry) => entry.startsWith("agent:settled-") || entry === "agent:done"),
-    ).toHaveLength(10);
-    expect(firstPage).toContain("agent-settled:3 more settled");
+      traced.some((entry) => entry.startsWith("agent:settled-") || entry === "agent:done"),
+    ).toBe(false);
+    expect(traced.some((entry) => entry.startsWith("agent-settled"))).toBe(false);
+  });
+
+  it("keeps the open settled agent out of the Project list and leaves the Project closed", () => {
+    const { items, selectionReveal } = buildHomeSections(
+      input({
+        selectedThreadKey: "env-1:done",
+      }),
+    );
+    expect(trace(items)).not.toContain("agent:done");
+    expect(selectionReveal).toBeNull();
   });
 
   it("marks standing agents and gives snoozed agents a wake label", () => {
@@ -446,6 +453,39 @@ describe("buildHomeSections Project rows", () => {
       ["later", false, "slim"],
     ]);
     expect(agents[2]?.snoozeWakeLabelText).toBeDefined();
+  });
+
+  it("applies the synced agent order and offers moves within each block", () => {
+    const threads = [
+      thread("coordinator", "personal", { title: "Personal" }),
+      thread("fantasy", "personal", { ...pinned(NOW), pinOrderKey: "t" }),
+      thread("planner", "personal", { ...pinned(NOW), pinOrderKey: "c" }),
+      thread("operator", "personal", { ...pinned(NOW), pinOrderKey: "m" }),
+      thread("scratch", "personal", { activeOrderKey: "m" }),
+      thread("fresh", "personal", { createdAt: LATER }),
+      thread("later", "personal", snoozed),
+    ];
+    const agents = (searchQuery = "") =>
+      buildHomeSections(
+        input({ threads, expandedAssistantKeys: new Set([personalKey]), searchQuery }),
+      ).items.flatMap((item) => (item.type === "agent" ? [item] : []));
+    const rows = agents();
+    // Pin keys order the standing agents; a new unpinned agent leads the active ones.
+    expect(rows.map((agent) => agent.item.thread.id)).toEqual([
+      "planner",
+      "operator",
+      "fantasy",
+      "fresh",
+      "scratch",
+      "later",
+    ]);
+    expect(
+      rows.map((agent) =>
+        agent.move === null ? null : [agent.move.canMoveUp, agent.move.canMoveDown],
+      ),
+    ).toEqual([[false, true], [true, true], [true, false], [false, true], [true, false], null]);
+    // Search hides neighbors, so it offers no moves.
+    expect(agents("a").every((agent) => agent.move === null)).toBe(true);
   });
 });
 
@@ -645,9 +685,10 @@ describe("buildHomeSections search", () => {
     ).toBe(true);
   });
 
-  it("shows matching settled agents without a settled toggle that search would ignore", () => {
+  it("never shows a matching settled agent under its Project", () => {
     const { items } = buildHomeSections(input({ searchQuery: "done" }));
-    expect(trace(items)).toEqual(["section:projects", "project:personal (open)", "agent:done"]);
+    expect(trace(items)).not.toContain("agent:done");
+    expect(trace(items)).not.toContain("project:personal (open)");
   });
 
   it("matches a Project by its name or its coordinator, never as a thread row", () => {
@@ -860,6 +901,53 @@ describe("withSectionActions", () => {
   });
 });
 
+describe("cold launch from the cached shell", () => {
+  const config = (assistants: boolean) =>
+    ({ environment: { capabilities: { assistants } } }) as unknown as ServerConfig;
+  const disconnected = new Set<EnvironmentId>();
+
+  it("takes Projects support from a cached config before the socket connects", () => {
+    expect(assistantEnvironmentIds(new Map([[env, config(true)]]), disconnected)).toEqual({
+      assistants: new Set([env]),
+      assistantsUnsupported: new Set(),
+    });
+    // Only a connected server's config can say it predates Projects.
+    expect(assistantEnvironmentIds(new Map([[env, config(false)]]), disconnected)).toEqual({
+      assistants: new Set(),
+      assistantsUnsupported: new Set(),
+    });
+    expect(assistantEnvironmentIds(new Map([[env, config(false)]]), new Set([env]))).toEqual({
+      assistants: new Set(),
+      assistantsUnsupported: new Set([env]),
+    });
+  });
+
+  it("lists the Projects and New Project in the same first pass", () => {
+    const capabilities = assistantEnvironmentIds(new Map([[env, config(true)]]), disconnected);
+    const { items } = buildHomeSections(
+      input({
+        assistantsEnvironmentIds: capabilities.assistants,
+        assistantsUnsupportedEnvironmentIds: capabilities.assistantsUnsupported,
+      }),
+    );
+    const listed = withSectionActions(items, {
+      newProject: capabilities.assistants.size > 0,
+      addWorkspace: true,
+    });
+    expect(trace(listed).slice(0, 4)).toEqual([
+      "section:projects",
+      "project:personal",
+      "section-action",
+      "section:tasks",
+    ]);
+    expect(listed[2]).toEqual({
+      type: "section-action",
+      key: "section-action:projects",
+      action: "new-project",
+    });
+  });
+});
+
 describe("Settled off Home", () => {
   it("drops the Settled shelf and its rows", () => {
     const { items } = buildHomeSections(input({ settledShelf: false }));
@@ -887,5 +975,31 @@ describe("Settled off Home", () => {
       ["api", ["api-new"]],
       ["website", ["site-new", "site-old"]],
     ]);
+  });
+
+  it("groups settled Project agents by Project, newest first, skipping Projects with none", () => {
+    const partition = partitionAssistants(
+      [personal, website, api],
+      [
+        ...fixtureThreads,
+        thread("done-new", "personal", { settledOverride: "settled", settledAt: LATER }),
+      ],
+      null,
+    );
+    const groups = buildSettledProjectGroups({ assistants: partition.assistants, now: LATER });
+    expect(
+      groups.map((group) => [group.project.title, group.threads.map((item) => String(item.id))]),
+    ).toEqual([[personal.title, ["done-new", "done"]]]);
+  });
+
+  it("leaves snoozed, active and unsupported agents out of the Project groups", () => {
+    const partition = partitionAssistants([personal], fixtureThreads, null);
+    expect(
+      buildSettledProjectGroups({
+        assistants: partition.assistants,
+        settlementEnvironmentIds: new Set(),
+        now: NOW,
+      }),
+    ).toEqual([]);
   });
 });

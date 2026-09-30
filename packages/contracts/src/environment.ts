@@ -145,6 +145,9 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   threadPinReorder: Schema.optionalKey(Schema.Boolean),
   /** Server persists manual Active order through thread.active.reorder. */
   threadActiveReorder: Schema.optionalKey(Schema.Boolean),
+  /** Server stores a manual order for Projects and Tasks folders (`project.reorder`, `orderKey`
+      on the project record). Absent on older servers, so clients keep that order locally. */
+  projectReorder: Schema.optionalKey(Schema.Boolean),
   /** Server understands the project `assistant` marker (Projects: a coordinator plus agents)
       and enforces its invariants. Absent on older and upstream servers, so clients hide
       Projects rather than send commands those servers would drop. */

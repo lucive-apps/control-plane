@@ -10,23 +10,38 @@ When the ${MCP_SERVER_NAME} MCP server exposes link_pull_request, you must use i
 /** Harnesses that resend these instructions with every prompt get the Project pointer, not the inlined files. */
 const POINTER_HARNESSES = new Set(["Cursor", "Grok", "Antigravity"]);
 
-/** Shared runtime context; omit model and effort when the harness manages them dynamically. */
+/**
+ * Shared runtime context; omit model and effort when the harness manages them dynamically.
+ * `modelName` is the display name users see in the model picker; `model` is the slug.
+ */
 export function buildRuntimeInstructions(runtime: {
   readonly harness: string;
   readonly model?: string | undefined;
+  readonly modelName?: string | undefined;
   readonly reasoningEffort?: string | undefined;
   /** The T3 thread; its stored Project role block, if any, is appended. */
   readonly threadId?: ThreadId | undefined;
 }): string {
   const harness = toSingleLine(runtime.harness);
   const model = toSingleLine(runtime.model ?? "");
+  const modelName = toSingleLine(runtime.modelName ?? "");
   const effort = toSingleLine(runtime.reasoningEffort ?? "");
-  const modelInfo = model && model !== "auto" && model !== "default" ? `, as ${model}` : "";
+  const modelLabel =
+    modelName && modelName !== model ? `${modelName} (model slug: ${model})` : model;
+  const modelInfo = model && model !== "auto" && model !== "default" ? `, as ${modelLabel}` : "";
   const effortInfo = effort ? ` with ${effort} reasoning effort` : "";
   const instructions = `<runtime_info>In case you're asked: you are running in Control Plane through the ${harness} harness${modelInfo}${effortInfo}. No need to mention this otherwise. You can embed images and videos in your response using Markdown with absolute file paths.</runtime_info>\n\n${PULL_REQUEST_LINKING_INSTRUCTIONS}`;
-  const project = runtime.threadId ? readAssistantRuntime(runtime.threadId) : undefined;
-  if (!project) return instructions;
-  return `${instructions}\n\n${POINTER_HARNESSES.has(runtime.harness) ? project.pointer : project.inline}`;
+  const project = runtime.threadId
+    ? buildProjectInstructions(runtime.harness, runtime.threadId)
+    : undefined;
+  return project ? `${instructions}\n\n${project}` : instructions;
+}
+
+/** The thread's stored Project role block for this harness, if it has one. */
+export function buildProjectInstructions(harness: string, threadId: ThreadId): string | undefined {
+  const project = readAssistantRuntime(threadId);
+  if (!project) return undefined;
+  return POINTER_HARNESSES.has(harness) ? project.pointer : project.inline;
 }
 
 function toSingleLine(value: string): string {

@@ -2,7 +2,6 @@ import {
   ClientPresentation,
   CloudSession,
   EnvironmentOwnedDataCleanup,
-  PlatformConnectionSource,
   PrimaryEnvironmentAuth,
   RelayDeviceIdentity,
   SshEnvironmentGateway,
@@ -25,6 +24,7 @@ import Constants from "expo-constants";
 import * as Network from "expo-network";
 import { AppState } from "react-native";
 
+import { demoPlatformConnectionSourceLayer } from "../features/demo/demoMode";
 import { authClientMetadata } from "../lib/authClientMetadata";
 import * as Runtime from "../lib/runtime";
 import * as MobileStorage from "../persistence/mobile-storage";
@@ -198,11 +198,10 @@ const capabilitiesLayer = Layer.effectContext(
   }),
 );
 
-const platformConnectionSourceLayer = Layer.succeed(
-  PlatformConnectionSource,
-  PlatformConnectionSource.of({
-    registrations: Stream.empty,
-  }),
+// The phone has no local backend; its only platform environment is the
+// in-process demo environment while demo mode is on.
+const platformConnectionSourceLayer = demoPlatformConnectionSourceLayer.pipe(
+  Layer.provide(Runtime.runtimeContextLayer),
 );
 
 const providedConnectionStorageLayer = connectionStorageLayer.pipe(

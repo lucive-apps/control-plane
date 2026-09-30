@@ -647,12 +647,19 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             canBeCoordinator: agentState.canBeCoordinator,
             titleRegenerationSupported: props.titleRegenerationSupported,
             isRegenerating: thread.titleRegeneration != null,
+            move:
+              props.reorderSupported === true
+                ? { canMoveUp: props.canMoveUp === true, canMoveDown: props.canMoveDown === true }
+                : undefined,
           })
         : null,
     [
       agentCard,
       agentState.canBeCoordinator,
       agentState.canStop,
+      props.canMoveDown,
+      props.canMoveUp,
+      props.reorderSupported,
       props.titleRegenerationSupported,
       snoozable,
       snoozePresetActions,

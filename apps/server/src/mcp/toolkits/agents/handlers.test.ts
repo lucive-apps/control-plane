@@ -26,6 +26,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
+import { RemoteAgentsLocalOnly } from "../../../agentMachines/testFixtures.ts";
 import { AgentLineage } from "../../../orchestration/agentLineage.ts";
 import {
   OrchestrationCommandInvariantError,
@@ -366,6 +367,7 @@ const makeHarness = Effect.fn("makeAgentsToolkitHarness")(function* (input: Harn
       creatorOf: (threadId) => Effect.succeed(creators.get(threadId) ?? null),
     }),
     makeProviderRegistryLayer(providers),
+    RemoteAgentsLocalOnly,
     NodeServices.layer,
   );
   const toolkit = yield* AgentsToolkit.pipe(

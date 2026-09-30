@@ -65,11 +65,6 @@ export function agentDeliveryRetryId(deliveryMessageId: string): string {
   return `${AGENT_DELIVERY_RETRY_PREFIX}${deliveryMessageId}`;
 }
 
-/** Command id that settles a one-off agent after its result is appended. */
-export function agentPushSettleId(agentThreadId: string, requestMessageId: string): string {
-  return `cp-push-settle:${agentThreadId}:${requestMessageId}`;
-}
-
 /**
  * Id of the "results paused" notice in `threadId` for `recipientThreadId`:
  * one per release, so a paused recipient is told once until it is released.

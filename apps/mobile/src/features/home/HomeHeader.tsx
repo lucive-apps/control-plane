@@ -32,7 +32,7 @@ export function HomeHeader(props: {
   readonly onProjectChange: (projectKey: string | null) => void;
   readonly onOpenEnvironments: () => void;
   readonly onOpenSettings: () => void;
-  /** Adds View Settled to the iOS overflow menu. */
+  /** Adds View Settled to the overflow menu. */
   readonly onOpenSettled?: () => void;
   readonly onStartNewTask: () => void;
   readonly onStartSearch: () => void;
@@ -99,12 +99,24 @@ function AndroidHomeHeader(props: HomeHeaderProps) {
               ],
             },
           ] satisfies MenuAction[])),
+      ...(props.onOpenSettled ? [{ id: "settled", title: "View Settled" }] : []),
     ],
-    [props.environments, props.projects, props.selectedEnvironmentId, props.selectedProjectKey],
+    [
+      props.environments,
+      props.onOpenSettled,
+      props.projects,
+      props.selectedEnvironmentId,
+      props.selectedProjectKey,
+    ],
   );
   const handleMenuAction = useCallback(
     (event: { nativeEvent: { event: string } }) => {
       const id = event.nativeEvent.event;
+      if (id === "settled") {
+        props.onOpenSettled?.();
+        return;
+      }
+
       if (id === "environment:all") {
         props.onEnvironmentChange(null);
         return;

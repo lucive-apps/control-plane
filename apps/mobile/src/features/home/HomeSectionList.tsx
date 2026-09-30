@@ -38,6 +38,7 @@ import {
   homeSectionItemsAreEqual,
   withSectionActions,
   type HomeSectionItem,
+  type HomeAgentItem,
   type HomeTaskThreadItem,
 } from "./homeSections";
 import { TaskFolderHeader } from "./TaskFolderHeader";
@@ -267,48 +268,6 @@ function AgentIndent(props: { readonly grouped: boolean; readonly children: Reac
   return props.grouped ? props.children : <View className="pl-4">{props.children}</View>;
 }
 
-const AgentSettledToggleRow = memo(function AgentSettledToggleRow(props: {
-  readonly pane: "screen" | "sidebar";
-  readonly grouped: boolean;
-  readonly expansionKey: string;
-  readonly label: string;
-  readonly nextSettledCount: number;
-  readonly onPress: (expansionKey: string, count: number) => void;
-}) {
-  if (props.grouped) {
-    const showsMore = props.nextSettledCount > 0;
-    return (
-      <Pressable
-        accessibilityRole="button"
-        className="min-h-10 flex-row items-center gap-1.5 pr-4"
-        onPress={() => props.onPress(props.expansionKey, props.nextSettledCount)}
-        style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, ...CHILD_INSET_STYLE })}
-      >
-        <Text className="text-[13px] text-foreground-tertiary">{props.label}</Text>
-        <SymbolView
-          name={showsMore ? "chevron.down" : "chevron.up"}
-          size={10}
-          tintColorClassName="accent-foreground-tertiary"
-          type="monochrome"
-          weight="semibold"
-        />
-      </Pressable>
-    );
-  }
-  return (
-    <AgentIndent grouped={false}>
-      <Pressable
-        accessibilityRole="button"
-        className={cn("min-h-9 justify-center", props.pane === "sidebar" ? "px-3" : "px-5")}
-        onPress={() => props.onPress(props.expansionKey, props.nextSettledCount)}
-        style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}
-      >
-        <Text className="text-sm text-foreground-tertiary">{props.label}</Text>
-      </Pressable>
-    </AgentIndent>
-  );
-});
-
 export function HomeSectionList(
   props: HomeSectionListProps & {
     readonly pane: "screen" | "sidebar";
@@ -357,6 +316,7 @@ export function HomeSectionList(
     archiveThread,
     confirmDeleteThread,
     moveThread,
+    moveAgent,
     pinThread,
     regenerateThreadTitle,
     renameThread,
@@ -369,7 +329,7 @@ export function HomeSectionList(
   const { openPendingTask, confirmDeletePendingTask } = usePendingTaskListActions();
   const projectActions = useProjectActions();
   const { openNewProject, openConvertToProject } = useOpenNewProject();
-  // New Project needs a connected environment that supports Projects.
+  // New Project needs an environment whose cached or live config supports Projects.
   const canCreateProject = capabilities.assistants.size > 0;
   // The iPhone closes each open section with its action row; search shows hits only.
   const searching = searchQuery.trim().length > 0;
@@ -441,9 +401,13 @@ export function HomeSectionList(
   // Move up/down targets the folder neighbor. Rows keep a stable handler and
   // read their current destination here, so a rebuild never re-renders them.
   const taskRowByKeyRef = useRef<ReadonlyMap<string, HomeTaskThreadItem>>(new Map());
+  const agentRowByKeyRef = useRef<ReadonlyMap<string, HomeAgentItem>>(new Map());
   useEffect(() => {
     taskRowByKeyRef.current = new Map(
       items.flatMap((item) => (item.type === "v2-thread" ? [[item.key, item] as const] : [])),
+    );
+    agentRowByKeyRef.current = new Map(
+      items.flatMap((item) => (item.type === "agent" ? [[item.key, item] as const] : [])),
     );
   }, [items]);
   const handleMoveThread = useCallback(
@@ -452,13 +416,18 @@ export function HomeSectionList(
         void moveThread(thread, direction);
         return;
       }
-      const row = taskRowByKeyRef.current.get(
-        `v2-thread:${scopedThreadKey(thread.environmentId, thread.id)}`,
-      );
+      const threadKey = scopedThreadKey(thread.environmentId, thread.id);
+      // Agents move within their Project, never through the Tasks planner.
+      const agentMove = agentRowByKeyRef.current.get(`agent:${threadKey}`)?.move;
+      if (agentMove) {
+        void moveAgent(thread, agentMove.sections, direction);
+        return;
+      }
+      const row = taskRowByKeyRef.current.get(`v2-thread:${threadKey}`);
       const destination = direction === "up" ? row?.moveUp : row?.moveDown;
       if (destination) void moveThread(thread, destination);
     },
-    [moveThread],
+    [moveAgent, moveThread],
   );
 
   const { selectionReveal } = model.sections;
@@ -500,6 +469,8 @@ export function HomeSectionList(
         readonly snoozeWakeLabelText: string | undefined;
         readonly standing: boolean;
         readonly agent: boolean;
+        /** A standing or active agent, which Move up/down arranges in its Project. */
+        readonly agentMovable?: boolean;
         readonly canMoveUp: boolean;
         readonly canMoveDown: boolean;
       },
@@ -538,7 +509,7 @@ export function HomeSectionList(
           snoozeSupported={capabilities.snooze.has(thread.environmentId)}
           pinningSupported={capabilities.pinning.has(thread.environmentId)}
           reorderSupported={
-            !options.agent &&
+            (!options.agent || options.agentMovable) &&
             (options.pinned
               ? capabilities.pinReorder.has(thread.environmentId)
               : capabilities.activeReorder.has(thread.environmentId))
@@ -588,7 +559,7 @@ export function HomeSectionList(
     ],
   );
 
-  const { setAssistantSettledCount, showMoreSettled, threadMovePlanners } = model;
+  const { showMoreSettled, threadMovePlanners } = model;
   const renderRow = useCallback(
     (item: HomeSectionItem) => {
       switch (item.type) {
@@ -657,8 +628,9 @@ export function HomeSectionList(
                 snoozeWakeLabelText: item.snoozeWakeLabelText,
                 standing: item.standing,
                 agent: true,
-                canMoveUp: false,
-                canMoveDown: false,
+                agentMovable: item.move !== null,
+                canMoveUp: item.move?.canMoveUp === true,
+                canMoveDown: item.move?.canMoveDown === true,
               })}
             </AgentIndent>
           );
@@ -679,17 +651,6 @@ export function HomeSectionList(
                 onDeletePendingTask={confirmDeletePendingTask}
               />
             </AgentIndent>
-          );
-        case "agent-settled-toggle":
-          return (
-            <AgentSettledToggleRow
-              pane={rowPane}
-              grouped={grouped}
-              expansionKey={item.expansionKey}
-              label={item.label}
-              nextSettledCount={item.nextSettledCount}
-              onPress={setAssistantSettledCount}
-            />
           );
         case "folder":
           return (
@@ -803,7 +764,6 @@ export function HomeSectionList(
       rowPane,
       sectionPreferences.toggleAssistantExpanded,
       sectionPreferences.toggleCollapsed,
-      setAssistantSettledCount,
       shelf.loaded,
       shelf.toggleSettledShelf,
       shelf.toggleSnoozedShelf,

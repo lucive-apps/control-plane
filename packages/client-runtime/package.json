@@ -239,6 +239,10 @@
       "types": "./src/state/schedules.ts",
       "default": "./src/state/schedules.ts"
     },
+    "./state/project-order": {
+      "types": "./src/state/projectOrder.ts",
+      "default": "./src/state/projectOrder.ts"
+    },
     "./state/thread-sort": {
       "types": "./src/state/threadSort.ts",
       "default": "./src/state/threadSort.ts"

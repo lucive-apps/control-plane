@@ -39,6 +39,8 @@ export * from "./assets.ts";
 export * from "./review.ts";
 export * from "./browserImport.ts";
 export * from "./browserProfile.ts";
+export * from "./agentPlacement.ts";
+export * from "./globalInstructions.ts";
 export * from "./device.ts";
 export * from "./preview.ts";
 export * from "./previewAutomation.ts";

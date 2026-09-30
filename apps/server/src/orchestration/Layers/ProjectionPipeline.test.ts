@@ -531,6 +531,50 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         assert.deepEqual(rows, [{ activeOrderKey: "gm", updatedAt: orderUpdatedAt }]);
       }
 
+      // A dragged standing agent (or pinned task) keeps its new slot in the
+      // projection, which is what every client's snapshot reads.
+      const pinOrderEvents = [
+        { type: "thread.pinned", payload: { pinnedAt: now, pinOrderKey: "m" } },
+        { type: "thread.pin-reordered", payload: { orderKey: "c" } },
+      ] as const;
+      for (const [index, event] of pinOrderEvents.entries()) {
+        yield* eventStore.append({
+          type: event.type,
+          eventId: EventId.make(`evt-pin-order-${index}`),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.make("thread-1"),
+          occurredAt: "2026-01-01T00:00:00.600Z",
+          commandId: CommandId.make(`cmd-pin-order-${index}`),
+          causationEventId: null,
+          correlationId: null,
+          metadata: {},
+          payload: {
+            ...event.payload,
+            threadId: ThreadId.make("thread-1"),
+            updatedAt: orderUpdatedAt,
+          },
+        });
+      }
+      yield* projectionPipeline.bootstrap;
+      const pinRows = yield* sql<{ readonly pinOrderKey: string | null }>`
+        SELECT pin_order_key AS "pinOrderKey"
+        FROM projection_threads WHERE thread_id = 'thread-1'
+      `;
+      assert.deepEqual(pinRows, [{ pinOrderKey: "c" }]);
+      yield* eventStore.append({
+        type: "thread.unpinned",
+        eventId: EventId.make("evt-pin-order-unpin"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.make("thread-1"),
+        occurredAt: "2026-01-01T00:00:00.700Z",
+        commandId: CommandId.make("cmd-pin-order-unpin"),
+        causationEventId: null,
+        correlationId: null,
+        metadata: {},
+        payload: { threadId: ThreadId.make("thread-1"), updatedAt: orderUpdatedAt },
+      });
+      yield* projectionPipeline.bootstrap;
+
       // Settled lifecycle through the DB pipeline: thread.settled writes the
       // override + timestamp, thread.unsettled(user) flips to the active pin.
       yield* eventStore.append({
@@ -4563,6 +4607,58 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
         readonly icon: string | null;
       }>`SELECT project_icon_json AS icon FROM projection_projects WHERE project_id = ${projectId}`;
       assert.deepEqual(cleared, [{ icon: null }]);
+    }),
+  );
+
+  it.effect("project order keys persist through snapshot and shell reads, and survive edits", () =>
+    Effect.gen(function* () {
+      const engine = yield* OrchestrationEngineService;
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+      const projectId = ProjectId.make("project-order-key");
+      yield* engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.make("cmd-order-key-create"),
+        projectId,
+        title: "Ordered",
+        workspaceRoot: "/tmp/project-order-key",
+        defaultModelSelection: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+      });
+      const readProject = () =>
+        snapshotQuery
+          .getSnapshot()
+          .pipe(Effect.map((snapshot) => snapshot.projects.find((p) => p.id === projectId)));
+      const before = yield* readProject();
+      assert.strictEqual(before?.orderKey, null);
+
+      yield* engine.dispatch({
+        type: "project.reorder",
+        commandId: CommandId.make("cmd-order-key-reorder"),
+        projectId,
+        orderKey: "m",
+      });
+      const reordered = yield* readProject();
+      assert.strictEqual(reordered?.orderKey, "m");
+      // Arranging the list is not project activity.
+      assert.strictEqual(reordered?.updatedAt, before?.updatedAt);
+      const shell = yield* snapshotQuery.getProjectShellById(projectId);
+      assert.strictEqual(Option.getOrNull(shell)?.orderKey, "m");
+
+      // Every later write spreads the stored row; a select that missed the column would null it.
+      yield* engine.dispatch({
+        type: "project.meta.update",
+        commandId: CommandId.make("cmd-order-key-rename"),
+        projectId,
+        title: "Renamed",
+      });
+      const renamed = yield* readProject();
+      assert.strictEqual(renamed?.title, "Renamed");
+      assert.strictEqual(renamed?.orderKey, "m");
+      const rows = yield* sql<{
+        readonly key: string | null;
+      }>`SELECT order_key AS key FROM projection_projects WHERE project_id = ${projectId}`;
+      assert.deepEqual(rows, [{ key: "m" }]);
     }),
   );
 
