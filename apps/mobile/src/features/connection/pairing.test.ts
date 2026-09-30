@@ -1,7 +1,9 @@
 import {
   ConnectionBlockedError,
   ConnectionTransientError,
+  mapRemoteEnvironmentError,
 } from "@t3tools/client-runtime/connection";
+import { RemoteEnvironmentAuthUndeclaredStatusError } from "@t3tools/client-runtime/rpc";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -10,7 +12,10 @@ import {
   PairingQrPayloadEmptyError,
   pairingErrorMessage,
   parsePairingUrl,
+  SERVER_UNAVAILABLE_PAIRING_MESSAGE,
   UNREACHABLE_PAIRING_MESSAGE,
+  WRONG_CODE_PAIRING_MESSAGE,
+  WRONG_HOST_PAIRING_MESSAGE,
 } from "./pairing";
 
 describe("buildPairingUrl", () => {
@@ -70,17 +75,31 @@ describe("parsePairingUrl", () => {
 });
 
 describe("pairingErrorMessage", () => {
-  it("explains an unreachable host or a server error", () => {
-    for (const reason of ["network", "timeout", "remote-unavailable"] as const) {
+  const requestUrl = "https://review.example.test/.well-known/t3/environment";
+
+  it("explains a server that returns 503", () => {
+    const error = mapRemoteEnvironmentError(
+      new RemoteEnvironmentAuthUndeclaredStatusError(requestUrl, 503),
+    );
+    expect(pairingErrorMessage(error)).toBe(SERVER_UNAVAILABLE_PAIRING_MESSAGE);
+  });
+
+  it("points at the host and code for a 4xx", () => {
+    const error = mapRemoteEnvironmentError(
+      new RemoteEnvironmentAuthUndeclaredStatusError(requestUrl, 404),
+    );
+    expect(pairingErrorMessage(error)).toBe(WRONG_HOST_PAIRING_MESSAGE);
+  });
+
+  it("explains an unreachable host", () => {
+    for (const reason of ["network", "timeout", "transport"] as const) {
       expect(
-        pairingErrorMessage(
-          new ConnectionTransientError({ reason, detail: "Request failed with status 503" }),
-        ),
+        pairingErrorMessage(new ConnectionTransientError({ reason, detail: "fetch failed" })),
       ).toBe(UNREACHABLE_PAIRING_MESSAGE);
     }
   });
 
-  it("keeps specific pairing failures", () => {
+  it("explains a rejected pairing code", () => {
     expect(
       pairingErrorMessage(
         new ConnectionBlockedError({
@@ -88,7 +107,15 @@ describe("pairingErrorMessage", () => {
           detail: "The environment credential is invalid.",
         }),
       ),
-    ).toBe("The environment credential is invalid.");
+    ).toBe(WRONG_CODE_PAIRING_MESSAGE);
+  });
+
+  it("keeps specific pairing failures", () => {
+    expect(
+      pairingErrorMessage(
+        new ConnectionBlockedError({ reason: "unsupported", detail: "Update the desktop app." }),
+      ),
+    ).toBe("Update the desktop app.");
     expect(pairingErrorMessage("nope")).toBe("Failed to pair with the environment.");
   });
 });

@@ -294,7 +294,24 @@ export function ConnectionsNewRouteScreen({
                   onChangeText={handleCodeChange}
                 />
 
-                {pairingError ? <ErrorBanner message={pairingError} /> : null}
+                {pairingError ? (
+                  <View className="gap-3">
+                    <ErrorBanner message={pairingError} />
+                    <View className="flex-row flex-wrap items-center justify-center gap-3">
+                      <ConnectionSheetButton
+                        compact
+                        icon="arrow.clockwise"
+                        label={isSubmitting ? "Trying..." : "Try again"}
+                        disabled={connectDisabled}
+                        tone="secondary"
+                        onPress={() => {
+                          void handleSubmit();
+                        }}
+                      />
+                      <TryDemoButton layout="button" />
+                    </View>
+                  </View>
+                ) : null}
 
                 <View className={Platform.OS === "android" ? "flex-row justify-end" : undefined}>
                   <ConnectionSheetButton

@@ -1,6 +1,7 @@
 import type { DesktopSshEnvironmentTarget, EnvironmentId } from "@t3tools/contracts";
 import { resolveRemotePairingTarget } from "@t3tools/shared/remote";
 import * as Context from "effect/Context";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -11,6 +12,7 @@ import * as HttpClient from "effect/unstable/http/HttpClient";
 import { bootstrapRemoteBearerSession } from "../authorization/remote.ts";
 import { deriveWsBaseUrl, normalizeHttpBaseUrl } from "../environment/endpoint.ts";
 import { fetchRemoteEnvironmentDescriptor } from "../environment/descriptor.ts";
+import { RemoteEnvironmentAuthUndeclaredStatusError } from "../rpc/http.ts";
 import * as ClientCapabilities from "../platform/capabilities.ts";
 import {
   BearerConnectionCredential,
@@ -84,14 +86,47 @@ const resolvePairingTarget = Effect.fn("clientRuntime.connection.onboarding.reso
   },
 );
 
+// A gateway or overloaded server often recovers within seconds, so pairing
+// retries those statuses twice (about 20s in total) before giving up. The
+// server's Retry-After wins when it asks for a shorter or bounded wait.
+const PAIRING_RETRY_STATUSES: ReadonlySet<number> = new Set([502, 503, 504]);
+const PAIRING_RETRY_DELAYS_MS: ReadonlyArray<number> = [8_000, 10_000];
+const PAIRING_MAX_RETRY_AFTER_MS = 12_000;
+
+export function pairingRetryDelayMs(error: unknown, attempt: number): number | null {
+  const fallback = PAIRING_RETRY_DELAYS_MS[attempt];
+  if (
+    fallback === undefined ||
+    !(error instanceof RemoteEnvironmentAuthUndeclaredStatusError) ||
+    !PAIRING_RETRY_STATUSES.has(error.status)
+  ) {
+    return null;
+  }
+  return error.retryAfterMs === undefined
+    ? fallback
+    : Math.min(error.retryAfterMs, PAIRING_MAX_RETRY_AFTER_MS);
+}
+
+const fetchPairingDescriptor = (httpBaseUrl: string, attempt = 0) =>
+  fetchRemoteEnvironmentDescriptor({ httpBaseUrl }).pipe(
+    Effect.catch((error): ReturnType<typeof fetchRemoteEnvironmentDescriptor> => {
+      const delayMs = pairingRetryDelayMs(error, attempt);
+      return delayMs === null
+        ? Effect.fail(error)
+        : Effect.sleep(Duration.millis(delayMs)).pipe(
+            Effect.andThen(fetchPairingDescriptor(httpBaseUrl, attempt + 1)),
+          );
+    }),
+  );
+
 export const preparePairingRegistration = Effect.fn(
   "clientRuntime.connection.onboarding.preparePairingRegistration",
 )(function* (input: PairingConnectionInput) {
   const target = yield* resolvePairingTarget(input);
   const presentation = yield* ClientCapabilities.ClientPresentation;
-  const descriptor = yield* fetchRemoteEnvironmentDescriptor({
-    httpBaseUrl: target.httpBaseUrl,
-  }).pipe(Effect.mapError(mapRemoteEnvironmentError));
+  const descriptor = yield* fetchPairingDescriptor(target.httpBaseUrl).pipe(
+    Effect.mapError(mapRemoteEnvironmentError),
+  );
   const compatibilityError = orchestrationProtocolCompatibilityError(descriptor);
   if (compatibilityError !== null) return yield* compatibilityError;
   const access = yield* bootstrapRemoteBearerSession({

@@ -5,7 +5,9 @@ import {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as TestClock from "effect/testing/TestClock";
 import * as Option from "effect/Option";
 
 import { remoteHttpClientLayer } from "../rpc/http.ts";
@@ -32,7 +34,12 @@ const CLIENT_PRESENTATION_LAYER = Layer.succeed(
 
 function pairingHttpLayer(
   calls: Array<{ readonly url: string; readonly init: RequestInit }>,
-  options?: { readonly failDescriptor?: boolean; readonly protocolVersion?: number },
+  options?: {
+    readonly failDescriptor?: boolean;
+    readonly protocolVersion?: number;
+    /** Served in order before the normal descriptor, one per request. */
+    readonly descriptorFailures?: Array<Response>;
+  },
 ) {
   const fetchFn = ((input, init = {}) => {
     const url = String(input);
@@ -41,9 +48,11 @@ function pairingHttpLayer(
     if (url.endsWith("/.well-known/t3/environment")) {
       if (options?.failDescriptor === true) {
         return Promise.resolve(
-          Response.json({ message: "descriptor unavailable" }, { status: 503 }),
+          Response.json({ message: "descriptor unavailable" }, { status: 500 }),
         );
       }
+      const failure = options?.descriptorFailures?.shift();
+      if (failure !== undefined) return Promise.resolve(failure);
       return Promise.resolve(
         Response.json({
           environmentId: "environment-paired",
@@ -280,6 +289,118 @@ describe("connection onboarding", () => {
           target,
         },
       });
+    }),
+  );
+
+  const unavailable = (headers?: Record<string, string>) =>
+    Response.json(
+      { message: "Review environment unavailable" },
+      { status: 503, ...(headers === undefined ? {} : { headers }) },
+    );
+
+  it.effect("retries a 503 descriptor and then pairs", () =>
+    Effect.gen(function* () {
+      const calls: Array<{ readonly url: string; readonly init: RequestInit }> = [];
+      const fiber = yield* preparePairingRegistration({
+        host: "remote.example.test",
+        pairingCode: "pairing-token",
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            CLIENT_PRESENTATION_LAYER,
+            pairingHttpLayer(calls, { descriptorFailures: [unavailable()] }),
+          ),
+        ),
+        Effect.forkChild,
+      );
+      yield* TestClock.adjust("8 seconds");
+      const registration = yield* Fiber.join(fiber);
+
+      expect(registration.target.environmentId).toBe("environment-paired");
+      expect(calls.map((call) => call.url)).toEqual([
+        "https://remote.example.test/.well-known/t3/environment",
+        "https://remote.example.test/.well-known/t3/environment",
+        "https://remote.example.test/oauth/token",
+      ]);
+    }),
+  );
+
+  it.effect("honors Retry-After when retrying", () =>
+    Effect.gen(function* () {
+      const calls: Array<{ readonly url: string; readonly init: RequestInit }> = [];
+      const fiber = yield* preparePairingRegistration({
+        host: "remote.example.test",
+        pairingCode: "pairing-token",
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            CLIENT_PRESENTATION_LAYER,
+            pairingHttpLayer(calls, {
+              descriptorFailures: [unavailable({ "Retry-After": "2" })],
+            }),
+          ),
+        ),
+        Effect.forkChild,
+      );
+      yield* TestClock.adjust("2 seconds");
+      const registration = yield* Fiber.join(fiber);
+      expect(registration.target.environmentId).toBe("environment-paired");
+    }),
+  );
+
+  it.effect("reports a server that stays unavailable after two retries", () =>
+    Effect.gen(function* () {
+      const calls: Array<{ readonly url: string; readonly init: RequestInit }> = [];
+      const fiber = yield* preparePairingRegistration({
+        host: "remote.example.test",
+        pairingCode: "pairing-token",
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            CLIENT_PRESENTATION_LAYER,
+            pairingHttpLayer(calls, {
+              descriptorFailures: [unavailable(), unavailable(), unavailable()],
+            }),
+          ),
+        ),
+        Effect.flip,
+        Effect.forkChild,
+      );
+      yield* TestClock.adjust("8 seconds");
+      yield* TestClock.adjust("10 seconds");
+      const error = yield* Fiber.join(fiber);
+
+      expect(error).toMatchObject({
+        _tag: "ConnectionTransientError",
+        reason: "remote-unavailable",
+      });
+      expect(calls).toHaveLength(3);
+    }),
+  );
+
+  it.effect("classifies a 4xx descriptor as a wrong endpoint without retrying", () =>
+    Effect.gen(function* () {
+      const calls: Array<{ readonly url: string; readonly init: RequestInit }> = [];
+      const error = yield* preparePairingRegistration({
+        host: "remote.example.test",
+        pairingCode: "pairing-token",
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            CLIENT_PRESENTATION_LAYER,
+            pairingHttpLayer(calls, {
+              descriptorFailures: [Response.json({ message: "Not found" }, { status: 404 })],
+            }),
+          ),
+        ),
+        Effect.flip,
+      );
+
+      expect(error).toMatchObject({
+        _tag: "ConnectionTransientError",
+        reason: "endpoint-unavailable",
+      });
+      expect(calls).toHaveLength(1);
     }),
   );
 });

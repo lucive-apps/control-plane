@@ -14,8 +14,11 @@ export const TRY_DEMO_DETAIL = "No computer? Explore the app with sample data.";
  * which also closes the sheet this button may sit in.
  */
 export function TryDemoButton(props: {
-  /** `row` puts the explanation beside the button, for sheets with little height. */
-  readonly layout?: "stack" | "row";
+  /**
+   * `row` puts the explanation beside the button, for sheets with little
+   * height; `button` shows the button alone.
+   */
+  readonly layout?: "stack" | "row" | "button";
   readonly className?: string;
 }) {
   const row = props.layout === "row";
@@ -49,7 +52,7 @@ export function TryDemoButton(props: {
         />
         <Text className="text-sm font-t3-bold text-secondary-foreground">{TRY_DEMO_LABEL}</Text>
       </Pressable>
-      {row ? null : (
+      {row || props.layout === "button" ? null : (
         <Text className="text-center text-xs text-foreground-muted">{TRY_DEMO_DETAIL}</Text>
       )}
     </View>
