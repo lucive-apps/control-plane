@@ -12,6 +12,11 @@ import * as Option from "effect/Option";
 
 import { AGENT_RUNNING_CAP, capUtf8 } from "../orchestration/agentProtocol.ts";
 import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import {
+  buildGlobalInstructionsBlock,
+  type GlobalInstructionsScope,
+  type GlobalInstructionsSource,
+} from "./globalInstructions.ts";
 
 // Fork-owned. The role block a Project's coordinator and agents receive.
 // ProviderService builds it once per session start and stores it here, and
@@ -99,6 +104,34 @@ function resolveAssistantRole({ project, thread }: AssistantRuntimeTarget): Assi
     standing,
     slug: slug || null,
     coordinatorThreadId: assistant.coordinatorThreadId,
+  };
+}
+
+/** Which global-instructions toggle governs the thread: threads outside a Project are Tasks. */
+export function globalInstructionsScopeOf(input: AssistantRuntimeTarget): GlobalInstructionsScope {
+  const role = resolveAssistantRole(input);
+  if (!role) return "tasks";
+  return role.kind === "coordinator" ? "coordinator" : "agent";
+}
+
+/**
+ * Puts the global instructions ahead of the Project block, so the Project's
+ * own files come later and win. A Tasks thread gets a block of its own under
+ * the "none" key, so it never looks like a role change.
+ */
+export function withGlobalInstructions(
+  block: AssistantRuntimeBlock | null,
+  global: GlobalInstructionsSource | undefined,
+  scope: GlobalInstructionsScope,
+): AssistantRuntimeBlock | null {
+  const prefix = buildGlobalInstructionsBlock(global, scope);
+  if (!prefix) return block;
+  if (!block)
+    return { roleKey: "none", inline: prefix.inline, pointer: prefix.pointer, agents: false };
+  return {
+    ...block,
+    inline: `${prefix.inline}\n\n${block.inline}`,
+    pointer: `${prefix.pointer}\n\n${block.pointer}`,
   };
 }
 
@@ -308,6 +341,8 @@ export const prepareAssistantRuntime = (input: {
   >;
   /** Reads an absolute path; a missing file succeeds with "". */
   readonly readFile: (absolutePath: string) => Effect.Effect<string>;
+  /** The user's global instructions; omitted or empty leaves the block unchanged. */
+  readonly global?: GlobalInstructionsSource | undefined;
 }) =>
   Effect.gen(function* () {
     const thread = Option.getOrUndefined(
@@ -317,7 +352,12 @@ export const prepareAssistantRuntime = (input: {
     const project = Option.getOrUndefined(
       yield* input.projection.getProjectShellById(thread.projectId),
     );
-    return yield* loadAssistantRuntimeBlock({ project, thread, readFile: input.readFile });
+    const block = yield* loadAssistantRuntimeBlock({ project, thread, readFile: input.readFile });
+    return withGlobalInstructions(
+      block,
+      input.global,
+      globalInstructionsScopeOf({ project, thread }),
+    );
   }).pipe(
     Effect.catch((cause) =>
       Effect.logWarning("Could not build the Project role block for this session.", {

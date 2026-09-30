@@ -1109,6 +1109,13 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:agent-machines",
       tag: WS_METHODS.serverAgentMachines,
     }),
+    // Reads or replaces the environment's GLOBAL_AGENTS.md.
+    globalInstructions: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:global-instructions",
+      tag: WS_METHODS.serverGlobalInstructions,
+      scheduler: configScheduler,
+      concurrency: configConcurrency,
+    }),
     refreshUsageRates: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:refresh-usage-rates",
       tag: WS_METHODS.serverRefreshUsageRates,

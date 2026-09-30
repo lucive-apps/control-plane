@@ -86,6 +86,7 @@ import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as ServerConfig from "./config.ts";
+import { manageGlobalInstructions } from "./provider/globalInstructions.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
@@ -2653,6 +2654,12 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.serverAgentMachines, agentMachines.manage(input), {
             "rpc.aggregate": "server",
           }),
+        [WS_METHODS.serverGlobalInstructions]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.serverGlobalInstructions,
+            manageGlobalInstructions(config.stateDir, input),
+            { "rpc.aggregate": "server" },
+          ),
         [WS_METHODS.serverReportClientActivity]: (input, metadata) =>
           Ref.update(rpcClientIds, (clientIds) => {
             const next = new Set(clientIds);

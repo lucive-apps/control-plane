@@ -4,6 +4,11 @@ import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
 import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { AgentMachinesError, AgentMachinesInput, AgentMachinesResult } from "./agentPlacement.ts";
 import {
+  GlobalInstructionsError,
+  GlobalInstructionsInput,
+  GlobalInstructionsResult,
+} from "./globalInstructions.ts";
+import {
   ProviderAuthCancelInput,
   ProviderAuthCompleteInput,
   ProviderAuthState,
@@ -389,6 +394,7 @@ export const WS_METHODS = {
   serverRetryResourceTelemetry: "server.retryResourceTelemetry",
   serverSignalProcess: "server.signalProcess",
   serverAgentMachines: "server.agentMachines",
+  serverGlobalInstructions: "server.globalInstructions",
   serverReportClientActivity: "server.reportClientActivity",
   serverReportHostPowerState: "server.reportHostPowerState",
   serverGetBackgroundPolicy: "server.getBackgroundPolicy",
@@ -667,6 +673,12 @@ const WsServerAgentMachinesRpc = Rpc.make(WS_METHODS.serverAgentMachines, {
   payload: AgentMachinesInput,
   success: AgentMachinesResult,
   error: Schema.Union([EnvironmentAuthorizationError, AgentMachinesError]),
+});
+
+const WsServerGlobalInstructionsRpc = Rpc.make(WS_METHODS.serverGlobalInstructions, {
+  payload: GlobalInstructionsInput,
+  success: GlobalInstructionsResult,
+  error: Schema.Union([EnvironmentAuthorizationError, GlobalInstructionsError]),
 });
 
 const WsCloudGetRelayClientStatusRpc = Rpc.make(WS_METHODS.cloudGetRelayClientStatus, {
@@ -1438,6 +1450,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerRefreshUsageRatesRpc,
   WsServerSignalProcessRpc,
   WsServerAgentMachinesRpc,
+  WsServerGlobalInstructionsRpc,
   WsServerReportClientActivityRpc,
   WsServerReportHostPowerStateRpc,
   WsServerGetBackgroundPolicyRpc,

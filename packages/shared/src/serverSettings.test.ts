@@ -841,3 +841,30 @@ describe("applyServerSettingsPatch agentPlacement", () => {
     expect(next.agentPlacement).toEqual(linked.agentPlacement);
   });
 });
+
+describe("applyServerSettingsPatch globalInstructions", () => {
+  it("defaults every scope on", () => {
+    expect(DEFAULT_SERVER_SETTINGS.globalInstructions).toEqual({
+      coordinators: true,
+      projectAgents: true,
+      tasks: true,
+    });
+  });
+
+  it("patches one scope without touching the others", () => {
+    const next = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+      globalInstructions: { tasks: false },
+    });
+    expect(next.globalInstructions).toEqual({
+      coordinators: true,
+      projectAgents: true,
+      tasks: false,
+    });
+    const again = applyServerSettingsPatch(next, { globalInstructions: { coordinators: false } });
+    expect(again.globalInstructions).toEqual({
+      coordinators: false,
+      projectAgents: true,
+      tasks: false,
+    });
+  });
+});
