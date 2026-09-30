@@ -107,13 +107,23 @@ export const TaskFolderHeader = memo(function TaskFolderHeader(props: {
       onPress={props.forcedOpen ? undefined : () => props.onToggle(props.collapseKey)}
       style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
     >
-      {/* Every workspace shows the same outline folder here, never its favicon. */}
-      <SymbolView
-        name={{ ios: "folder", android: "folder" }}
-        size={20}
-        tintColorClassName="accent-foreground"
-        type="monochrome"
-      />
+      {/* An assigned icon shows here; otherwise every workspace shows the same
+          outline folder, never its favicon. */}
+      {props.project.projectIcon != null ? (
+        <ProjectFavicon
+          environmentId={props.project.environmentId}
+          projectIcon={props.project.projectIcon}
+          projectTitle={props.project.title}
+          size={20}
+        />
+      ) : (
+        <SymbolView
+          name={{ ios: "folder", android: "folder" }}
+          size={20}
+          tintColorClassName="accent-foreground"
+          type="monochrome"
+        />
+      )}
       <Text className="flex-1 text-[17px] text-foreground" numberOfLines={1}>
         {props.title}
       </Text>

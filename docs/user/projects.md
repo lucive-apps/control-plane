@@ -67,7 +67,9 @@ agent, even while the coordinator is busy, and the coordinator picks it up when 
 Notifications come from the coordinator's reply, not from each agent finishing work it was asked
 to do.
 
-- A one-off agent settles after it reports. Message it to bring it back.
+- Reporting a result leaves an agent available for follow-ups. The coordinator settles a
+  one-off agent once its work is complete (for example, merged) and no follow-ups remain.
+  Message a settled agent to bring it back.
 - A standing agent can start its own one-off agents. Their results go to the standing agent,
   which passes on the combined answer.
 - The coordinator and standing agents can't start another agent while 4 are running in the

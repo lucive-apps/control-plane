@@ -3,9 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { scopedThreadKey, scopeThreadRef } from "../environment/scoped.ts";
 import {
-  ASSISTANT_SETTLED_PAGE_SIZE,
   assistantExpansionKey,
-  assistantSettledToggle,
   isAssistantExpanded,
   rollupAssistantsStatus,
   rollupThreadGroupStatus,
@@ -60,48 +58,27 @@ const settledAgents = Array.from({ length: 13 }, (_, index) => thread(`settled-$
 describe("settled paging under a Project", () => {
   const agentSections = sections({ settled: settledAgents });
 
-  it("hides settled agents until asked, then pages by ten", () => {
+  it("hides settled agents until paged in", () => {
     const hidden = visibleAssistantAgentRows(agentSections, {
       settledCount: 0,
       routeThreadKey: null,
     });
     expect(hidden.rows).toEqual([]);
-    expect(
-      assistantSettledToggle({
-        settledCount: 0,
-        settledTotal: 13,
-        hiddenSettledCount: hidden.hiddenSettledCount,
-      }),
-    ).toEqual({ label: "13 settled", nextSettledCount: ASSISTANT_SETTLED_PAGE_SIZE });
+    expect(hidden.hiddenSettledCount).toBe(13);
 
     const firstPage = visibleAssistantAgentRows(agentSections, {
-      settledCount: ASSISTANT_SETTLED_PAGE_SIZE,
+      settledCount: 10,
       routeThreadKey: null,
     });
     expect(firstPage.rows).toHaveLength(10);
     expect(firstPage.rows.every((row) => row.section === "settled")).toBe(true);
-    expect(
-      assistantSettledToggle({
-        settledCount: ASSISTANT_SETTLED_PAGE_SIZE,
-        settledTotal: 13,
-        hiddenSettledCount: firstPage.hiddenSettledCount,
-      }),
-    ).toEqual({ label: "3 more settled", nextSettledCount: 20 });
+    expect(firstPage.hiddenSettledCount).toBe(3);
 
     const all = visibleAssistantAgentRows(agentSections, {
       settledCount: 20,
       routeThreadKey: null,
     });
     expect(all.hiddenSettledCount).toBe(0);
-    expect(
-      assistantSettledToggle({ settledCount: 20, settledTotal: 13, hiddenSettledCount: 0 }),
-    ).toEqual({ label: "Hide settled", nextSettledCount: 0 });
-  });
-
-  it("shows no button without settled agents", () => {
-    expect(
-      assistantSettledToggle({ settledCount: 0, settledTotal: 0, hiddenSettledCount: 0 }),
-    ).toBeNull();
   });
 
   it("never hides the open thread behind the settled button", () => {
@@ -112,29 +89,6 @@ describe("settled paging under a Project", () => {
     });
     expect(visible.rows.map((row) => row.thread.id)).toEqual([routeThread.id]);
     expect(visible.hiddenSettledCount).toBe(12);
-    expect(
-      assistantSettledToggle({
-        settledCount: 0,
-        settledTotal: 13,
-        hiddenSettledCount: visible.hiddenSettledCount,
-      }),
-    ).toEqual({ label: "12 settled", nextSettledCount: ASSISTANT_SETTLED_PAGE_SIZE });
-  });
-
-  it("shows no dead button when the open thread is the only settled agent", () => {
-    const only = thread("only-settled");
-    const visible = visibleAssistantAgentRows(sections({ settled: [only] }), {
-      settledCount: 0,
-      routeThreadKey: keyOf(only),
-    });
-    expect(visible.rows.map((row) => row.thread.id)).toEqual([only.id]);
-    expect(
-      assistantSettledToggle({
-        settledCount: 0,
-        settledTotal: 1,
-        hiddenSettledCount: visible.hiddenSettledCount,
-      }),
-    ).toBeNull();
   });
 });
 

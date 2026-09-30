@@ -1,6 +1,14 @@
 import type { ProjectIconColor, ProjectIconOverride } from "@t3tools/contracts";
 
+import { lookupLucideIconNodes, type LucideIconNode } from "./lucideIcon";
+
 export type ProjectIconGlyph =
+  | {
+      readonly kind: "lucide";
+      readonly name: string;
+      readonly nodes: ReadonlyArray<LucideIconNode>;
+      readonly color: ProjectIconColor;
+    }
   | { readonly kind: "emoji"; readonly emoji: string }
   | { readonly kind: "image"; readonly dataUrl: string }
   | { readonly kind: "monogram"; readonly text: string; readonly color: ProjectIconColor };
@@ -33,9 +41,10 @@ export function projectMonogram(projectName: string): string {
 }
 
 /**
- * Picks what mobile draws for an assigned project icon. Mobile does not bundle
- * the Lucide set, so a Lucide override keeps its color and falls back to the
- * project's monogram instead of the folder glyph.
+ * Picks what mobile draws for an assigned project icon. A Lucide override draws
+ * the same glyph as web from generated node data; a name that data lacks (a newer
+ * Lucide on web) keeps its color and falls back to the project's monogram
+ * instead of the folder glyph.
  */
 export function resolveProjectIconGlyph(
   projectIcon: ProjectIconOverride | null | undefined,
@@ -48,8 +57,12 @@ export function resolveProjectIconGlyph(
       return { kind: "image", dataUrl: projectIcon.dataUrl };
     case "monogram":
       return { kind: "monogram", text: projectIcon.text, color: projectIcon.color };
-    case "lucide":
-      return { kind: "monogram", text: projectMonogram(projectTitle), color: projectIcon.color };
+    case "lucide": {
+      const nodes = lookupLucideIconNodes(projectIcon.name);
+      return nodes === null
+        ? { kind: "monogram", text: projectMonogram(projectTitle), color: projectIcon.color }
+        : { kind: "lucide", name: projectIcon.name, nodes, color: projectIcon.color };
+    }
     case undefined:
       return null;
   }
@@ -81,4 +94,30 @@ const PROJECT_ICON_COLOR_CLASSES: Record<
 
 export function projectIconColorClassNames(color: ProjectIconColor) {
   return PROJECT_ICON_COLOR_CLASSES[color];
+}
+
+/** Tailwind's 500 shades as hex, for SVG strokes that cannot take a className. */
+const PROJECT_ICON_COLOR_HEX: Record<ProjectIconColor, string> = {
+  gray: "#6b7280",
+  red: "#ef4444",
+  orange: "#f97316",
+  amber: "#f59e0b",
+  yellow: "#eab308",
+  lime: "#84cc16",
+  green: "#22c55e",
+  emerald: "#10b981",
+  teal: "#14b8a6",
+  cyan: "#06b6d4",
+  sky: "#0ea5e9",
+  blue: "#3b82f6",
+  indigo: "#6366f1",
+  violet: "#8b5cf6",
+  purple: "#a855f7",
+  fuchsia: "#d946ef",
+  pink: "#ec4899",
+  rose: "#f43f5e",
+};
+
+export function projectIconColorHex(color: ProjectIconColor): string {
+  return PROJECT_ICON_COLOR_HEX[color];
 }

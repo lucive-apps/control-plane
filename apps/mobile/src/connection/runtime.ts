@@ -1,9 +1,11 @@
 import { Connection } from "@t3tools/client-runtime/connection";
-import { shellSnapshotLoaderLayer } from "@t3tools/client-runtime/state/shell";
-import { threadSnapshotLoaderLayer } from "@t3tools/client-runtime/state/threads";
 import * as Layer from "effect/Layer";
 import { Atom } from "effect/unstable/reactivity";
 
+import {
+  demoAwareSnapshotLoaderLayer,
+  demoConnectionDriverOverrideLayer,
+} from "../features/demo/demoMode";
 import type { FoundationHotModule } from "../lib/foundation-fast-refresh";
 import { hotSwappableAtomRuntime } from "../lib/hot-swappable-atom-runtime";
 import { runtimeContextLayer } from "../lib/runtime";
@@ -20,7 +22,7 @@ const providedConnectionPlatformLayer = connectionPlatformLayer.pipe(
   Layer.provide(runtimeContextLayer),
 );
 
-const snapshotLoaderLayer = Layer.merge(threadSnapshotLoaderLayer, shellSnapshotLoaderLayer);
+const snapshotLoaderLayer = demoAwareSnapshotLoaderLayer;
 
 type ConnectionLayerSource =
   | typeof Connection.layer
@@ -39,6 +41,7 @@ const providedClientConnectionLayer = snapshotLoaderLayer.pipe(
       runtimeContextLayer,
       providedConnectionPlatformLayer,
       mobileBackgroundActivityObserverLayer,
+      demoConnectionDriverOverrideLayer,
     ),
   ),
 );

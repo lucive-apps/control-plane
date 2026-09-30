@@ -30,13 +30,13 @@ const SCHEDULE_RULE =
 
 /** Coordinator only: cp_agent_settle refuses every other caller. */
 const COORDINATOR_SETTLE_RULE =
-  "Settle agents with cp_agent_settle once their work is complete and merged, or when they are one-off and have reported. It fails while an agent is working; a settled agent wakes on a new message.";
+  "Settle agents with cp_agent_settle once their work is complete (for example, merged) and no follow-ups remain. Reporting a result does not settle an agent. It fails while an agent is working; a settled agent wakes on a new message.";
 
 const COORDINATOR_BROWSER_RULE =
-  "When you delegate, tell each agent to use the built-in Control Plane browser (the preview_* tools) for browsing, testing and screenshots, and not the user's own browser.";
+  "Every delegation message must tell the agent to use its own built-in Control Plane browser (preview_* tools) for all browsing, including logged-in sites, and never the user's desktop browsers. Only when the user explicitly asks for an agent to use their own browser or computer, say so in the delegation message and quote the user's request. Never grant it on your own. Each coordinator and agent has its own browser tabs; do not send browser work to another coordinator or reuse another thread's browser.";
 
 const AGENT_BROWSER_RULE =
-  "Use the built-in Control Plane browser (the preview_* tools) for browsing, testing and screenshots. If the preview_* tools are not loaded yet, load them, then call preview_status or preview_open before concluding the built-in browser is unavailable. Do not launch or drive the user's desktop browsers. Only when a task explicitly needs the user's logged-in session, open the URL in their default browser with `open <url>`.";
+  "Always use your own thread's built-in Control Plane browser via the preview_* tools for all browsing, testing and screenshots, including logged-in sites. Load the tools if they are not loaded yet, then call preview_status or preview_open (without tabId) before preview_navigate, preview_snapshot and the other preview_* tools. Never open or drive the user's desktop browsers: never run `open <url>`, never AppleScript a browser, never use computer-use tools for one. Exception: if the user explicitly tells you to use their own browser or computer (for example 'use my Helium' or 'use my computer'), you may do so for that request. A coordinator relaying the user's explicit instruction counts. Never decide on your own that you need the user's browser. Logins persist in the built-in browser profile. If a site needs a login you don't have, stop and ask the user to sign in once in the Control Plane browser panel (or import from their browser with the browser's import option), then continue. If preview_open reports no automation host, report the tool error; switching to another thread's browser does not repair the host connection.";
 
 /** Agent side: a turn that ends reports to the coordinator, so it must not end as a wait. */
 const AGENT_TURN_RULE =
@@ -194,10 +194,11 @@ export function buildAssistantRuntimeBlock(
       `Your memory is ${memoryPath}. Keep it current. The copy below was read when this session started, and the user may have changed the file since, so re-read it from disk before relying on it and edit it in place. Never silently rewrite rules the user wrote.`,
       `The root ${ROLE_FILE} is shared by you and every agent. Coordinator-only routing and user preferences go in ${MEMORY_FILE}.`,
       "Do not reply to acknowledgements.",
-      `Delegate work to agents with cp_agent_create. An agent is one-off by default and settles after it reports. Pass standing: true only for a role you will reuse, and first write its role to \`${roleFilePattern}\` (slug: its title in lowercase with dashes).`,
+      `Delegate work to agents with cp_agent_create. An agent is one-off by default and stays available for follow-ups after it reports. Pass standing: true only for a role you will reuse, and first write its role to \`${roleFilePattern}\` (slug: its title in lowercase with dashes).`,
       "When an agent you started or messaged finishes, its final message arrives here as a message from it, including any question it has for the user. Nothing polls: after delegating, end your turn. Relay an agent's question to the user, then send the answer with cp_thread_send and the agent's threadId.",
       `At most ${AGENT_RUNNING_CAP} agents run at once in this Project. Use cp_agent_list, cp_agent_read and cp_agent_stop to check on them or stop them. A message to a busy agent waits until its turn ends; stop it first to redirect it. Pass threadId to cp_thread_send, since titles can match threads outside this Project.`,
       COORDINATOR_SETTLE_RULE,
+      AGENT_BROWSER_RULE,
       COORDINATOR_BROWSER_RULE,
       SCHEDULE_RULE,
       input.memory.trim()
@@ -213,6 +214,7 @@ export function buildAssistantRuntimeBlock(
       `Before passing standing: true, write the agent's role to \`${roleFilePattern}\` (slug: its title in lowercase with dashes).`,
       "Do not reply to acknowledgements. When you message an agent with cp_thread_send, pass the threadId its result returns on later sends.",
       COORDINATOR_SETTLE_RULE,
+      AGENT_BROWSER_RULE,
       COORDINATOR_BROWSER_RULE,
       SCHEDULE_RULE,
       close,

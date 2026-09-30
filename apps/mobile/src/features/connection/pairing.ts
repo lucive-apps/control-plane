@@ -90,3 +90,40 @@ export function extractPairingUrlFromQrPayload(payload: string): string {
 
   return trimmed;
 }
+
+export const UNREACHABLE_PAIRING_MESSAGE =
+  "Could not reach that computer. Check that Control Plane is running on your Mac and that this phone can reach it, then tap Try again.";
+export const SERVER_UNAVAILABLE_PAIRING_MESSAGE =
+  "That computer's server is not responding right now. Wait a minute, then tap Try again.";
+export const WRONG_CODE_PAIRING_MESSAGE =
+  "That pairing code was not accepted. Codes expire, so create a new one on your Mac, then tap Try again.";
+export const WRONG_HOST_PAIRING_MESSAGE =
+  "That host did not answer as Control Plane. Check the host and pairing code shown on your Mac, then tap Try again.";
+
+/**
+ * What the Add Environment screen shows when pairing fails. Transport and
+ * status failures (a 503 from a stopped server, a wrong host, no route) get
+ * a plain explanation instead of the raw request text, and so does a
+ * rejected pairing code. Permission and compatibility failures keep their
+ * specific message.
+ */
+export function pairingErrorMessage(error: unknown): string {
+  if (typeof error === "object" && error !== null && "_tag" in error && "reason" in error) {
+    if (error._tag === "ConnectionTransientError") {
+      switch (error.reason) {
+        case "remote-unavailable":
+          return SERVER_UNAVAILABLE_PAIRING_MESSAGE;
+        case "endpoint-unavailable":
+          return WRONG_HOST_PAIRING_MESSAGE;
+        default:
+          return UNREACHABLE_PAIRING_MESSAGE;
+      }
+    }
+    if (error._tag === "ConnectionBlockedError" && error.reason === "authentication") {
+      return WRONG_CODE_PAIRING_MESSAGE;
+    }
+  }
+  return error instanceof Error && error.message.trim().length > 0
+    ? error.message
+    : "Failed to pair with the environment.";
+}

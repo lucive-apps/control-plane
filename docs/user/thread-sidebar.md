@@ -95,6 +95,19 @@ If dragging is unavailable for one environment, update the T3 Code server runnin
 environment. Pinned and active reordering require server support. Threads from older servers keep
 their default order until the server is updated.
 
+## Order of Projects and workspace folders
+
+Drag a Project or a workspace folder (or press Alt+Up or Alt+Down on a focused Project row) to
+change its place. The order is saved on the server that owns the Project or workspace, so it
+appears on your other devices, mobile included. Mobile shows arranged folders first in that
+order, then the rest by recent activity; it does not reorder yet.
+
+New Projects and workspaces start after the arranged ones. The first time a device sees a
+server with no saved order, it publishes its own saved order once; a device that connects later
+adopts what is already there. The last drag wins. Dragging while the folder list is sorted by
+activity adopts the order you see as the shared order. The sort setting itself stays per
+device. Servers that predate this keep the order on each device.
+
 ## Settle finished work
 
 Choose **Settle thread** from its menu to move finished work out of the active list

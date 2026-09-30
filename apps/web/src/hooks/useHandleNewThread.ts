@@ -1,3 +1,4 @@
+import { orderProjectsByKey } from "@t3tools/client-runtime/state/project-order";
 import { useAtomValue } from "@effect/atom-react";
 import {
   scopedProjectKey,
@@ -465,15 +466,17 @@ export function useHandleNewThread() {
   // The fallback target for a new thread is a plain workspace, never a Project.
   const projects = useWorkspaceProjects();
   const orderedProjects = useMemo(() => {
-    return orderItemsByPreferredIds({
-      items: projects,
-      preferredIds: projectOrder,
-      getId: getProjectOrderKey,
-      getPreferenceIds: (project) => [
-        getProjectOrderKey(project),
-        legacyProjectCwdPreferenceKey(project.workspaceRoot),
-      ],
-    });
+    return orderProjectsByKey(projects, (keyless) =>
+      orderItemsByPreferredIds({
+        items: keyless,
+        preferredIds: projectOrder,
+        getId: getProjectOrderKey,
+        getPreferenceIds: (project) => [
+          getProjectOrderKey(project),
+          legacyProjectCwdPreferenceKey(project.workspaceRoot),
+        ],
+      }),
+    );
   }, [projectOrder, projects]);
   const handleNewThread = useNewThreadHandler();
 

@@ -18,6 +18,8 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { TestClock } from "effect/testing";
 
+import { RemoteAgents, type RemoteAgentsShape } from "../../../agentMachines/RemoteAgents.ts";
+import { localOnlyRemoteAgents, makeRecord } from "../../../agentMachines/testFixtures.ts";
 import { AgentLineage } from "../../../orchestration/agentLineage.ts";
 import {
   OrchestrationEngineService,
@@ -150,6 +152,8 @@ const makeHarness = Effect.fn("makeThreadsToolkitHarness")(function* (
     readonly projects?: ReadonlyArray<OrchestrationProjectShell>;
     /** requestedAt of a sent message no turn has adopted yet, per thread. */
     readonly pendingStarts?: ReadonlyMap<ThreadId, string>;
+    /** Overrides for the linked-machine agents service; by default there are none. */
+    readonly remote?: Partial<RemoteAgentsShape>;
   } = {},
 ) {
   yield* TestClock.setTime(Date.parse(NOW));
@@ -182,6 +186,7 @@ const makeHarness = Effect.fn("makeThreadsToolkitHarness")(function* (
       latestSequence: Effect.succeed(0),
     }),
     Layer.succeed(Crypto.Crypto, testCrypto),
+    Layer.mock(RemoteAgents)({ ...localOnlyRemoteAgents, ...options.remote }),
   );
   const repositories = Layer.mergeAll(
     Layer.mock(AgentLineage)({
@@ -234,6 +239,7 @@ const projectHarness = (
   options: {
     readonly threads?: ReadonlyArray<OrchestrationThreadShell>;
     readonly pendingStarts?: ReadonlyMap<ThreadId, string>;
+    readonly remote?: Partial<RemoteAgentsShape>;
   } = {},
 ) => makeHarness({ threads: projectThreads, projects, ...options });
 
@@ -380,6 +386,92 @@ describe("threads toolkit handlers", () => {
         .send({ message: "Hi", threadTitle: "Research" }, COORDINATOR)
         .pipe(Effect.flip);
       expect(error._tag).toBe("ThreadSendTargetAmbiguousError");
+    }),
+  );
+});
+
+describe("cp_thread_send to an agent on a linked machine", () => {
+  const remoteRecord = makeRecord({
+    threadId: "remote-agent-1",
+    title: "Pricing",
+    homeProjectId: PROJECT_ID,
+    creatorThreadId: COORDINATOR,
+  });
+  const found = (records = [remoteRecord]) => ({
+    find: () => Effect.succeed(records),
+  });
+
+  it.effect("sends to the remote agent the coordinator started, without a local dispatch", () =>
+    Effect.gen(function* () {
+      const sent: Array<{ text: string; replyTo: string | null }> = [];
+      const harness = yield* projectHarness({
+        remote: {
+          ...found(),
+          send: (_record, input) =>
+            Effect.sync(() => {
+              sent.push({ text: input.text, replyTo: input.replyTo });
+              return { queued: true };
+            }),
+        },
+      });
+      const result = yield* harness.send(
+        { message: "Also annual.", threadId: "remote-agent-1" },
+        COORDINATOR,
+      );
+      expect(result).toEqual({ threadId: "remote-agent-1", threadTitle: "Pricing", queued: true });
+      expect(sent).toEqual([{ text: "Also annual.", replyTo: COORDINATOR }]);
+      expect(yield* Ref.get(harness.commands)).toEqual([]);
+    }),
+  );
+
+  it.effect("finds the remote agent by title when no local thread has it", () =>
+    Effect.gen(function* () {
+      const harness = yield* projectHarness({
+        remote: { ...found(), send: () => Effect.succeed({ queued: false }) },
+      });
+      const result = yield* harness.send({ message: "Hi", threadTitle: "Pricing" }, COORDINATOR);
+      expect(result).toEqual({ threadId: "remote-agent-1", threadTitle: "Pricing", queued: false });
+    }),
+  );
+
+  it.effect("prefers a local thread with the same title", () =>
+    Effect.gen(function* () {
+      const sentRemote: Array<string> = [];
+      const harness = yield* projectHarness({
+        remote: {
+          ...found([{ ...remoteRecord, title: "Research" }]),
+          send: () => Effect.sync(() => (sentRemote.push("sent"), { queued: false })),
+        },
+      });
+      const result = yield* harness.send({ message: "Hi", threadTitle: "Research" }, COORDINATOR);
+      expect(result.threadId).toBe(STANDING);
+      expect(sentRemote).toEqual([]);
+    }),
+  );
+
+  it.effect("reads a remote agent another manager started as not found", () =>
+    Effect.gen(function* () {
+      const harness = yield* projectHarness({ remote: found() });
+      const error = yield* harness
+        .send({ message: "Hi", threadId: "remote-agent-1" }, STANDING)
+        .pipe(Effect.flip);
+      expect(error._tag).toBe("ThreadSendTargetNotFoundError");
+    }),
+  );
+
+  it.effect("turns a peer failure into a send failure", () =>
+    Effect.gen(function* () {
+      const harness = yield* projectHarness({
+        remote: {
+          ...found(),
+          send: () =>
+            Effect.fail({ _tag: "RemoteAgentError", detail: "Could not reach Mac Mini" } as never),
+        },
+      });
+      const error = yield* harness
+        .send({ message: "Hi", threadId: "remote-agent-1" }, COORDINATOR)
+        .pipe(Effect.flip);
+      expect(error._tag).toBe("ThreadSendFailedError");
     }),
   );
 });

@@ -307,12 +307,57 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.projectIcon !== undefined ? { projectIcon: command.projectIcon } : {}),
           ...(command.scripts !== undefined ? { scripts: command.scripts } : {}),
           ...(assistant !== undefined ? { assistant } : {}),
+          // Projects and Tasks folders are separate lists, so a key from one would drop the
+          // project at an arbitrary place in the other.
+          ...(assistant !== undefined && (assistant === null) !== (project.assistant == null)
+            ? { orderKey: null }
+            : {}),
           updatedAt: occurredAt,
         },
       };
       // The project event goes last: the command receipt records the last
       // event's aggregate, and a retry must match this project command.
       return companions.length > 0 ? [...companions, metaUpdatedEvent] : metaUpdatedEvent;
+    }
+
+    case "project.reorder": {
+      const project = yield* requireProject({
+        readModel,
+        command,
+        projectId: command.projectId,
+      });
+      if (project.deletedAt !== null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Project '${command.projectId}' is deleted and cannot be reordered.`,
+        });
+      }
+      // A seed from a client's saved local order must not overwrite an arrangement that
+      // another client already published. Rejecting is the no-op: a command has to produce
+      // an event, and the seeding client ignores this failure.
+      if (command.ifKeyless === true && project.orderKey != null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Project '${command.projectId}' already has an order key.`,
+        });
+      }
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "project",
+          aggregateId: command.projectId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "project.meta-updated" as const,
+        payload: {
+          projectId: command.projectId,
+          orderKey: command.orderKey,
+          // Arranging the list is not project activity: keep activity sorts and the
+          // duplicate-workspace winner where they were.
+          updatedAt: project.updatedAt,
+        },
+      };
     }
 
     case "project.delete": {

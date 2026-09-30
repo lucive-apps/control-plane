@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-// Renders the Android launcher, splash, and notification artwork from each variant's
-// Control Plane jet SVG.
+// Renders the Android launcher, splash, and notification artwork, and the iOS splash
+// icon, from each variant's Control Plane jet SVG.
 //
 // Android masks the central 72dp of a 108dp adaptive canvas, so the iOS tiles cannot be
 // used as a foreground: their square gets framed again. Each variant instead gets a
@@ -11,6 +11,9 @@
 // The Android 12+ splash screen masks its icon to a circle covering the central two thirds
 // of a 288dp canvas, the same proportion the launcher crops, so the splash is the
 // foreground rendered at the full splash canvas.
+//
+// iOS draws its splash image unmasked over the splash background color, so the square iOS
+// tiles would show as a white box on the dark splash. It gets the transparent jet instead.
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -27,6 +30,8 @@ import { BRAND_ASSET_PATHS } from "./lib/brand-assets.ts";
 const ADAPTIVE_CANVAS = 432;
 // 288dp at xxxhdpi: the full Android 12+ splash canvas, so the icon needs no upscaling.
 const SPLASH_CANVAS = 1152;
+// Above 3x the 220pt imageWidth in apps/mobile/app.config.ts, so iPhones never upscale it.
+const IOS_SPLASH_CANVAS = 1024;
 // 24dp at xxxhdpi, the status bar icon size.
 const NOTIFICATION_CANVAS = 96;
 // The jet's bounds inside the 1024 viewBox of the mark SVGs.
@@ -35,6 +40,9 @@ const JET = { x: 262, y: 151, width: 499, height: 721 };
 // tile; the launcher shows 72dp of 108dp, so 0.47 matches that framing and keeps the
 // jet's corners inside the 66dp guaranteed circle.
 const LAUNCHER_JET_FRACTION = 0.47;
+// The iOS tiles draw the jet at 71% of the tile, so the splash keeps the jet the size it
+// had when the splash showed the whole tile.
+const IOS_SPLASH_JET_FRACTION = 0.71;
 // Status bar icons are cropped by nothing, so the silhouette fills most of the canvas.
 const NOTIFICATION_JET_FRACTION = 0.92;
 const OUTPUT_DIRECTORY = "apps/mobile/assets";
@@ -96,6 +104,13 @@ const exportAndroidIcons = Effect.gen(function* () {
       [
         `android-splash-icon-${variant}.png`,
         yield* rasterize(`${variant}-splash`, jetSvg(paths, SPLASH_CANVAS, LAUNCHER_JET_FRACTION)),
+      ],
+      [
+        `ios-splash-icon-${variant}.png`,
+        yield* rasterize(
+          `${variant}-ios-splash`,
+          jetSvg(paths, IOS_SPLASH_CANVAS, IOS_SPLASH_JET_FRACTION),
+        ),
       ],
     );
   }

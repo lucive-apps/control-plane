@@ -105,6 +105,7 @@ describe("OrchestrationReactor", () => {
               return Effect.void;
             },
             drain: Effect.void,
+            enqueueProject: () => Effect.void,
           }),
         ),
         Layer.provideMerge(

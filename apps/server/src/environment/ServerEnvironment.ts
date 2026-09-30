@@ -241,6 +241,7 @@ export const make = Effect.gen(function* () {
       threadPinning: true,
       threadPinReorder: true,
       threadActiveReorder: true,
+      projectReorder: true,
       assistants: true,
       projectSchedules: { scheduler: scheduleBackend.scheduler, timeZone: hostTimeZone.zone },
       threadTitleRegeneration: true,

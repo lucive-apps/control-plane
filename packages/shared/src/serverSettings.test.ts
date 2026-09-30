@@ -753,3 +753,91 @@ describe("serverSettings helpers", () => {
     expect(resolved.pauseWhenOnBattery).toBe(false);
   });
 });
+
+describe("applyServerSettingsPatch agentPlacement", () => {
+  const mini = {
+    label: "Mac Mini",
+    baseUrl: "http://mini.tailnet.ts.net:3773",
+    enabled: true,
+    preference: 50 as const,
+  };
+  const studio = {
+    label: "Studio",
+    baseUrl: "https://studio.example.com",
+    enabled: true,
+    preference: 100 as const,
+  };
+  const linked = {
+    ...DEFAULT_SERVER_SETTINGS,
+    agentPlacement: { ...DEFAULT_SERVER_SETTINGS.agentPlacement, machines: { "env-mini": mini } },
+  };
+
+  it("defaults to this machine only, with fallback on and no linked machines", () => {
+    expect(DEFAULT_SERVER_SETTINGS.agentPlacement).toEqual({
+      mode: "local",
+      singleMachineId: null,
+      localPreference: 50,
+      allowLocalFallback: true,
+      machines: {},
+    });
+  });
+
+  it("patches scalar fields without dropping linked machines", () => {
+    const next = applyServerSettingsPatch(linked, {
+      agentPlacement: {
+        mode: "single",
+        singleMachineId: "env-mini",
+        localPreference: 0,
+        allowLocalFallback: false,
+      },
+    });
+    expect(next.agentPlacement).toEqual({
+      mode: "single",
+      singleMachineId: "env-mini",
+      localPreference: 0,
+      allowLocalFallback: false,
+      machines: { "env-mini": mini },
+    });
+    const onlyMode = applyServerSettingsPatch(next, { agentPlacement: { mode: "balanced" } });
+    expect(onlyMode.agentPlacement).toEqual({ ...next.agentPlacement, mode: "balanced" });
+  });
+
+  it("adds, updates and removes machines per entry", () => {
+    const added = applyServerSettingsPatch(linked, {
+      agentPlacement: { machines: { "env-studio": studio } },
+    });
+    expect(added.agentPlacement.machines).toEqual({ "env-mini": mini, "env-studio": studio });
+
+    const updated = applyServerSettingsPatch(added, {
+      agentPlacement: { machines: { "env-mini": { ...mini, enabled: false, preference: 0 } } },
+    });
+    expect(updated.agentPlacement.machines).toEqual({
+      "env-mini": { ...mini, enabled: false, preference: 0 },
+      "env-studio": studio,
+    });
+
+    const removed = applyServerSettingsPatch(updated, {
+      agentPlacement: { machines: { "env-mini": null } },
+    });
+    expect(removed.agentPlacement.machines).toEqual({ "env-studio": studio });
+    expect(linked.agentPlacement.machines).toEqual({ "env-mini": mini });
+  });
+
+  it("a patch with only machines keeps the mode and other fields", () => {
+    const balanced = applyServerSettingsPatch(linked, {
+      agentPlacement: { mode: "balanced", localPreference: 25, allowLocalFallback: false },
+    });
+    const next = applyServerSettingsPatch(balanced, {
+      agentPlacement: { machines: { "env-studio": studio } },
+    });
+    expect(next.agentPlacement).toEqual({
+      ...balanced.agentPlacement,
+      machines: { "env-mini": mini, "env-studio": studio },
+    });
+  });
+
+  it("leaves agentPlacement untouched when the patch does not mention it", () => {
+    const next = applyServerSettingsPatch(linked, { environmentIcon: "mac-mini" });
+    expect(next.agentPlacement).toEqual(linked.agentPlacement);
+  });
+});

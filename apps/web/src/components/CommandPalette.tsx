@@ -1,5 +1,6 @@
 "use client";
 
+import { orderProjectsByKey } from "@t3tools/client-runtime/state/project-order";
 import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 
@@ -878,15 +879,17 @@ function OpenCommandPaletteDialog(props: {
   );
   const orderedProjects = useMemo(
     () =>
-      orderItemsByPreferredIds({
-        items: workspaceProjects,
-        preferredIds: projectOrder,
-        getId: getProjectOrderKey,
-        getPreferenceIds: (project) => [
-          getProjectOrderKey(project),
-          legacyProjectCwdPreferenceKey(project.workspaceRoot),
-        ],
-      }),
+      orderProjectsByKey(workspaceProjects, (keyless) =>
+        orderItemsByPreferredIds({
+          items: keyless,
+          preferredIds: projectOrder,
+          getId: getProjectOrderKey,
+          getPreferenceIds: (project) => [
+            getProjectOrderKey(project),
+            legacyProjectCwdPreferenceKey(project.workspaceRoot),
+          ],
+        }),
+      ),
     [projectOrder, workspaceProjects],
   );
   const unsortedProjectGroups = useMemo(
