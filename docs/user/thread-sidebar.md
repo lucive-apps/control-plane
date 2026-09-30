@@ -108,6 +108,19 @@ adopts what is already there. The last drag wins. Dragging while the folder list
 activity adopts the order you see as the shared order. The sort setting itself stays per
 device. Servers that predate this keep the order on each device.
 
+## Order of agents in a Project
+
+Expand a Project and drag an agent up or down, or press Alt+Up or Alt+Down on a focused agent
+row. Pinned (standing) agents reorder among themselves and stay above the other agents; active
+agents reorder among themselves. A drag never moves an agent into another Project or into
+Tasks, and never pins or unpins it. Releasing anywhere else cancels the move.
+
+The order is saved on the agent threads, so it appears on every connected device, mobile
+included. On mobile, open an agent's menu and choose **Move up** or **Move down**. New agents
+appear at the top of the active agents. An agent you pin appears at the top of the pinned ones;
+a standing agent the coordinator creates appears below the pinned agents you have arranged.
+Status changes and new messages never reorder agents; only a move does.
+
 ## Settle finished work
 
 Choose **Settle thread** from its menu to move finished work out of the active list

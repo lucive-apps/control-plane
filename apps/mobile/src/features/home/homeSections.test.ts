@@ -454,6 +454,39 @@ describe("buildHomeSections Project rows", () => {
     ]);
     expect(agents[2]?.snoozeWakeLabelText).toBeDefined();
   });
+
+  it("applies the synced agent order and offers moves within each block", () => {
+    const threads = [
+      thread("coordinator", "personal", { title: "Personal" }),
+      thread("fantasy", "personal", { ...pinned(NOW), pinOrderKey: "t" }),
+      thread("planner", "personal", { ...pinned(NOW), pinOrderKey: "c" }),
+      thread("operator", "personal", { ...pinned(NOW), pinOrderKey: "m" }),
+      thread("scratch", "personal", { activeOrderKey: "m" }),
+      thread("fresh", "personal", { createdAt: LATER }),
+      thread("later", "personal", snoozed),
+    ];
+    const agents = (searchQuery = "") =>
+      buildHomeSections(
+        input({ threads, expandedAssistantKeys: new Set([personalKey]), searchQuery }),
+      ).items.flatMap((item) => (item.type === "agent" ? [item] : []));
+    const rows = agents();
+    // Pin keys order the standing agents; a new unpinned agent leads the active ones.
+    expect(rows.map((agent) => agent.item.thread.id)).toEqual([
+      "planner",
+      "operator",
+      "fantasy",
+      "fresh",
+      "scratch",
+      "later",
+    ]);
+    expect(
+      rows.map((agent) =>
+        agent.move === null ? null : [agent.move.canMoveUp, agent.move.canMoveDown],
+      ),
+    ).toEqual([[false, true], [true, true], [true, false], [false, true], [true, false], null]);
+    // Search hides neighbors, so it offers no moves.
+    expect(agents("a").every((agent) => agent.move === null)).toBe(true);
+  });
 });
 
 describe("buildHomeSections Tasks section", () => {

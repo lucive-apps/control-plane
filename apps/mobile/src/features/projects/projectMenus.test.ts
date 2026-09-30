@@ -82,6 +82,14 @@ describe("buildProjectMenuItems", () => {
 });
 
 describe("buildAgentRowMenu", () => {
+  it("offers Move up and Move down after the pin item where agents can be arranged", () => {
+    expect(ids(agentMenu())).not.toContain("move-up");
+    const menu = agentMenu({ standing: true, move: { canMoveUp: false, canMoveDown: true } });
+    expect(ids(menu).slice(0, 3)).toEqual(["unpin", "move-up", "move-down"]);
+    expect(find(menu, "move-up")?.attributes?.disabled).toBe(true);
+    expect(find(menu, "move-down")?.attributes).toBeUndefined();
+  });
+
   it("offers a one-off agent Pin, Snooze, Settle, Stop and Set as coordinator in A4 order", () => {
     expect(ids(agentMenu())).toEqual([
       "pin",

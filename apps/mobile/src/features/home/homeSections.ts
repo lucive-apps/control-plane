@@ -1,5 +1,6 @@
 import {
   assistantExpansionKey,
+  planAssistantAgentReorder,
   rollupAssistantsStatus,
   rollupThreadGroupStatus,
   type SidebarRollupStatus,
@@ -103,6 +104,15 @@ export interface HomeAgentItem {
   /** Pinned agents are standing agents: pin glyph, no Settle. */
   readonly standing: boolean;
   readonly snoozeWakeLabelText: string | undefined;
+  /** Move up/down within the Project's standing or active agents; null on parked rows and while searching. */
+  readonly move: HomeAgentMove | null;
+}
+
+export interface HomeAgentMove {
+  readonly canMoveUp: boolean;
+  readonly canMoveDown: boolean;
+  /** The Project's complete sections, which a move plans against. */
+  readonly sections: AssistantAgentSections<EnvironmentThreadShell>;
 }
 
 export interface HomeAgentPendingItem {
@@ -269,6 +279,7 @@ function agentListItem(
   thread: EnvironmentThreadShell,
   section: AgentSectionRow,
   snoozeLabelNow: string | undefined,
+  move: HomeAgentMove | null,
 ): HomeAgentItem {
   const snoozed = section === "snoozed";
   return {
@@ -282,6 +293,7 @@ function agentListItem(
       isLast: false,
     },
     standing: section === "pinned",
+    move,
     snoozeWakeLabelText:
       snoozed && thread.snoozedUntil != null && snoozeLabelNow !== undefined
         ? snoozeWakeLabel(thread.snoozedUntil, { now: snoozeLabelNow })
@@ -495,7 +507,18 @@ export function buildHomeSections(input: HomeSectionsInput): HomeSections {
       for (const row of rows) {
         // Unsent agents sit after the active agents, before the parked ones.
         if (row.section === "snoozed") placePending();
-        projectItems.push(agentListItem(row.thread, row.section, input.snoozeLabelNow));
+        const threadKey = threadKeyOf(row.thread);
+        const move =
+          searching || (row.section !== "pinned" && row.section !== "active")
+            ? null
+            : {
+                canMoveUp:
+                  planAssistantAgentReorder(sections, threadKey, { direction: -1 }) !== null,
+                canMoveDown:
+                  planAssistantAgentReorder(sections, threadKey, { direction: 1 }) !== null,
+                sections,
+              };
+        projectItems.push(agentListItem(row.thread, row.section, input.snoozeLabelNow, move));
         projectJumpThreads.push(row.thread);
       }
       placePending();

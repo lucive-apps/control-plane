@@ -254,6 +254,12 @@ import {
 } from "./sidebar/SidebarAssistantsSection";
 import { planEntryArrange, planEntrySeed, type ArrangeEntry } from "./sidebar/projectArrange";
 import {
+  agentDropTargetFilter,
+  indexAgentOrderSlots,
+  planAgentOrderMove,
+  type AgentOrderMove,
+} from "./sidebar/assistantAgentOrder.logic";
+import {
   assistantExpansionKey,
   flattenAssistantJumpOrder,
   selectableThreadKeys,
@@ -1020,6 +1026,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
    * composer. Absent when the sidebar cannot open server threads.
    */
   onFileDropThreads?: ((threadRef: ScopedThreadRef, files: File[]) => void) | undefined;
+  /** Alt+Arrow on the focused row moves it one place. Only Project agents. */
+  onMove?: ((threadRef: ScopedThreadRef, direction: -1 | 1) => void) | undefined;
 }) {
   const {
     isRenaming,
@@ -1245,14 +1253,25 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     },
     [onContextMenu, threadRef],
   );
+  const { onMove } = props;
   const handleKeyDown = useCallback(
     (event: ReactKeyboardEvent) => {
       if (event.target !== event.currentTarget) return;
+      if (onMove && event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+        event.preventDefault();
+        const row = event.currentTarget as HTMLElement;
+        onMove(threadRef, event.key === "ArrowUp" ? -1 : 1);
+        // React may reinsert the row's node to reorder it, which drops focus.
+        requestAnimationFrame(() => {
+          if (row.isConnected && document.activeElement !== row) row.focus();
+        });
+        return;
+      }
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
       onThreadActivate(threadRef);
     },
-    [onThreadActivate, threadRef],
+    [onMove, onThreadActivate, threadRef],
   );
   const handleDoubleClick = useCallback(
     (event: ReactMouseEvent) => {
@@ -1591,6 +1610,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                 tabIndex={0}
                 data-testid="sidebar-row-slim"
                 aria-busy={isRegeneratingTitle || undefined}
+                aria-keyshortcuts={onMove ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
                 className={cn(rowSurfaceClassName, "flex h-8 items-center gap-2 px-2")}
                 onClick={handleClick}
                 onDoubleClick={handleDoubleClick}
@@ -1760,6 +1780,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               tabIndex={0}
               data-testid="sidebar-row-card"
               aria-busy={isRegeneratingTitle || undefined}
+              aria-keyshortcuts={onMove ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
               className={rowSurfaceClassName}
               onClick={handleClick}
               onDoubleClick={handleDoubleClick}
@@ -4822,6 +4843,71 @@ export default function Sidebar() {
     },
     [copyPathToClipboard, handleRemoveProjectMembers, openProjectSettings, serverConfigs],
   );
+  // Standing and active agents under each Project, for drag and Alt+Arrow.
+  const agentOrderSlots = useMemo(
+    () =>
+      settledViewOpen
+        ? new Map()
+        : indexAgentOrderSlots(assistantModels, {
+            pinReorder: (environmentId) => {
+              const capabilities = serverConfigs.get(environmentId)?.environment.capabilities;
+              return capabilities?.threadPinning === true && capabilities.threadPinReorder === true;
+            },
+            activeReorder: (environmentId) =>
+              serverConfigs.get(environmentId)?.environment.capabilities.threadActiveReorder ===
+              true,
+          }),
+    [assistantModels, serverConfigs, settledViewOpen],
+  );
+  const applyAgentOrderMove = useCallback(
+    (move: AgentOrderMove) => {
+      const write = move.plan.section === "pinned" ? reorderPinnedThread : reorderActiveThread;
+      // Every write patches the shell optimistically before it is sent, so
+      // issuing them together re-sorts the Project once, with no hold state.
+      void Promise.all(
+        move.writes.map(({ threadRef, orderKey }) => write(threadRef, orderKey)),
+      ).then((results) => {
+        const failure = results.find(
+          (result) => result._tag === "Failure" && !isAtomCommandInterrupted(result),
+        );
+        if (failure === undefined || failure._tag !== "Failure") return;
+        const error = squashAtomCommandFailure(failure);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Failed to reorder agents",
+            description: error instanceof Error ? error.message : "An error occurred.",
+          }),
+        );
+      });
+    },
+    [reorderActiveThread, reorderPinnedThread],
+  );
+  const handleAgentDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      if (event.over === null) return;
+      const move = planAgentOrderMove({
+        models: assistantModels,
+        slots: agentOrderSlots,
+        movedKey: String(event.active.id),
+        target: { overKey: String(event.over.id) },
+      });
+      if (move !== null) applyAgentOrderMove(move);
+    },
+    [agentOrderSlots, applyAgentOrderMove, assistantModels],
+  );
+  const handleAgentMove = useCallback(
+    (threadRef: ScopedThreadRef, direction: -1 | 1) => {
+      const move = planAgentOrderMove({
+        models: assistantModels,
+        slots: agentOrderSlots,
+        movedKey: scopedThreadKey(threadRef),
+        target: { direction },
+      });
+      if (move !== null) applyAgentOrderMove(move);
+    },
+    [agentOrderSlots, applyAgentOrderMove, assistantModels],
+  );
   const folderCollisionDetection = useCallback<CollisionDetection>(
     (args) => {
       const activeKey = String(args.active.id);
@@ -4834,6 +4920,19 @@ export default function Sidebar() {
         };
         const within = pointerWithin(scoped);
         return within.length > 0 ? within : closestCorners(scoped);
+      }
+      const acceptsAgentDrop = agentDropTargetFilter(agentOrderSlots, activeKey);
+      if (acceptsAgentDrop !== null) {
+        // An agent stays in its own Project and block: never another
+        // Project, the Tasks section, or across the standing line.
+        const scoped = {
+          ...args,
+          droppableContainers: args.droppableContainers.filter((container) =>
+            acceptsAgentDrop(String(container.id)),
+          ),
+        };
+        // Like a task, releasing outside the block cancels the move.
+        return pointerWithin(scoped);
       }
       const source = projectThreadRowByKey.get(activeKey);
       const droppableContainers = args.droppableContainers.filter((container) => {
@@ -4869,6 +4968,7 @@ export default function Sidebar() {
     [
       activeKeys,
       activeKeysById,
+      agentOrderSlots,
       activeReorderableThreadKeys,
       assistantSortableIds,
       draggableThreadKeys,
@@ -5138,6 +5238,8 @@ export default function Sidebar() {
                 ]}
                 onDragStart={(event) => {
                   const id = String(event.active.id);
+                  // Agents nest outside the list motion; nothing to suspend.
+                  if (agentOrderSlots.has(id)) return;
                   if (sortableFolderIds.includes(id) || assistantSortableIds.includes(id)) {
                     handleFolderDragStart();
                     return;
@@ -5146,12 +5248,22 @@ export default function Sidebar() {
                 }}
                 onDragOver={(event) => {
                   const id = String(event.active.id);
-                  if (sortableFolderIds.includes(id) || assistantSortableIds.includes(id)) return;
+                  if (
+                    agentOrderSlots.has(id) ||
+                    sortableFolderIds.includes(id) ||
+                    assistantSortableIds.includes(id)
+                  ) {
+                    return;
+                  }
                   handleThreadDragOver(event);
                 }}
                 onDragCancel={() => setFolderDragActive(false)}
                 onDragEnd={(event) => {
                   const id = String(event.active.id);
+                  if (agentOrderSlots.has(id)) {
+                    handleAgentDragEnd(event);
+                    return;
+                  }
                   if (sortableFolderIds.includes(id)) {
                     handleFolderDragEnd(event);
                     return;
@@ -5179,6 +5291,7 @@ export default function Sidebar() {
                         thread: EnvironmentThreadShell,
                         section: SidebarSection,
                         sortable?: SortableThreadRowBag,
+                        agentOrder?: { readonly onMove: typeof handleAgentMove },
                       ) => {
                         const threadKey = scopedThreadKey(
                           scopeThreadRef(thread.environmentId, thread.id),
@@ -5223,8 +5336,11 @@ export default function Sidebar() {
                                 ? resolveSidebarDropVerb(dragState.activeSection, dragTargetSection)
                                 : null
                             }
+                            // A dragged agent never changes block, so a standing
+                            // agent keeps its pin while it moves.
                             dragOverPinned={
-                              dragState?.activeKey === threadKey && dragTargetSection === "pinned"
+                              agentOrder !== undefined ||
+                              (dragState?.activeKey === threadKey && dragTargetSection === "pinned")
                             }
                             snoozeWakeLabelText={
                               section === "snoozed" && thread.snoozedUntil != null
@@ -5280,6 +5396,7 @@ export default function Sidebar() {
                             onUnpin={attemptUnpin}
                             onAcknowledgeWoke={acknowledgeWoke}
                             onFileDropThreads={handleThreadFileDrop}
+                            onMove={agentOrder?.onMove}
                           />
                         );
                       };
@@ -5362,10 +5479,37 @@ export default function Sidebar() {
                                       onNavigateToDraft={navigateToDraft}
                                     />
                                   )}
-                                  // Agents are never draggable: no sortable bag.
-                                  renderThreadRow={(thread, section) =>
-                                    renderThreadRowInner(thread, section)
-                                  }
+                                  // Standing and active agents arrange within their
+                                  // own Project; other agents render still.
+                                  renderThreadRow={(thread, section) => {
+                                    const threadKey = scopedThreadKey(
+                                      scopeThreadRef(thread.environmentId, thread.id),
+                                    );
+                                    const slot = agentOrderSlots.get(threadKey);
+                                    if (slot === undefined) {
+                                      return renderThreadRowInner(thread, section);
+                                    }
+                                    return (
+                                      <SortableThreadRow
+                                        key={threadKey}
+                                        id={threadKey}
+                                        disabled={
+                                          !slot.reorderable || renamingThreadKey === threadKey
+                                        }
+                                      >
+                                        {(sortable) =>
+                                          renderThreadRowInner(
+                                            thread,
+                                            section,
+                                            sortable,
+                                            slot.reorderable
+                                              ? { onMove: handleAgentMove }
+                                              : undefined,
+                                          )
+                                        }
+                                      </SortableThreadRow>
+                                    );
+                                  }}
                                   sortable={!settledViewOpen}
                                   consumeDragSuppression={consumeFolderToggleSuppression}
                                   onMove={handleAssistantMove}

@@ -904,9 +904,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           }),
         );
       }
-      // Idempotent by re-emission (see thread.settle): a duplicate drop on
-      // the same slot keeps the existing updatedAt so it projects as a no-op.
-      const keyUnchanged = thread.pinOrderKey === command.orderKey;
       const occurredAt = yield* nowIso;
       return {
         ...(yield* withEventBase({
@@ -919,7 +916,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           orderKey: command.orderKey,
-          updatedAt: keyUnchanged ? thread.updatedAt : occurredAt,
+          // Arranging is not thread activity (see thread.active.reorder):
+          // a drag must not reset the row's time or its activity sort.
+          updatedAt: thread.updatedAt,
         },
       };
     }

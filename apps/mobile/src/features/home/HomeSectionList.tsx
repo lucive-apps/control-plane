@@ -38,6 +38,7 @@ import {
   homeSectionItemsAreEqual,
   withSectionActions,
   type HomeSectionItem,
+  type HomeAgentItem,
   type HomeTaskThreadItem,
 } from "./homeSections";
 import { TaskFolderHeader } from "./TaskFolderHeader";
@@ -315,6 +316,7 @@ export function HomeSectionList(
     archiveThread,
     confirmDeleteThread,
     moveThread,
+    moveAgent,
     pinThread,
     regenerateThreadTitle,
     renameThread,
@@ -399,9 +401,13 @@ export function HomeSectionList(
   // Move up/down targets the folder neighbor. Rows keep a stable handler and
   // read their current destination here, so a rebuild never re-renders them.
   const taskRowByKeyRef = useRef<ReadonlyMap<string, HomeTaskThreadItem>>(new Map());
+  const agentRowByKeyRef = useRef<ReadonlyMap<string, HomeAgentItem>>(new Map());
   useEffect(() => {
     taskRowByKeyRef.current = new Map(
       items.flatMap((item) => (item.type === "v2-thread" ? [[item.key, item] as const] : [])),
+    );
+    agentRowByKeyRef.current = new Map(
+      items.flatMap((item) => (item.type === "agent" ? [[item.key, item] as const] : [])),
     );
   }, [items]);
   const handleMoveThread = useCallback(
@@ -410,13 +416,18 @@ export function HomeSectionList(
         void moveThread(thread, direction);
         return;
       }
-      const row = taskRowByKeyRef.current.get(
-        `v2-thread:${scopedThreadKey(thread.environmentId, thread.id)}`,
-      );
+      const threadKey = scopedThreadKey(thread.environmentId, thread.id);
+      // Agents move within their Project, never through the Tasks planner.
+      const agentMove = agentRowByKeyRef.current.get(`agent:${threadKey}`)?.move;
+      if (agentMove) {
+        void moveAgent(thread, agentMove.sections, direction);
+        return;
+      }
+      const row = taskRowByKeyRef.current.get(`v2-thread:${threadKey}`);
       const destination = direction === "up" ? row?.moveUp : row?.moveDown;
       if (destination) void moveThread(thread, destination);
     },
-    [moveThread],
+    [moveAgent, moveThread],
   );
 
   const { selectionReveal } = model.sections;
@@ -458,6 +469,8 @@ export function HomeSectionList(
         readonly snoozeWakeLabelText: string | undefined;
         readonly standing: boolean;
         readonly agent: boolean;
+        /** A standing or active agent, which Move up/down arranges in its Project. */
+        readonly agentMovable?: boolean;
         readonly canMoveUp: boolean;
         readonly canMoveDown: boolean;
       },
@@ -496,7 +509,7 @@ export function HomeSectionList(
           snoozeSupported={capabilities.snooze.has(thread.environmentId)}
           pinningSupported={capabilities.pinning.has(thread.environmentId)}
           reorderSupported={
-            !options.agent &&
+            (!options.agent || options.agentMovable) &&
             (options.pinned
               ? capabilities.pinReorder.has(thread.environmentId)
               : capabilities.activeReorder.has(thread.environmentId))
@@ -615,8 +628,9 @@ export function HomeSectionList(
                 snoozeWakeLabelText: item.snoozeWakeLabelText,
                 standing: item.standing,
                 agent: true,
-                canMoveUp: false,
-                canMoveDown: false,
+                agentMovable: item.move !== null,
+                canMoveUp: item.move?.canMoveUp === true,
+                canMoveDown: item.move?.canMoveDown === true,
               })}
             </AgentIndent>
           );
