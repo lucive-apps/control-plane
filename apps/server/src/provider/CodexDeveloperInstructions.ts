@@ -194,22 +194,21 @@ export interface CodexRuntimeInfo {
 /**
  * Mode prompt for `turn/start.collaborationMode.settings.developer_instructions`.
  *
- * Fork: the Project role block stays here rather than in `additionalContext`,
- * because Codex truncates the middle of any context entry over about 1,000
- * tokens and the block inlines MEMORY.md and role files.
+ * Only the mode text belongs here: when the model catalog ships its own text
+ * for a mode, as the gpt-6 models do, Codex uses that text and drops this
+ * one entirely (codex-rs core `CollaborationModeState`).
  */
-export function buildCodexDeveloperInstructions(
-  interactionMode: ProviderInteractionMode,
-  /** The T3 thread (not the Codex thread), for its stored Project role block. */
-  threadId?: ThreadId,
-): string {
-  const base =
-    interactionMode === "plan"
-      ? CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS
-      : CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS;
-  const project = threadId ? buildProjectInstructions("Codex", threadId) : undefined;
-  return project ? `${base}\n\n${project}` : base;
+export function buildCodexDeveloperInstructions(interactionMode: ProviderInteractionMode): string {
+  return interactionMode === "plan"
+    ? CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS
+    : CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS;
 }
+
+/**
+ * Codex estimates 4 bytes per token and truncates the middle of any context
+ * value over 1,000 tokens, so each entry stays well under 4,000 bytes.
+ */
+export const CODEX_CONTEXT_ENTRY_MAX_BYTES = 3_600;
 
 /**
  * T3 Code context for `turn/start.additionalContext`. Codex renders each entry
@@ -228,8 +227,11 @@ export function buildCodexAdditionalContext(
    * setting, so the prompt cannot claim tools the turn doesn't have.
    */
   toolsAvailable: boolean | T3CodeToolAvailability = true,
+  /** The T3 thread (not the Codex thread), for its stored Project role block. */
+  threadId?: ThreadId,
 ): Record<string, V2TurnStartParams__AdditionalContextEntry> {
   const tools = toolInstructions(toolsAvailable);
+  const project = threadId ? buildProjectInstructions("Codex", threadId) : undefined;
   // Separate keys keep each value under Codex's per-entry token cap.
   return {
     t3_code_runtime: {
@@ -237,5 +239,57 @@ export function buildCodexAdditionalContext(
       value: buildRuntimeInstructions({ harness: "Codex", ...runtime }),
     },
     ...(tools ? { t3_code_tools: { kind: "application", value: tools } } : {}),
+    ...(project ? projectContextEntries(project) : {}),
   };
+}
+
+/**
+ * Fork: the Project role block (global instructions, role, MEMORY.md) inlines
+ * files and runs to several thousand tokens, so it goes out as consecutive
+ * parts. The block is fixed for the life of a session, so Codex sends the
+ * parts once per session and again after a restart rebuilds the block.
+ */
+function projectContextEntries(
+  project: string,
+): Record<string, V2TurnStartParams__AdditionalContextEntry> {
+  const parts = splitForCodexContext(project);
+  if (parts.length === 1) {
+    return { control_plane_project: { kind: "application", value: project } };
+  }
+  const width = String(parts.length).length;
+  return Object.fromEntries(
+    parts.map((value, index) => [
+      // Codex orders entries by key, so the part number is zero-padded.
+      `control_plane_project_part_${String(index + 1).padStart(width, "0")}_of_${parts.length}`,
+      { kind: "application", value } satisfies V2TurnStartParams__AdditionalContextEntry,
+    ]),
+  );
+}
+
+/** Splits at line breaks where it can, and never inside a character. */
+export function splitForCodexContext(
+  text: string,
+  maxBytes: number = CODEX_CONTEXT_ENTRY_MAX_BYTES,
+): Array<string> {
+  const parts: Array<string> = [];
+  let current: string | undefined;
+  for (const line of text.split("\n")) {
+    const joined = current === undefined ? line : `${current}\n${line}`;
+    if (Buffer.byteLength(joined) <= maxBytes) {
+      current = joined;
+      continue;
+    }
+    if (current !== undefined) parts.push(current);
+    current = "";
+    // A line longer than a whole part is cut by character.
+    for (const char of line) {
+      if (Buffer.byteLength(current + char) > maxBytes) {
+        parts.push(current);
+        current = "";
+      }
+      current += char;
+    }
+  }
+  if (current !== undefined) parts.push(current);
+  return parts;
 }

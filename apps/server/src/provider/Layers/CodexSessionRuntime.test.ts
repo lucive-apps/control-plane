@@ -9,10 +9,16 @@ import * as CodexErrors from "effect-codex-app-server/errors";
 import * as CodexRpc from "effect-codex-app-server/rpc";
 import * as EffectCodexSchema from "effect-codex-app-server/schema";
 
-import { clearAssistantRuntime, setAssistantRuntime } from "../assistantRuntime.ts";
+import {
+  buildAssistantRuntimeBlock,
+  clearAssistantRuntime,
+  setAssistantRuntime,
+  withGlobalInstructions,
+} from "../assistantRuntime.ts";
 import {
   buildCodexAdditionalContext,
   buildCodexDeveloperInstructions,
+  splitForCodexContext,
 } from "../CodexDeveloperInstructions.ts";
 import { codexSessionAppServerArgs } from "./codexLaunchArgs.ts";
 import {
@@ -28,6 +34,17 @@ import {
 } from "./CodexSessionRuntime.ts";
 const isCodexAppServerRequestError = Schema.is(CodexErrors.CodexAppServerRequestError);
 const runtimeThreadId = ThreadId.make("t3-thread-1");
+
+/** The Project block as Codex receives it: its context parts, in key order. */
+function projectContext(params: {
+  readonly additionalContext?: Record<string, { readonly value: string }> | null;
+}): string {
+  return Object.entries(params.additionalContext ?? {})
+    .filter(([key]) => key.startsWith("control_plane_project"))
+    .toSorted(([a], [b]) => a.localeCompare(b))
+    .map(([, entry]) => entry.value)
+    .join("\n");
+}
 
 describe("Codex thread history", () => {
   for (const numTurns of [1, 2, 3, 5]) {
@@ -342,13 +359,10 @@ describe("buildTurnStartParams", () => {
         interactionMode: "default",
       });
 
-      const instructions = params.collaborationMode?.settings.developer_instructions ?? "";
-      NodeAssert.ok(instructions.endsWith("\n\n<t3 coordinator block>"));
-      NodeAssert.ok(!instructions.includes("<codex id block>"));
-      // Context entries are capped near 1,000 tokens, so the block stays out of them.
+      NodeAssert.equal(projectContext(params), "<t3 coordinator block>");
       NodeAssert.ok(
         Object.values(params.additionalContext ?? {}).every(
-          (entry) => !entry.value.includes("coordinator block"),
+          (entry) => !entry.value.includes("<codex id block>"),
         ),
       );
     }).pipe(
@@ -430,6 +444,157 @@ describe("buildTurnStartParams", () => {
         },
       ],
     });
+  });
+});
+
+describe("Project block on every Codex model", () => {
+  // The gpt-6 models ship their own mode text in the Codex model catalog, and
+  // Codex then drops the client's collaboration mode developer_instructions.
+  const MODELS = ["gpt-6.1-sol", "gpt-6-sol", "gpt-6-astra", "gpt-5.5", "gpt-5.3-codex"] as const;
+  const project = {
+    id: "project-1",
+    title: "Acme Ops",
+    workspaceRoot: "/work/acme",
+    assistant: { coordinatorThreadId: runtimeThreadId },
+  };
+  // Long enough to need several context parts, short of the inline cap.
+  const memory = Array.from(
+    { length: 300 },
+    (_, index) => `- Memory line ${index}: route billing to Sales.`,
+  ).join("\n");
+  const global = {
+    path: "/state/GLOBAL_AGENTS.md",
+    text: "GLOBAL-MARKER-8C2: prefer small diffs.",
+    scopes: { coordinators: true, projectAgents: true, tasks: true },
+  };
+  const blocks = {
+    coordinator: withGlobalInstructions(
+      buildAssistantRuntimeBlock({
+        project,
+        thread: { id: runtimeThreadId, title: "Acme Ops", pinnedAt: null },
+        memory: `${memory}\nMEMORY-MARKER-4F7`,
+        roleFile: "",
+      }),
+      global,
+      "coordinator",
+    ),
+    agent: withGlobalInstructions(
+      buildAssistantRuntimeBlock({
+        project,
+        thread: { id: ThreadId.make("agent-1"), title: "Research", pinnedAt: null },
+        memory: "",
+        roleFile: "",
+      }),
+      global,
+      "agent",
+    ),
+    // A thread outside a Project gets only the global block.
+    task: withGlobalInstructions(null, global, "tasks"),
+  };
+
+  for (const [role, block] of Object.entries(blocks)) {
+    for (const model of MODELS) {
+      it.effect(`sends the ${role} block to ${model} outside the mode prompt`, () =>
+        Effect.gen(function* () {
+          NodeAssert.ok(block);
+          setAssistantRuntime(runtimeThreadId, block);
+          for (const interactionMode of ["default", "plan"] as const) {
+            const params = yield* buildTurnStartParams({
+              threadId: "provider-thread-1",
+              runtimeThreadId,
+              runtimeMode: "full-access",
+              prompt: "Go",
+              model,
+              interactionMode,
+            });
+
+            NodeAssert.equal(
+              params.collaborationMode?.settings.developer_instructions,
+              buildCodexDeveloperInstructions(interactionMode),
+            );
+            NodeAssert.equal(projectContext(params), block.inline);
+            NodeAssert.match(
+              projectContext(params),
+              /^<global_instructions [^>]*>\n[\s\S]*GLOBAL-MARKER-8C2/,
+            );
+            if (role !== "task") {
+              NodeAssert.match(
+                projectContext(params),
+                new RegExp(`<control_plane_project role="${role}"`),
+              );
+            }
+            for (const entry of Object.values(params.additionalContext ?? {})) {
+              // Codex estimates 4 bytes per token and truncates values over 1,000 tokens.
+              NodeAssert.ok(Buffer.byteLength(entry.value) < 4_000);
+            }
+          }
+        }).pipe(Effect.ensuring(Effect.sync(() => clearAssistantRuntime(runtimeThreadId)))),
+      );
+    }
+  }
+
+  it.effect("splits the coordinator's inlined Memory into ordered parts", () =>
+    Effect.gen(function* () {
+      setAssistantRuntime(runtimeThreadId, blocks.coordinator!);
+      const params = yield* buildTurnStartParams({
+        threadId: "provider-thread-1",
+        runtimeThreadId,
+        runtimeMode: "full-access",
+        model: "gpt-6.1-sol",
+        interactionMode: "default",
+      });
+      const keys = Object.keys(params.additionalContext ?? {}).filter((key) =>
+        key.startsWith("control_plane_project"),
+      );
+      NodeAssert.ok(keys.length > 1);
+      NodeAssert.equal(keys[0], `control_plane_project_part_1_of_${keys.length}`);
+      NodeAssert.match(projectContext(params), /MEMORY-MARKER-4F7\n<\/memory>/);
+    }).pipe(Effect.ensuring(Effect.sync(() => clearAssistantRuntime(runtimeThreadId)))),
+  );
+
+  it.effect("uses a single entry when the block fits", () =>
+    Effect.gen(function* () {
+      setAssistantRuntime(runtimeThreadId, { roleKey: "agent", inline: "<small>", pointer: "" });
+      const params = yield* buildTurnStartParams({
+        threadId: "provider-thread-1",
+        runtimeThreadId,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+      });
+      NodeAssert.deepStrictEqual(params.additionalContext?.control_plane_project, {
+        kind: "application",
+        value: "<small>",
+      });
+    }).pipe(Effect.ensuring(Effect.sync(() => clearAssistantRuntime(runtimeThreadId)))),
+  );
+
+  it.effect("adds no Project entry to a thread without a block", () =>
+    Effect.gen(function* () {
+      const params = yield* buildTurnStartParams({
+        threadId: "provider-thread-1",
+        runtimeThreadId,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+      });
+      NodeAssert.equal(projectContext(params), "");
+    }),
+  );
+});
+
+describe("splitForCodexContext", () => {
+  it("splits at line breaks and keeps every line", () => {
+    const text = Array.from({ length: 50 }, (_, index) => `line ${index}`).join("\n");
+    const parts = splitForCodexContext(text, 64);
+    NodeAssert.ok(parts.length > 1);
+    NodeAssert.ok(parts.every((part) => Buffer.byteLength(part) <= 64));
+    NodeAssert.equal(parts.join("\n"), text);
+  });
+
+  it("cuts an overlong line by character, never inside one", () => {
+    const line = "é".repeat(100);
+    const parts = splitForCodexContext(line, 33);
+    NodeAssert.ok(parts.every((part) => Buffer.byteLength(part) <= 33));
+    NodeAssert.equal(parts.join(""), line);
   });
 });
 
