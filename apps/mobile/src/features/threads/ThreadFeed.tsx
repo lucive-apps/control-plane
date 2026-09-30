@@ -980,6 +980,8 @@ function useMarkdownStyles(
     theme["--color-border"],
     theme["--color-user-bubble"],
   );
+  const screenColor = theme["--color-screen"];
+  const userBubbleColor = theme["--color-user-bubble"];
   const markdownUserBodyColor = theme["--color-user-bubble-foreground"];
   const markdownUserCodeBg = theme["--color-md-user-code-bg"];
   const markdownUserCodeText = theme["--color-md-user-code-text"];
@@ -1277,6 +1279,8 @@ function useMarkdownStyles(
           codeColor: markdownUserCodeText,
           codeBackgroundColor: markdownUserCodeBg,
           codeBlockBackgroundColor: markdownUserFenceBg,
+          surfaceColor: userBubbleColor,
+          codeBlockSurfaceColor: flattenThemeColor(markdownUserFenceBg, userBubbleColor),
           fileTextColor: markdownUserBodyColor,
           skillTextColor: userBubbleSkillForeground,
           quoteMarkerColor: markdownUserBodyColor,
@@ -1311,6 +1315,8 @@ function useMarkdownStyles(
           codeColor: markdownCodeText,
           codeBackgroundColor: markdownCodeBg,
           codeBlockBackgroundColor: markdownCodeBg,
+          surfaceColor: screenColor,
+          codeBlockSurfaceColor: flattenThemeColor(markdownCodeBg, screenColor),
           fileTextColor: markdownCodeText,
           skillTextColor: inlineSkillForeground,
           quoteMarkerColor: markdownBlockquoteBorder,
@@ -1350,7 +1356,9 @@ function useMarkdownStyles(
     onLinkPress,
     regularFontFamily,
     renderImage,
+    screenColor,
     themeMode,
+    userBubbleColor,
     userBubbleForegroundMuted,
     userBubbleSkillForeground,
   ]);

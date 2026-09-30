@@ -1,8 +1,19 @@
-import { createContext, memo, useContext, useMemo } from "react";
-import { Image, Platform, ScrollView, Text, useColorScheme, View } from "react-native";
+import { createContext, memo, type ReactNode, useContext, useMemo, useState } from "react";
+import {
+  Image,
+  Platform,
+  ScrollView,
+  Text,
+  useColorScheme,
+  View,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+  type ViewStyle,
+} from "react-native";
 import type { MarkdownNode } from "react-native-nitro-markdown/headless";
 
 import { CopyTextButton } from "./CopyTextButton";
+import { horizontalOverflowEdges, horizontalOverflowFadeGradient } from "./horizontalOverflow";
 import { MarkdownTextPrimitive } from "./MarkdownTextPrimitive";
 import {
   nativeMarkdownDocumentRuns,
@@ -145,6 +156,102 @@ function HighlightedCodeText(props: {
   );
 }
 
+const OVERFLOW_FADE_WIDTH = 28;
+
+/**
+ * Horizontal scroller for tables and code wider than the message.
+ *
+ * Fabric's ScrollView will not start a drag while any ancestor is the JS
+ * responder (`touchesShouldCancelInContentView` returns NO), and a message
+ * wrapped in a long-press Pressable takes the responder on every touch. While
+ * the content overflows, the content view claims the responder itself so the
+ * ancestor never does and the pan can scroll. Content that fits leaves touches
+ * to the ancestor, so its long press still works there.
+ */
+function HorizontalOverflowScroll(props: {
+  readonly children: ReactNode;
+  readonly contentStyle?: ViewStyle;
+  /** Opaque colour behind the content, faded in over any edge that hides some of it. */
+  readonly fadeColor?: string;
+}) {
+  const [viewportWidth, setViewportWidth] = useState(0);
+  const [contentWidth, setContentWidth] = useState(0);
+  // Only whether an edge is hidden matters, so scroll events re-render when
+  // that flips rather than on every frame.
+  const [scrolled, setScrolled] = useState({ leading: false, trailing: true });
+  const { overflows } = horizontalOverflowEdges({ viewportWidth, contentWidth, offsetX: 0 });
+  const leadingFade =
+    overflows && scrolled.leading
+      ? horizontalOverflowFadeGradient(props.fadeColor, "leading")
+      : undefined;
+  const trailingFade =
+    overflows && scrolled.trailing
+      ? horizontalOverflowFadeGradient(props.fadeColor, "trailing")
+      : undefined;
+  const onScroll = overflows
+    ? (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+        const { leading, trailing } = horizontalOverflowEdges({
+          viewportWidth,
+          contentWidth,
+          offsetX: event.nativeEvent.contentOffset.x,
+        });
+        setScrolled((previous) =>
+          previous.leading === leading && previous.trailing === trailing
+            ? previous
+            : { leading, trailing },
+        );
+      }
+    : undefined;
+
+  return (
+    <View>
+      <ScrollView
+        horizontal
+        bounces={false}
+        nestedScrollEnabled={Platform.OS === "android"}
+        showsHorizontalScrollIndicator={false}
+        scrollEventThrottle={32}
+        onScroll={onScroll}
+        // Throttling can drop the event that lands on an edge; settle on the final offset.
+        onScrollEndDrag={onScroll}
+        onMomentumScrollEnd={onScroll}
+        onLayout={(event) => setViewportWidth(event.nativeEvent.layout.width)}
+        onContentSizeChange={(width) => setContentWidth(width)}
+      >
+        <View style={props.contentStyle} onStartShouldSetResponder={() => overflows}>
+          {props.children}
+        </View>
+      </ScrollView>
+      {leadingFade ? (
+        <View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            top: 0,
+            bottom: 0,
+            left: 0,
+            width: OVERFLOW_FADE_WIDTH,
+            experimental_backgroundImage: leadingFade,
+          }}
+        />
+      ) : null}
+      {trailingFade ? (
+        <View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            top: 0,
+            bottom: 0,
+            right: 0,
+            width: OVERFLOW_FADE_WIDTH,
+            experimental_backgroundImage: trailingFade,
+          }}
+        />
+      ) : null}
+    </View>
+  );
+}
+
 function NativeCodeBlock(props: {
   readonly node: MarkdownNode;
   readonly textStyle: NativeMarkdownTextStyle;
@@ -204,19 +311,16 @@ function NativeCodeBlock(props: {
           iconSize={14}
         />
       </View>
-      <ScrollView
-        horizontal
-        bounces={false}
-        nestedScrollEnabled={Platform.OS === "android"}
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 14, paddingVertical: 12 }}
+      <HorizontalOverflowScroll
+        contentStyle={{ paddingHorizontal: 14, paddingVertical: 12 }}
+        fadeColor={props.textStyle.codeBlockSurfaceColor}
       >
         <HighlightedCodeText
           content={content}
           highlighted={highlighted}
           textStyle={props.textStyle}
         />
-      </ScrollView>
+      </HorizontalOverflowScroll>
     </View>
   );
 }
@@ -244,12 +348,7 @@ function NativeTable(props: {
 }) {
   const rows = collectTableRows(props.node);
   return (
-    <ScrollView
-      horizontal
-      bounces={false}
-      nestedScrollEnabled={Platform.OS === "android"}
-      showsHorizontalScrollIndicator={false}
-    >
+    <HorizontalOverflowScroll fadeColor={props.textStyle.surfaceColor}>
       <View
         style={{
           borderColor: props.textStyle.dividerColor,
@@ -292,7 +391,7 @@ function NativeTable(props: {
           </View>
         ))}
       </View>
-    </ScrollView>
+    </HorizontalOverflowScroll>
   );
 }
 
