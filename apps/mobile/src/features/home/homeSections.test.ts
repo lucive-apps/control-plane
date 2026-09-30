@@ -12,11 +12,13 @@ import {
   ProjectId,
   ProviderInstanceId,
   ThreadId,
+  type ServerConfig,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import type { PendingQueuedTask } from "../../state/use-pending-new-tasks";
 import {
+  assistantEnvironmentIds,
   buildHomeSections,
   folderMoveDestination,
   HOME_PROJECTS_SECTION_KEY,
@@ -857,6 +859,53 @@ describe("withSectionActions", () => {
       "projects-empty",
       "section:tasks",
     ]);
+  });
+});
+
+describe("cold launch from the cached shell", () => {
+  const config = (assistants: boolean) =>
+    ({ environment: { capabilities: { assistants } } }) as unknown as ServerConfig;
+  const disconnected = new Set<EnvironmentId>();
+
+  it("takes Projects support from a cached config before the socket connects", () => {
+    expect(assistantEnvironmentIds(new Map([[env, config(true)]]), disconnected)).toEqual({
+      assistants: new Set([env]),
+      assistantsUnsupported: new Set(),
+    });
+    // Only a connected server's config can say it predates Projects.
+    expect(assistantEnvironmentIds(new Map([[env, config(false)]]), disconnected)).toEqual({
+      assistants: new Set(),
+      assistantsUnsupported: new Set(),
+    });
+    expect(assistantEnvironmentIds(new Map([[env, config(false)]]), new Set([env]))).toEqual({
+      assistants: new Set(),
+      assistantsUnsupported: new Set([env]),
+    });
+  });
+
+  it("lists the Projects and New Project in the same first pass", () => {
+    const capabilities = assistantEnvironmentIds(new Map([[env, config(true)]]), disconnected);
+    const { items } = buildHomeSections(
+      input({
+        assistantsEnvironmentIds: capabilities.assistants,
+        assistantsUnsupportedEnvironmentIds: capabilities.assistantsUnsupported,
+      }),
+    );
+    const listed = withSectionActions(items, {
+      newProject: capabilities.assistants.size > 0,
+      addWorkspace: true,
+    });
+    expect(trace(listed).slice(0, 4)).toEqual([
+      "section:projects",
+      "project:personal",
+      "section-action",
+      "section:tasks",
+    ]);
+    expect(listed[2]).toEqual({
+      type: "section-action",
+      key: "section-action:projects",
+      action: "new-project",
+    });
   });
 });
 
