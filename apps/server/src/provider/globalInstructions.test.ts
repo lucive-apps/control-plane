@@ -88,7 +88,7 @@ describe("buildGlobalInstructionsBlock", () => {
   });
 
   it("never splits a surrogate pair at the cap", () => {
-    const text = "a".repeat(GLOBAL_INSTRUCTIONS_CAP_CHARS - 1) + "😀" + "tail";
+    const text = "a".repeat(GLOBAL_INSTRUCTIONS_CAP_CHARS - 1) + "😀tail";
     const inline = buildGlobalInstructionsBlock(source(text), "coordinator")!.inline;
     expect(inline).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
     expect(inline).toContain("[truncated");
