@@ -605,15 +605,13 @@ function buildCodexTurnInstructions(input: {
       settings: {
         model,
         reasoning_effort: reasoningEffort,
-        developer_instructions: buildCodexDeveloperInstructions(
-          input.interactionMode,
-          input.runtimeThreadId,
-        ),
+        developer_instructions: buildCodexDeveloperInstructions(input.interactionMode),
       },
     },
     additionalContext: buildCodexAdditionalContext(
       { model, modelName: input.modelName, reasoningEffort },
       input.browserToolsAvailable ?? true,
+      input.runtimeThreadId,
     ),
   };
 }
@@ -625,7 +623,7 @@ const SKILL_MENTION_PATTERN =
 export function buildTurnStartParams(input: {
   /** The Codex provider thread. */
   readonly threadId: string;
-  /** The T3 thread, whose stored Project role block joins the developer instructions. */
+  /** The T3 thread, whose stored Project role block joins the additional context. */
   readonly runtimeThreadId: ThreadId;
   readonly runtimeMode: RuntimeMode;
   readonly prompt?: string;

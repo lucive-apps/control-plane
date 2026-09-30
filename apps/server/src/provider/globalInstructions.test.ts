@@ -20,7 +20,7 @@ import {
   readAssistantRuntime,
   withGlobalInstructions,
 } from "./assistantRuntime.ts";
-import { buildCodexDeveloperInstructions } from "./CodexDeveloperInstructions.ts";
+import { buildCodexAdditionalContext } from "./CodexDeveloperInstructions.ts";
 import {
   buildGlobalInstructionsBlock,
   globalInstructionsPath,
@@ -190,8 +190,16 @@ describe("prepareAssistantRuntime with global instructions", () => {
   /** Every provider path, as the adapters call it. */
   const promptsFor = (threadId: ThreadId) => ({
     claude: buildRuntimeInstructions({ harness: "Claude Code", threadId }),
-    // Codex carries the block in developer_instructions, not additionalContext.
-    codex: buildCodexDeveloperInstructions("default", threadId),
+    // Codex carries the block in additionalContext parts; gpt-6 models drop the mode prompt.
+    codex: Object.values(
+      buildCodexAdditionalContext(
+        { model: "gpt-6.1-sol", reasoningEffort: "high" },
+        true,
+        threadId,
+      ),
+    )
+      .map((entry) => entry.value)
+      .join("\n"),
     opencode: buildRuntimeInstructions({ harness: "OpenCode", model: "a/b", threadId }),
     cursor: buildRuntimeInstructions({ harness: "Cursor", model: "m", threadId }),
     grok: buildRuntimeInstructions({ harness: "Grok", threadId }),
