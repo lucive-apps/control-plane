@@ -40,6 +40,7 @@ export class FakeCreatorMicro implements CreatorMicroHid {
   files = new Map<string, string>();
   attached = true;
   permissionDenied = false;
+  requestInputMonitoring?: () => Promise<void>;
   /** Replace what `fs.write` stores, to simulate a write the device mangles. */
   corruptWrite: ((data: string) => string) | null = null;
   calls: FakeCall[] = [];

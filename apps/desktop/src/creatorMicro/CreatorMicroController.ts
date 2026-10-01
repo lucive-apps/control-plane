@@ -43,6 +43,11 @@ export interface CreatorMicroHid {
   list(): Promise<ReadonlyArray<CreatorMicroDeviceInfo>>;
   /** Opens one shared (non-exclusive) handle. */
   open(device: CreatorMicroDeviceInfo): Promise<CreatorMicroTransport>;
+  /**
+   * Asks macOS for Input Monitoring, which shows the system prompt for this
+   * app (once) and lists it in Privacy & Security. Absent off macOS.
+   */
+  requestInputMonitoring?(): Promise<void>;
 }
 
 export interface CreatorMicroPersisted {
@@ -126,6 +131,7 @@ export class CreatorMicroController {
   private pollTimer: unknown = null;
   private started = false;
   private lightingAttached = false;
+  private permissionRequested = false;
   private stopped = false;
   private readonly lighting: LightingScheduler;
   private readonly setTimer: (callback: () => void, ms: number) => unknown;
@@ -300,6 +306,10 @@ export class CreatorMicroController {
       transport = await this.deps.hid.open(device);
     } catch (error) {
       if (isPermissionError(error)) {
+        if (!this.permissionRequested) {
+          this.permissionRequested = true;
+          await this.deps.hid.requestInputMonitoring?.().catch(() => undefined);
+        }
         this.setStatus("permission-denied", "Control Plane needs Input Monitoring permission.");
       } else {
         this.setStatus("error", `Could not open the pad: ${message(error)}`);
@@ -546,9 +556,10 @@ export class CreatorMicroController {
       this.busy = null;
       if (!this.persisted.enabled) {
         // Off: release the pad entirely so other apps have it to themselves.
+        // A missing permission stays visible so the panel can explain it.
         this.cancelPoll();
         this.disconnect();
-        this.status = "disabled";
+        if (this.status !== "permission-denied") this.status = "disabled";
       }
       this.emit();
     }

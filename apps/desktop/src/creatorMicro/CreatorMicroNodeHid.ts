@@ -20,7 +20,7 @@ type NodeHid = typeof import("node-hid");
 let nodeHidPromise: Promise<NodeHid> | null = null;
 const loadNodeHid = () => (nodeHidPromise ??= import("node-hid"));
 
-export function makeNodeHidBackend(): CreatorMicroHid {
+export function makeNodeHidBackend(platform: NodeJS.Platform): CreatorMicroHid {
   return {
     async list() {
       const hid = await loadNodeHid();
@@ -42,6 +42,20 @@ export function makeNodeHidBackend(): CreatorMicroHid {
           serialNumber: device.serialNumber ?? null,
           product: device.product ?? null,
         }));
+    },
+    async requestInputMonitoring() {
+      if (platform !== "darwin") return;
+      // IOHIDRequestAccess(kIOHIDRequestTypeListenEvent) shows the system
+      // prompt once and lists the app under Input Monitoring.
+      const { DataType, load, open } = await import("ffi-rs");
+      open({ library: "t3-iokit", path: "/System/Library/Frameworks/IOKit.framework/IOKit" });
+      load({
+        library: "t3-iokit",
+        funcName: "IOHIDRequestAccess",
+        retType: DataType.Boolean,
+        paramsType: [DataType.I32],
+        paramsValue: [1],
+      });
     },
     async open(device) {
       const hid = await loadNodeHid();

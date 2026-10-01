@@ -63,7 +63,7 @@ export const installCreatorMicro = Effect.fn("desktop.creatorMicro.install")(fun
   const backupsDir = NodePath.join(root, "backups");
 
   const controller = new CreatorMicroController({
-    hid: makeNodeHidBackend(),
+    hid: makeNodeHidBackend(environment.platform),
     loadPersisted: async () => {
       try {
         return decodePersisted(JSON.parse(await NodeFSP.readFile(stateFile, "utf8")));

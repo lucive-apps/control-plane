@@ -134,10 +134,17 @@ describe("CreatorMicroController enable", () => {
   it("reports missing Input Monitoring permission", async () => {
     const { device, controller } = setup();
     device.permissionDenied = true;
+    let requests = 0;
+    device.requestInputMonitoring = async () => {
+      requests += 1;
+    };
     await controller.start();
     const state = await controller.enable();
     expect(state.enabled).toBe(false);
+    expect(state.connection).toBe("permission-denied");
     expect(state.lastError).toMatch(/Input Monitoring/);
+    await controller.enable();
+    expect(requests).toBe(1);
     expect(device.flashWrites).toHaveLength(0);
     await controller.stop();
   });
