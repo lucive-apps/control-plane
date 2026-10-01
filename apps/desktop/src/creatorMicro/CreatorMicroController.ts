@@ -23,6 +23,7 @@ import {
   bindAgentKeys,
   restoreSlotKeycodes,
   sha1,
+  storedZoneLighting,
   verifySlotChange,
 } from "./CreatorMicroKeymap.ts";
 import { KEY_OFF, LightingScheduler, type KeyLight } from "./CreatorMicroLighting.ts";
@@ -135,6 +136,8 @@ export class CreatorMicroController {
   private pollTimer: unknown = null;
   private started = false;
   private lightingAttached = false;
+  /** The user's Input lighting for the active layer, as rgbcfg zones. */
+  private storedZones: ReturnType<typeof storedZoneLighting> = null;
   private permissionRequested = false;
   private stopped = false;
   private readonly lighting: LightingScheduler;
@@ -224,12 +227,29 @@ export class CreatorMicroController {
       this.persisted.enabled && this.keymap === "agent-keys" && this.connection !== null;
     if (ready && !this.lightingAttached) {
       this.lightingAttached = true;
+      this.restoreZoneLighting();
       this.lighting.attach();
     } else if (!ready && this.lightingAttached) {
       this.lightingAttached = false;
       this.lighting.detach();
     }
     this.lighting.setWanted(this.wantedLights());
+  }
+
+  /**
+   * With agent keycodes active the firmware lights everything but the agent
+   * keys from the volatile rgbcfg zones, which start dark. Put the user's own
+   * Input lighting (backlight, underglow) there, so only the six agent keys
+   * change. Volatile, like thstatus: nothing is written to flash.
+   */
+  private restoreZoneLighting(): void {
+    const rpc = this.connection?.rpc;
+    const zones = this.storedZones;
+    if (!rpc || !zones) return;
+    rpc.call("v.oai.rgbcfg", zones, 4_000).then(
+      (ack) => this.deps.trace?.(`rgbcfg ${JSON.stringify(zones)} -> ${JSON.stringify(ack)}`),
+      (error: unknown) => this.log("warn", "zone lighting write failed", error),
+    );
   }
 
   private wantedLights(): KeyLight[] {
@@ -354,6 +374,7 @@ export class CreatorMicroController {
   private async refreshKeymapState(rpc: CreatorMicroRpcClient): Promise<string> {
     const text = await readFile(rpc, KEYMAP_FILE);
     const analysis = analyzeKeymap(text);
+    this.storedZones = safeZones(text);
     this.keymap = analysis.agentKeysBound
       ? "agent-keys"
       : analysis.agentKeysFree
@@ -386,6 +407,7 @@ export class CreatorMicroController {
       const { rpc } = await this.requireConnection();
       const before = await readFile(rpc, KEYMAP_FILE);
       const analysis = analyzeKeymap(before);
+      this.storedZones = safeZones(before);
       if (!analysis.agentKeysBound && !analysis.agentKeysFree) {
         throw new CreatorMicroError(
           "Some of the six top keys already carry agent keycodes and some do not. " +
@@ -647,6 +669,14 @@ function checksumProblems(files: unknown, expected: string): string[] {
 }
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+function safeZones(text: string): ReturnType<typeof storedZoneLighting> {
+  try {
+    return storedZoneLighting(text);
+  } catch {
+    return null;
+  }
+}
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return new Promise((resolve, reject) => {

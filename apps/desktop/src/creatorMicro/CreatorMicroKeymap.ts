@@ -197,3 +197,74 @@ export function verifySlotChange(
   }
   return problems;
 }
+
+/** One `v.oai.rgbcfg` zone. */
+export interface ZoneLighting {
+  readonly e: number;
+  readonly b: number;
+  readonly s: number;
+  readonly m: number;
+  readonly c: number;
+}
+
+/** Firmware effect numbers for the effect names Input stores in keymap.json. */
+const EFFECT_NUMBERS: Readonly<Record<string, number>> = {
+  off: 0,
+  solid: 1,
+  snake: 2,
+  rainbow: 3,
+  breath: 4,
+  breathing: 4,
+  gradient: 5,
+  shallow_breath: 6,
+  "shallow-breath": 6,
+  shallowbreath: 6,
+};
+
+function toZone(value: unknown): ZoneLighting | null {
+  if (!isRecord(value)) return null;
+  const effect =
+    typeof value.effect === "number"
+      ? value.effect
+      : typeof value.effect === "string"
+        ? EFFECT_NUMBERS[value.effect.toLowerCase().replace(/\s+/g, "_")]
+        : undefined;
+  if (effect === undefined) return null;
+  const number = (field: unknown, fallback: number) =>
+    typeof field === "number" && Number.isFinite(field) ? field : fallback;
+  return {
+    e: effect,
+    b: number(value.brightness, 1),
+    s: number(value.speed, 0.5),
+    m: number(value.magic, 1),
+    c: number(value.color, 0xffffff),
+  };
+}
+
+/**
+ * The lighting the user configured in Work Louder Input for the active layer
+ * (its `backlight` and `underglow`), as `v.oai.rgbcfg` zones. Once a layer
+ * carries agent keycodes the firmware lights the pad from these volatile
+ * zones instead of the stored layer lights, and they start dark, so the
+ * integration hands the stored values back to the zones. Null when the file
+ * has no lights the firmware effect table can express.
+ */
+export function storedZoneLighting(
+  text: string,
+): { readonly keys: ZoneLighting; readonly ambient: ZoneLighting } | null {
+  const config = parseConfig(text);
+  const profiles = config.profiles;
+  if (!Array.isArray(profiles)) return null;
+  const activeId = typeof config.activeProfileId === "number" ? config.activeProfileId : 0;
+  const profile =
+    profiles.find((candidate) => isRecord(candidate) && candidate.id === activeId) ??
+    profiles[activeId] ??
+    profiles[0];
+  const layers = isRecord(profile) ? profile.layers : undefined;
+  const layer = Array.isArray(layers) ? layers[0] : undefined;
+  const lights = isRecord(layer) ? layer.lights : undefined;
+  if (!isRecord(lights)) return null;
+  const keys = toZone(lights.backlight);
+  const ambient = toZone(lights.underglow);
+  return keys && ambient ? { keys, ambient } : null;
+}

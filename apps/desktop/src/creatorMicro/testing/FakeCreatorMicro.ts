@@ -55,6 +55,20 @@ export class FakeCreatorMicro implements CreatorMicroHid {
   calls: FakeCall[] = [];
   /** Last lighting state per key id, from `v.oai.thstatus`. */
   keyLights = new Map<number, Record<string, unknown>>();
+  /** Volatile `v.oai.rgbcfg` zones; dark until someone sets them. */
+  zones: { keys: unknown; ambient: unknown } | null = null;
+
+  /**
+   * What lights the non-agent keys and underglow. Firmware 0.6.2 uses the
+   * stored layer lights while the running keymap has no agent keycodes, and
+   * the volatile zones (dark by default) once it has any.
+   */
+  get visibleZones(): unknown {
+    if (!this.liveKeymap.includes("KV_OAI_AG")) {
+      return JSON.parse(this.liveKeymap).profiles[0].layers[0].lights;
+    }
+    return this.zones ?? "dark";
+  }
   openCount = 0;
   private handles: FakeHandle[] = [];
 
@@ -112,6 +126,8 @@ export class FakeCreatorMicro implements CreatorMicroHid {
   plugIn(): void {
     this.attached = true;
     this.liveKeymap = this.files.get("keymap.json")!;
+    this.zones = null;
+    this.keyLights.clear();
   }
 
   pressKey(index: number, act: 0 | 1 = 1): void {
@@ -175,6 +191,9 @@ export class FakeCreatorMicro implements CreatorMicroHid {
         }
         return { data_written: chunk.length };
       }
+      case "v.oai.rgbcfg":
+        this.zones = params as { keys: unknown; ambient: unknown };
+        return { ok: 1 };
       case "v.oai.thstatus":
         for (const entry of params as Array<Record<string, unknown>>) {
           this.keyLights.set(entry.id as number, entry);

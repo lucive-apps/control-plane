@@ -283,6 +283,57 @@ describe("CreatorMicroController connection", () => {
   });
 });
 
+describe("CreatorMicroController leaves the rest of the pad's lighting alone", () => {
+  const userZones = {
+    keys: { e: 1, b: 1, s: 0.5, m: 1, c: 0xffffff },
+    ambient: { e: 5, b: 1, s: 0.55, m: 1, c: 0xffffff },
+  };
+  const neverTouchesOtherKeys = (device: FakeCreatorMicro) => {
+    for (const call of device.lightingCalls) {
+      for (const entry of call.params as Array<{ id: number; sk: number; sa: number }>) {
+        expect(entry.id).toBeLessThan(6);
+        expect(entry.sk).toBe(0);
+        expect(entry.sa).toBe(0);
+      }
+    }
+  };
+
+  it("enable hands the user's Input backlight and underglow to the zones", async () => {
+    const { device, controller } = setup();
+    expect(device.visibleZones).toMatchObject({ backlight: { effect: "solid" } });
+    await controller.start();
+    await controller.enable();
+    await waitFor(() => device.zones !== null);
+    expect(device.visibleZones).toEqual(userZones);
+    neverTouchesOtherKeys(device);
+    await controller.stop();
+  });
+
+  it("restores the zones after a reconnect, and never writes them while off", async () => {
+    const { device, controller } = setup({
+      keymap: bindAgentKeys(original),
+      persisted: { enabled: true, originalSlotKeycodes: ORIGINAL_TOP_SIX, backupDir: "/b" },
+    });
+    await controller.start();
+    await waitFor(() => device.zones !== null);
+    device.unplug();
+    await waitFor(() => controller.getState().connection === "searching");
+    device.plugIn();
+    expect(device.visibleZones).toBe("dark");
+    await waitFor(() => device.zones !== null);
+    expect(device.visibleZones).toEqual(userZones);
+
+    await controller.disable();
+    const zoneWrites = device.calls.filter((call) => call.method === "v.oai.rgbcfg").length;
+    // Disabled: the restored keymap has no agent keys, so the stored lights show again.
+    expect(device.visibleZones).toMatchObject({ backlight: { effect: "solid" } });
+    controller.setSlots([slot("env:a", "working")]);
+    await settle();
+    expect(device.calls.filter((call) => call.method === "v.oai.rgbcfg").length).toBe(zoneWrites);
+    neverTouchesOtherKeys(device);
+  });
+});
+
 describe("CreatorMicroController keys and lighting", () => {
   const enabledSetup = () =>
     setup({
