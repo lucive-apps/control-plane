@@ -115,3 +115,12 @@ export const PREVIEW_POINTER_EVENT_CHANNEL = "desktop:preview-pointer-event";
 export const MAC_PERMISSION_HELPER_CHANNEL = "desktop:mac-permission-helper";
 
 export const CHECK_SYSTEM_PERMISSION_CHANNEL = "desktop:check-system-permission";
+export const CREATOR_MICRO_GET_STATE_CHANNEL = "desktop:creator-micro-get-state";
+export const CREATOR_MICRO_STATE_CHANNEL = "desktop:creator-micro-state";
+export const CREATOR_MICRO_SET_SLOTS_CHANNEL = "desktop:creator-micro-set-slots";
+export const CREATOR_MICRO_ENABLE_CHANNEL = "desktop:creator-micro-enable";
+export const CREATOR_MICRO_DISABLE_CHANNEL = "desktop:creator-micro-disable";
+export const CREATOR_MICRO_RESTORE_CHANNEL = "desktop:creator-micro-restore";
+export const CREATOR_MICRO_OPEN_PERMISSION_SETTINGS_CHANNEL =
+  "desktop:creator-micro-open-permission-settings";
+export const CREATOR_MICRO_KEY_PRESS_CHANNEL = "desktop:creator-micro-key-press";

@@ -266,6 +266,8 @@ import {
   settleableSelection,
   type SidebarRollupStatus,
 } from "./sidebar/sidebarAssistants.logic";
+import { creatorMicroJumpOrder } from "./creatorMicro/creatorMicroSlots.logic";
+import { useCreatorMicroSlots } from "./creatorMicro/useCreatorMicroSlots";
 import { AssistantStatusDot } from "./assistants/AssistantStatusDot";
 import { openConvertToProject, openNewProject } from "./assistants/assistantDialogStore";
 import { useAssistantActions } from "./assistants/useAssistantActions";
@@ -3154,6 +3156,17 @@ export default function Sidebar() {
     tasksSectionExpanded,
     threadSearchResults,
   ]);
+  // The Creator Micro 2 agent keys follow Cmd+1..Cmd+6 of the default view.
+  const creatorMicroThreads = useMemo(
+    () =>
+      creatorMicroJumpOrder({
+        assistantThreads,
+        folderThreads: tasksSectionExpanded
+          ? flattenSidebarProjectFolderThreads(projectFolders)
+          : EMPTY_THREADS,
+      }),
+    [assistantThreads, projectFolders, tasksSectionExpanded],
+  );
   const sortableFolderIds = useMemo(
     () =>
       settledViewOpen || !tasksSectionExpanded
@@ -3317,6 +3330,7 @@ export default function Sidebar() {
     },
     [clearSelection, isMobile, router, setOpenMobile, setSelectionAnchor],
   );
+  useCreatorMicroSlots(creatorMicroThreads, navigateToThread);
 
   // Dropping files on a row opens that thread and attaches the files there.
   // The composer only accepts drops for its OWN thread, so when the row is

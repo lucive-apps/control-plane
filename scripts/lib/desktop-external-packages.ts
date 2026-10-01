@@ -17,6 +17,8 @@ export const DESKTOP_RUNTIME_EXTERNAL_PREFIXES = [
   "@crowecawcaw/xa11y",
   "@clerk/electron-passkeys",
   "ffi-rs",
+  // Creator Micro 2 HID access; loads its prebuilt N-API addon by real path.
+  "node-hid",
   "@yuuang/",
   // Reads its own bundle from disk by resolving `playwright-core/package.json`
   // at runtime and ships the browser driver alongside; there is nothing to

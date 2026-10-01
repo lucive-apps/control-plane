@@ -81,6 +81,7 @@ import {
   AlertDialogTitle,
 } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
+import { CreatorMicroSettings } from "./CreatorMicroSettings";
 import { DraftInput } from "../ui/draft-input";
 import { NumberField, NumberFieldGroup, NumberFieldInput } from "../ui/number-field";
 import {
@@ -1346,6 +1347,7 @@ export function IntegrationsSettingsPanel() {
         )}
       </SettingsSection>
       <DeviceIntegrationSettings />
+      <CreatorMicroSettings />
     </SettingsPageContainer>
   );
 }

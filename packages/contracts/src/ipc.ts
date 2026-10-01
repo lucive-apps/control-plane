@@ -49,6 +49,7 @@ import type {
   TerminalWriteInput,
 } from "./terminal.ts";
 import * as Schema from "effect/Schema";
+import type { CreatorMicroKeyPress, CreatorMicroSlots, CreatorMicroState } from "./creatorMicro.ts";
 import type {
   DiscoveredLocalServerList,
   PreviewCloseInput,
@@ -1354,6 +1355,24 @@ export interface DesktopBridge {
    * Electron desktop build; web builds have `preview === undefined`.
    */
   preview?: DesktopPreviewBridge;
+  /** Present when the desktop shell can drive a Work Louder Creator Micro 2. */
+  creatorMicro?: DesktopCreatorMicroBridge;
+}
+
+/** The Creator Micro 2 integration: agent keys mirror the chats on Cmd+1..Cmd+6. */
+export interface DesktopCreatorMicroBridge {
+  getState: () => Promise<CreatorMicroState>;
+  onState: (listener: (state: CreatorMicroState) => void) => () => void;
+  /** The chats on Cmd+1..Cmd+6 and their statuses. Cheap; the shell dedupes. */
+  setSlots: (slots: CreatorMicroSlots) => Promise<void>;
+  /** Backs up the pad, binds the six agent keys (one flash write), verifies. */
+  enable: () => Promise<CreatorMicroState>;
+  /** Turns the keys off and puts the original key mapping back (one flash write). */
+  disable: () => Promise<CreatorMicroState>;
+  /** Writes the backed-up keymap back exactly and turns the integration off. */
+  restoreBackup: () => Promise<CreatorMicroState>;
+  openPermissionSettings: () => Promise<boolean>;
+  onKeyPress: (listener: (press: CreatorMicroKeyPress) => void) => () => void;
 }
 
 /** Renderer callback invoked by Electron with a fresh user gesture before display-media capture. */
