@@ -586,6 +586,15 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["allow simulator emulator ios android drive tools sessions"],
   },
   {
+    id: "creator-micro",
+    title: "Creator Micro 2 agent keys",
+    to: "/settings/integrations",
+    targetId: "creator-micro",
+    searchTerms: ["work louder pad keyboard macro keys lights led hid cmd 1 6 pinned chats"],
+    desktopOnly: true,
+    macOnly: true,
+  },
+  {
     id: "device-hub",
     title: "Device hub",
     to: "/settings/integrations",

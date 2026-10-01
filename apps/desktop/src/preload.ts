@@ -258,6 +258,35 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       ipcRenderer.removeListener(IpcChannels.UPDATE_STATE_CHANNEL, wrappedListener);
     };
   },
+  creatorMicro: {
+    getState: () => ipcRenderer.invoke(IpcChannels.CREATOR_MICRO_GET_STATE_CHANNEL),
+    onState: (listener) => {
+      const wrappedListener = (_event: Electron.IpcRendererEvent, state: unknown) => {
+        if (typeof state !== "object" || state === null) return;
+        listener(state as Parameters<typeof listener>[0]);
+      };
+      ipcRenderer.on(IpcChannels.CREATOR_MICRO_STATE_CHANNEL, wrappedListener);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.CREATOR_MICRO_STATE_CHANNEL, wrappedListener);
+      };
+    },
+    setSlots: (slots) => ipcRenderer.invoke(IpcChannels.CREATOR_MICRO_SET_SLOTS_CHANNEL, slots),
+    enable: () => ipcRenderer.invoke(IpcChannels.CREATOR_MICRO_ENABLE_CHANNEL),
+    disable: () => ipcRenderer.invoke(IpcChannels.CREATOR_MICRO_DISABLE_CHANNEL),
+    restoreBackup: () => ipcRenderer.invoke(IpcChannels.CREATOR_MICRO_RESTORE_CHANNEL),
+    openPermissionSettings: () =>
+      ipcRenderer.invoke(IpcChannels.CREATOR_MICRO_OPEN_PERMISSION_SETTINGS_CHANNEL),
+    onKeyPress: (listener) => {
+      const wrappedListener = (_event: Electron.IpcRendererEvent, press: unknown) => {
+        if (typeof press !== "object" || press === null) return;
+        listener(press as Parameters<typeof listener>[0]);
+      };
+      ipcRenderer.on(IpcChannels.CREATOR_MICRO_KEY_PRESS_CHANNEL, wrappedListener);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.CREATOR_MICRO_KEY_PRESS_CHANNEL, wrappedListener);
+      };
+    },
+  },
   appActivation: {
     setReady: (ready) =>
       ipcRenderer.invoke(IpcChannels.DESKTOP_APP_ACTIVATION_READY_CHANNEL, ready),
