@@ -88,10 +88,32 @@ describe("CreatorMicroController enable", () => {
     const lastReadBefore = device.calls.slice(0, writeIndex).map((call) => call.method);
     expect(lastReadBefore).toContain("fs.list");
 
-    controller.setSlots([slot("env:a", "working")]);
+    controller.setSlots([slot("env:a", "working"), slot("env:b", "ready")]);
     await waitFor(() => device.keyLights.get(0)?.c === 0x0ea5e9);
     expect(device.keyLights.get(0)).toMatchObject({ e: 4, b: 1 });
-    expect(device.keyLights.get(1)).toMatchObject({ e: 0, b: 0 });
+    expect(device.keyLights.get(2)).toMatchObject({ e: 0, b: 0 });
+    // The new keymap is live without a power cycle, so the keys really light.
+    await waitFor(() => device.isLit(1));
+    expect(device.isLit(0)).toBe(true);
+    expect(device.isLit(2)).toBe(false);
+    // Written in chunks the way Input writes, the last one completing the file.
+    const chunks = device.calls.filter((call) => call.method === "fs.writebin");
+    expect(chunks.length).toBeGreaterThanOrEqual(1);
+    expect((chunks.at(-1)!.params as { completed: boolean }).completed).toBe(true);
+    expect(device.calls.some((call) => call.method === "fs.write")).toBe(false);
+    await controller.stop();
+  });
+
+  it("splits a large keymap into several chunks that reassemble exactly", async () => {
+    const big = JSON.parse(original);
+    big.macros[0].name = "x".repeat(5_000);
+    const keymap = JSON.stringify(big);
+    const { device, controller } = setup({ keymap });
+    await controller.start();
+    const state = await controller.enable();
+    expect(state.lastError).toBeNull();
+    expect(device.calls.filter((call) => call.method === "fs.writebin").length).toBe(3);
+    expect(device.files.get("keymap.json")).toBe(bindAgentKeys(keymap));
     await controller.stop();
   });
 
@@ -114,7 +136,7 @@ describe("CreatorMicroController enable", () => {
     expect(state.lastError).toMatch(/unexpected change/);
     // The revert writes the exact previous text.
     expect(device.flashWrites).toHaveLength(2);
-    expect((device.flashWrites[1]!.params as { data: string }).data).toBe(original);
+    expect(device.completedWrites[1]).toBe(original);
     expect(persisted().enabled).toBe(false);
     expect(device.openHandles).toBe(0);
     await controller.stop();
@@ -289,7 +311,7 @@ describe("CreatorMicroController keys and lighting", () => {
     const { device, controller } = enabledSetup();
     await controller.start();
     controller.setSlots([slot("env:a", "working"), slot("env:b", "ready")]);
-    await waitFor(() => device.keyLights.get(1)?.b === 0.12);
+    await waitFor(() => device.keyLights.get(1)?.b === 0.25);
     const before = device.lightingCalls.length;
 
     // Reorder: a and b swap keys.

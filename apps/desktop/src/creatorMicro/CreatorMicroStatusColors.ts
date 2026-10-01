@@ -10,7 +10,7 @@ import { THREAD_INDICATOR_STATUS_RGB } from "@t3tools/client-runtime/state/threa
 
 import { Effect, KEY_OFF, type KeyLight } from "./CreatorMicroLighting.ts";
 
-const IDLE_BRIGHTNESS = 0.12;
+const IDLE_BRIGHTNESS = 0.25;
 const BREATHING_SPEED = 0.4;
 
 export function slotLight(slot: CreatorMicroSlot | null): KeyLight {

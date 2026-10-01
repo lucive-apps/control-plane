@@ -100,6 +100,8 @@ export interface CreatorMicroControllerDeps {
 const KEYMAP_FILE = "keymap.json";
 const SMART_ACTIONS_FILE = "smart_actions.json";
 const FLASH_TIMEOUT_MS = 20_000;
+/** Raw bytes per `fs.writebin` chunk: 4096 base64 characters, as Input sends. */
+const WRITE_CHUNK_BYTES = 3072;
 const LIGHTING_METHOD = "v.oai.thstatus";
 
 export class CreatorMicroError extends Error {
@@ -493,10 +495,39 @@ export class CreatorMicroController {
     return backup;
   }
 
+  /**
+   * Writes keymap.json the way Work Louder Input does: base64 chunks over
+   * `fs.writebin`, the last one marked `completed`. On firmware 0.6.2 a plain
+   * `fs.write` stores the file but the running keymap stays the old one until
+   * the pad restarts; the completed chunked write is what makes it take
+   * effect, so the agent keys can light without a power cycle.
+   */
   private async flashWrite(rpc: CreatorMicroRpcClient, text: string): Promise<void> {
     this.flashWrites += 1;
     this.log("info", `flash write keymap.json (${text.length} bytes, sha1 ${sha1(text)})`);
-    await rpc.call("fs.write", { file: KEYMAP_FILE, data: text }, FLASH_TIMEOUT_MS);
+    const bytes = Buffer.from(text, "utf8");
+    const chunks: Buffer[] = [];
+    for (let offset = 0; offset < bytes.length; offset += WRITE_CHUNK_BYTES) {
+      chunks.push(bytes.subarray(offset, offset + WRITE_CHUNK_BYTES));
+    }
+    let written = 0;
+    for (const [index, chunk] of chunks.entries()) {
+      const result = (await rpc.call(
+        "fs.writebin",
+        {
+          file: KEYMAP_FILE,
+          data: chunk.toString("base64"),
+          append: true,
+          completed: index === chunks.length - 1,
+          offset: index * WRITE_CHUNK_BYTES,
+        },
+        FLASH_TIMEOUT_MS,
+      )) as { data_written?: unknown } | null;
+      if (typeof result?.data_written === "number") written += result.data_written;
+    }
+    if (written !== 0 && written !== bytes.length) {
+      throw new CreatorMicroError(`The pad stored ${written} of ${bytes.length} bytes.`);
+    }
   }
 
   /**

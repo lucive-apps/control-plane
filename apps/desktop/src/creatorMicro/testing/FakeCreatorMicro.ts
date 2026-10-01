@@ -38,6 +38,15 @@ export class FakeCreatorMicro implements CreatorMicroHid {
     product: "Creator Micro 2",
   };
   files = new Map<string, string>();
+  /**
+   * The keymap the firmware is running. Firmware 0.6.2 stores a plain
+   * `fs.write` in flash but keeps running the old keymap until it restarts;
+   * a completed `fs.writebin` applies it at once.
+   */
+  liveKeymap: string;
+  private writeBuffers = new Map<string, Buffer>();
+  /** The full text of each completed write, as sent (before any corruption). */
+  completedWrites: string[] = [];
   attached = true;
   permissionDenied = false;
   requestInputMonitoring?: () => Promise<void>;
@@ -52,10 +61,24 @@ export class FakeCreatorMicro implements CreatorMicroHid {
   constructor(keymap: string, smartActions = '{"version":1,"smartActions":{}}') {
     this.files.set("keymap.json", keymap);
     this.files.set("smart_actions.json", smartActions);
+    this.liveKeymap = keymap;
   }
 
+  /** Whether key `id` shows its thread colour: AG-bound in the running keymap and lit. */
+  isLit(id: number): boolean {
+    const keymap = JSON.parse(this.liveKeymap).profiles[0].layers[0].layout.keymap as string[][];
+    const bound = keymap.flat()[id] === `KV_OAI_AG${String(id).padStart(2, "0")}`;
+    const light = this.keyLights.get(id);
+    return bound && light !== undefined && (light.b as number) > 0 && light.e !== 0;
+  }
+
+  /** Completed file writes (one per whole file, however many chunks). */
   get flashWrites(): FakeCall[] {
-    return this.calls.filter((call) => call.method === "fs.write");
+    return this.calls.filter(
+      (call) =>
+        call.method === "fs.write" ||
+        (call.method === "fs.writebin" && (call.params as { completed?: boolean }).completed),
+    );
   }
 
   get lightingCalls(): FakeCall[] {
@@ -85,8 +108,10 @@ export class FakeCreatorMicro implements CreatorMicroHid {
     this.handles = [];
   }
 
+  /** Plugging back in restarts the firmware, which loads the keymap from flash. */
   plugIn(): void {
     this.attached = true;
+    this.liveKeymap = this.files.get("keymap.json")!;
   }
 
   pressKey(index: number, act: 0 | 1 = 1): void {
@@ -129,6 +154,26 @@ export class FakeCreatorMicro implements CreatorMicroHid {
         const { file, data } = params as { file: string; data: string };
         this.files.set(file, this.corruptWrite ? this.corruptWrite(data) : data);
         return { ok: 1 };
+      }
+      case "fs.writebin": {
+        const { file, data, completed } = params as {
+          file: string;
+          data: string;
+          completed?: boolean;
+        };
+        const chunk = Buffer.from(data, "base64");
+        const buffer = Buffer.concat([this.writeBuffers.get(file) ?? Buffer.alloc(0), chunk]);
+        if (completed) {
+          const text = buffer.toString("utf8");
+          this.completedWrites.push(text);
+          const stored = this.corruptWrite ? this.corruptWrite(text) : text;
+          this.files.set(file, stored);
+          if (file === "keymap.json") this.liveKeymap = stored;
+          this.writeBuffers.delete(file);
+        } else {
+          this.writeBuffers.set(file, buffer);
+        }
+        return { data_written: chunk.length };
       }
       case "v.oai.thstatus":
         for (const entry of params as Array<Record<string, unknown>>) {
