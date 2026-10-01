@@ -79,6 +79,22 @@ describe("buildCreatorMicroSlots", () => {
     ]);
   });
 
+  it("matches the sidebar's Done rule: only a completion after the last visit is unread", () => {
+    const done = { session: "ready" as const, completedAt: "2026-10-01T10:00:00.000Z" };
+    const status = (lastVisitedAt?: string) =>
+      buildCreatorMicroSlots(
+        [thread("b", done)],
+        lastVisitedAt === undefined ? {} : { "env:b": lastVisitedAt },
+      )[0]?.status;
+    // A chat whose first turn finishes before it was ever read reads as idle,
+    // exactly like its sidebar row (never visited counts as read).
+    expect(status()).toBe("ready");
+    // Read at an earlier completion, then finished again while away: Done.
+    expect(status("2026-10-01T09:00:00.000Z")).toBe("unread");
+    // Open (stamped at this completion): read again.
+    expect(status("2026-10-01T10:00:00.000Z")).toBe("ready");
+  });
+
   it("follows pin reorders, new pins at the top, and unpins", () => {
     const a = thread("a", { pinOrderKey: "a0" });
     const b = thread("b", { pinOrderKey: "a1" });
