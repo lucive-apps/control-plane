@@ -88,7 +88,13 @@ export const installCreatorMicro = Effect.fn("desktop.creatorMicro.install")(fun
       await NodeFSP.writeFile(
         NodePath.join(dir, "backup.json"),
         `${JSON.stringify(
-          { createdAt, reason: files.reason, firmware: files.firmware, fileList: files.fileList },
+          {
+            createdAt,
+            reason: files.reason,
+            original: files.original,
+            firmware: files.firmware,
+            fileList: files.fileList,
+          },
           null,
           2,
         )}\n`,
@@ -97,6 +103,18 @@ export const installCreatorMicro = Effect.fn("desktop.creatorMicro.install")(fun
       return { dir, createdAt };
     },
     readBackupKeymap: (dir) => NodeFSP.readFile(NodePath.join(dir, "keymap.json"), "utf8"),
+    listBackups: async () => {
+      const names = await NodeFSP.readdir(backupsDir).catch(() => [] as string[]);
+      const backups: Array<{ dir: string; keymap: string }> = [];
+      for (const name of names.toSorted().toReversed()) {
+        const dir = NodePath.join(backupsDir, name);
+        const keymap = await NodeFSP.readFile(NodePath.join(dir, "keymap.json"), "utf8").catch(
+          () => null,
+        );
+        if (keymap !== null) backups.push({ dir, keymap });
+      }
+      return backups;
+    },
     onStateChanged: (state) => {
       runFork(electronWindow.sendAll(IpcChannels.CREATOR_MICRO_STATE_CHANNEL, state));
     },

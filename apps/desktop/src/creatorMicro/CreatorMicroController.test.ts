@@ -22,10 +22,19 @@ async function waitFor(condition: () => boolean, ms = 1_000) {
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 60));
 
-function setup(options: { keymap?: string; persisted?: CreatorMicroPersisted } = {}) {
+function setup(
+  options: {
+    keymap?: string;
+    persisted?: CreatorMicroPersisted;
+    /** Backups already on disk, oldest first (e.g. copied from another install). */
+    existingBackups?: Array<{ dir: string; keymap: string }>;
+  } = {},
+) {
   const device = new FakeCreatorMicro(options.keymap ?? original);
   let persisted = options.persisted ?? DEFAULT_PERSISTED;
-  const backups: Array<{ dir: string; keymap: string; reason: string }> = [];
+  const backups: Array<{ dir: string; keymap: string; reason: string; original: boolean }> = (
+    options.existingBackups ?? []
+  ).map((backup) => ({ ...backup, reason: "copied", original: true }));
   const presses: Array<[number, string | null]> = [];
   const states: CreatorMicroState[] = [];
   const controller = new CreatorMicroController({
@@ -36,10 +45,11 @@ function setup(options: { keymap?: string; persisted?: CreatorMicroPersisted } =
     },
     writeBackup: async (files) => {
       const dir = `/backups/${backups.length}`;
-      backups.push({ dir, keymap: files.keymap, reason: files.reason });
+      backups.push({ dir, keymap: files.keymap, reason: files.reason, original: files.original });
       return { dir, createdAt: "2026-10-01T00:00:00.000Z" };
     },
     readBackupKeymap: async (dir) => backups.find((backup) => backup.dir === dir)!.keymap,
+    listBackups: async () => backups.toReversed(),
     onStateChanged: (state) => states.push(state),
     onKeyPressed: (slot, threadKey) => presses.push([slot, threadKey]),
     pollIntervalMs: 20,
@@ -178,6 +188,65 @@ describe("CreatorMicroController enable", () => {
     const state = await controller.enable();
     expect(state).toMatchObject({ enabled: false, connection: "disabled" });
     expect(state.lastError).toMatch(/not connected/);
+  });
+});
+
+describe("CreatorMicroController handover from another install", () => {
+  it("adopts a pad that already carries our agent keymap without writing", async () => {
+    const { device, controller, persisted, backups } = setup({
+      keymap: bindAgentKeys(original),
+      existingBackups: [{ dir: "/copied/original", keymap: original }],
+    });
+    await controller.start();
+    const state = await controller.enable();
+    expect(state).toMatchObject({ enabled: true, keymap: "agent-keys", lastError: null });
+    expect(device.flashWrites).toHaveLength(0);
+    expect(persisted()).toMatchObject({
+      originalSlotKeycodes: ORIGINAL_TOP_SIX,
+      backupDir: "/copied/original",
+    });
+    // The snapshot of the bound pad is kept but never marked original.
+    expect(backups.filter((backup) => !backup.original)).toHaveLength(1);
+    expect(backups.filter((backup) => backup.original).map((b) => b.dir)).toEqual([
+      "/copied/original",
+    ]);
+
+    // Disable then restores Cmd+1..Cmd+6 from the adopted original: one write.
+    const off = await controller.disable();
+    expect(off.lastError).toBeNull();
+    expect(device.files.get("keymap.json")).toBe(original);
+    expect(device.flashWrites).toHaveLength(1);
+  });
+
+  it("never treats the already-modified keymap as the original", async () => {
+    const other = JSON.parse(original);
+    other.profiles[0].layers[0].layout.keymap[3][0] = "KC_TAB";
+    const { device, controller, persisted } = setup({
+      keymap: bindAgentKeys(original),
+      // A backup of a different layout, and one of the bound keymap itself.
+      existingBackups: [
+        { dir: "/other", keymap: JSON.stringify(other) },
+        { dir: "/bound", keymap: bindAgentKeys(original) },
+      ],
+    });
+    await controller.start();
+    const state = await controller.enable();
+    expect(state).toMatchObject({ enabled: true, hasBackup: false });
+    expect(persisted()).toMatchObject({ originalSlotKeycodes: null, backupDir: null });
+    expect(device.flashWrites).toHaveLength(0);
+
+    // Without a known original, disable leaves the keys bound and says so.
+    const off = await controller.disable();
+    expect(off.lastError).toMatch(/original key mapping is unknown/);
+    expect(device.flashWrites).toHaveLength(0);
+  });
+
+  it("marks the first backup of the user's own layout as the original", async () => {
+    const { controller, backups } = setup();
+    await controller.start();
+    await controller.enable();
+    expect(backups[0]).toMatchObject({ keymap: original, original: true });
+    await controller.stop();
   });
 });
 

@@ -21,6 +21,7 @@ import {
   AGENT_SLOT_COUNT,
   analyzeKeymap,
   bindAgentKeys,
+  diffConfigs,
   restoreSlotKeycodes,
   sha1,
   storedZoneLighting,
@@ -81,8 +82,18 @@ export interface CreatorMicroControllerDeps {
     readonly fileList: unknown;
     readonly firmware: unknown;
     readonly reason: string;
+    /** True only for a keymap without agent keycodes: the user's own layout. */
+    readonly original: boolean;
   }) => Promise<CreatorMicroBackup>;
   readonly readBackupKeymap: (dir: string) => Promise<string>;
+  /**
+   * Every saved backup (newest first), for adopting a pad another install
+   * already rebound: the original is the backup whose bound form is exactly
+   * what the pad carries now.
+   */
+  readonly listBackups?: () => Promise<
+    ReadonlyArray<{ readonly dir: string; readonly keymap: string }>
+  >;
   readonly onStateChanged: (state: CreatorMicroState) => void;
   /** A pressed agent key; `threadKey` is null for an empty slot. */
   readonly onKeyPressed: (slot: number, threadKey: string | null) => void;
@@ -414,17 +425,29 @@ export class CreatorMicroController {
             "Fix the layout in Work Louder Input, or restore the original config.",
         );
       }
-      const backup = await this.backup(rpc, before, "before enabling");
       let original = this.persisted.originalSlotKeycodes;
+      let backupDir = this.persisted.backupDir;
       if (analysis.agentKeysFree) {
+        // The user's own layout: this backup is the original to restore.
+        const backup = await this.backup(rpc, before, "original layout, before enabling", true);
         original = analysis.slotKeycodes;
+        backupDir = backup.dir;
         await this.writeVerified(rpc, before, bindAgentKeys(before), AGENT_KEYCODES);
+      } else {
+        // Already bound (by this integration on another install, or earlier):
+        // adopt it without writing. A snapshot is kept, but it is never the
+        // "original"; that has to be a pre-change backup matching this pad.
+        await this.backup(rpc, before, "pad already had agent keys; adopted as is", false);
+        if (original === null || backupDir === null) {
+          const found = await this.findOriginalBackup(before);
+          if (found) {
+            original = found.slotKeycodes;
+            backupDir = found.dir;
+            this.log("info", `adopted the original layout from ${found.dir}`);
+          }
+        }
       }
-      this.persisted = {
-        enabled: true,
-        originalSlotKeycodes: original,
-        backupDir: this.persisted.backupDir ?? backup.dir,
-      };
+      this.persisted = { enabled: true, originalSlotKeycodes: original, backupDir };
       await this.deps.savePersisted(this.persisted);
       this.keymap = "agent-keys";
       this.syncLighting();
@@ -471,7 +494,11 @@ export class CreatorMicroController {
       const dir = this.persisted.backupDir;
       if (!dir) throw new CreatorMicroError("There is no backup to restore.");
       const target = await this.deps.readBackupKeymap(dir);
-      analyzeKeymap(target);
+      if (analyzeKeymap(target).agentKeysBound) {
+        throw new CreatorMicroError(
+          "The saved backup is not an original layout; refusing to restore it.",
+        );
+      }
       const { rpc } = await this.requireConnection();
       await this.lighting.clear().catch(() => undefined);
       const before = await readFile(rpc, KEYMAP_FILE);
@@ -508,7 +535,34 @@ export class CreatorMicroController {
     return connection;
   }
 
-  private async backup(rpc: CreatorMicroRpcClient, keymap: string, reason: string) {
+  /**
+   * A saved backup of the user's own layout (no agent keycodes) whose bound
+   * form is exactly the keymap the pad carries now.
+   */
+  private async findOriginalBackup(
+    current: string,
+  ): Promise<{ readonly dir: string; readonly slotKeycodes: ReadonlyArray<string> } | null> {
+    const backups = (await this.deps.listBackups?.().catch(() => [])) ?? [];
+    for (const backup of backups) {
+      try {
+        const analysis = analyzeKeymap(backup.keymap);
+        if (!analysis.agentKeysFree) continue;
+        if (diffConfigs(bindAgentKeys(backup.keymap), current).length === 0) {
+          return { dir: backup.dir, slotKeycodes: analysis.slotKeycodes };
+        }
+      } catch {
+        // Not a usable keymap; keep looking.
+      }
+    }
+    return null;
+  }
+
+  private async backup(
+    rpc: CreatorMicroRpcClient,
+    keymap: string,
+    reason: string,
+    original = false,
+  ) {
     const fileList = await rpc.call("fs.list", { checksum: true, rec: true });
     const smartActions = await readFile(rpc, SMART_ACTIONS_FILE).catch(() => null);
     const backup = await this.deps.writeBackup({
@@ -517,6 +571,7 @@ export class CreatorMicroController {
       fileList,
       firmware: this.firmware,
       reason,
+      original,
     });
     this.log("info", `backup saved to ${backup.dir}`);
     return backup;
