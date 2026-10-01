@@ -111,6 +111,13 @@ export const installCreatorMicro = Effect.fn("desktop.creatorMicro.install")(fun
         ),
       );
     },
+    trace: (line) => {
+      // Small rolling diagnostics file next to the backups, for physical tests.
+      void NodeFSP.appendFile(
+        NodePath.join(root, "diagnostics.log"),
+        `${new Date().toISOString()} ${line.slice(0, 2_000)}\n`,
+      ).catch(() => undefined);
+    },
     log: (level, message, detail) => {
       const annotations = detail === undefined ? undefined : { detail: String(detail) };
       runFork(

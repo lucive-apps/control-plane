@@ -86,6 +86,8 @@ export interface CreatorMicroControllerDeps {
   /** A pressed agent key; `threadKey` is null for an empty slot. */
   readonly onKeyPressed: (slot: number, threadKey: string | null) => void;
   readonly log?: (level: "info" | "warn" | "error", message: string, detail?: unknown) => void;
+  /** Wire-level diagnostics (lighting batches and acks, device notifications). */
+  readonly trace?: (line: string) => void;
   readonly pollIntervalMs?: number;
   readonly setTimer?: (callback: () => void, ms: number) => unknown;
   readonly clearTimer?: (timer: unknown) => void;
@@ -152,7 +154,8 @@ export class CreatorMicroController {
       send: async (entries) => {
         const rpc = this.connection?.rpc;
         if (!rpc) throw new CreatorMicroError("not connected");
-        await rpc.call(LIGHTING_METHOD, entries, 4_000);
+        const ack = await rpc.call(LIGHTING_METHOD, entries, 4_000);
+        this.deps.trace?.(`thstatus ${JSON.stringify(entries)} -> ${JSON.stringify(ack)}`);
       },
       setTimer: this.setTimer,
       clearTimer: this.clearTimer,
@@ -239,6 +242,7 @@ export class CreatorMicroController {
   }
 
   private handleNotification(method: string, params: unknown): void {
+    this.deps.trace?.(`notify ${method} ${JSON.stringify(params)}`);
     const event = parseAgentKeyEvent(method, params);
     if (!event || !event.pressed || event.keyIndex >= AGENT_SLOT_COUNT) return;
     if (!this.persisted.enabled || this.keymap !== "agent-keys") return;
@@ -341,6 +345,7 @@ export class CreatorMicroController {
       return null;
     }
     this.setStatus("connected", null);
+    this.log("info", `connected, firmware ${this.firmware}, keymap ${this.keymap}`);
     this.syncLighting();
     return connection;
   }
@@ -612,6 +617,7 @@ export class CreatorMicroController {
   }
 
   private log(level: "info" | "warn" | "error", text: string, detail?: unknown): void {
+    this.deps.trace?.(`${level} ${text}${detail === undefined ? "" : ` ${String(detail)}`}`);
     this.deps.log?.(level, `[creator-micro] ${text}`, detail);
   }
 }
