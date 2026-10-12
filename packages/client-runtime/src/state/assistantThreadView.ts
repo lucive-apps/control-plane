@@ -1,6 +1,7 @@
 import {
   agentMessageDisplayName,
   isAgentOriginatedUserMessage,
+  isAgentPeerMessageId,
   isAgentPushMessageId,
   type AssistantThreadRole,
   type OrchestrationAgentMessageSource,
@@ -116,7 +117,8 @@ export function resolveAgentMessagePresentation(input: {
   if (isResult || timeline.role === "coordinator") {
     return { kind: "replied", displayName, linkThreadId: senderThreadId };
   }
-  return source.replyTo === undefined
+  // A peer's message is not a request, yet it still names its sender.
+  return source.replyTo === undefined && !isAgentPeerMessageId(message.id)
     ? DEFAULT_PRESENTATION
     : { kind: "attributed-user", displayName, linkThreadId: senderThreadId };
 }

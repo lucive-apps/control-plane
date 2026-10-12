@@ -140,6 +140,17 @@ describe("resolveAgentMessagePresentation", () => {
     ).toEqual({ kind: "default" });
   });
 
+  it("names the sender of a peer's cp_agent_message in an agent thread", () => {
+    expect(
+      resolveAgentMessagePresentation({
+        message: fromThread(salesThreadId, "Sales", {
+          id: `cp-send:agent-1:peer:${salesThreadId}:uuid`,
+        }),
+        assistantTimeline: timeline("agent"),
+      }),
+    ).toEqual({ kind: "attributed-user", displayName: "Sales", linkThreadId: salesThreadId });
+  });
+
   it("reads a one-off agent's pushed result in its standing agent's thread as a reply", () => {
     expect(
       resolveAgentMessagePresentation({

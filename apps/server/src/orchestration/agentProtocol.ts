@@ -17,6 +17,10 @@ export { AGENT_PUSH_MESSAGE_PREFIX, isAgentPushMessageId } from "@t3tools/contra
 export const AGENT_RUNNING_CAP = 10;
 /** Pushed turns a recipient runs in a row before results pause until a release. */
 export const AGENT_PUSH_BUDGET = 6;
+/** Peer messages a thread takes between instructions from the user or a manager. */
+export const AGENT_PEER_MESSAGE_BUDGET = 6;
+/** Of those, how many may come from one sender. Stops two agents ping-ponging. */
+export const AGENT_PEER_PAIR_BUDGET = 4;
 /** Largest result text appended into a recipient. */
 export const AGENT_RESULT_CAP_BYTES = 16_384;
 /** How long a sent message counts as a queued start. Mirrors ThreadSettlementPolicy. */
@@ -53,6 +57,23 @@ export function agentPushId(agentThreadId: string, requestMessageId: string): st
 /** Message id and command id of a `cp_thread_send` held for a busy target. */
 export function agentSendId(targetThreadId: string, uuid: string): string {
   return `${AGENT_SEND_MESSAGE_PREFIX}${targetThreadId}:${uuid}`;
+}
+
+/**
+ * Message id of a `cp_agent_message` from `senderThreadId`. It sits in the
+ * held-send namespace, so a busy recipient starts it like a held send.
+ */
+export function agentPeerMessageId(
+  targetThreadId: string,
+  senderThreadId: string,
+  uuid: string,
+): string {
+  return agentSendId(targetThreadId, `peer:${senderThreadId}:${uuid}`);
+}
+
+/** Command id and activity id of the coordinator's heads-up about a peer message. */
+export function agentPeerFyiId(peerMessageId: string): string {
+  return `cp-peer-fyi:${peerMessageId}`;
 }
 
 /** Command id of the turn start of an appended delivery (`cp-push:*` or `cp-send:*`). */

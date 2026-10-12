@@ -903,6 +903,66 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.session?.runtimeMode).toBe("approval-required");
   });
 
+  it("prefixes a coordinator's turn with the heads-ups about peer messages since its last turn", async () => {
+    const harness = await createHarness();
+    const fyi = (id: string, summary: string, createdAt: string) =>
+      Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.activity.append",
+          commandId: CommandId.make(id),
+          threadId: ThreadId.make("thread-1"),
+          activity: {
+            id: EventId.make(id),
+            tone: "info",
+            kind: "agent-peer.fyi",
+            summary,
+            payload: { detail: `${summary} said hi` },
+            turnId: null,
+            createdAt,
+          },
+          createdAt,
+        }),
+      );
+    const startTurn = (messageId: string, text: string, createdAt: string) =>
+      Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make(`cmd-${messageId}`),
+          threadId: ThreadId.make("thread-1"),
+          message: { messageId: asMessageId(messageId), role: "user", text, attachments: [] },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          createdAt,
+        }),
+      );
+
+    // Not a coordinator yet: the heads-up is never read into its turns.
+    await fyi("fyi-0", "A to B", "2026-01-01T00:00:00.500Z");
+    await startTurn("plain-1", "hello", "2026-01-01T00:00:01.000Z");
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({ input: "hello" });
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "project.meta.update",
+        commandId: CommandId.make("cmd-marker"),
+        projectId: asProjectId("project-1"),
+        assistant: { coordinatorThreadId: ThreadId.make("thread-1") },
+      }),
+    );
+    await fyi("fyi-1", "Docs to Tests", "2026-01-01T00:00:02.000Z");
+    await startTurn("coordinator-1", "status?", "2026-01-01T00:00:03.000Z");
+    await waitFor(() => harness.sendTurn.mock.calls.length === 2);
+    expect(harness.sendTurn.mock.calls[1]?.[0]).toMatchObject({
+      input: [
+        "Heads-up from Control Plane: your agents messaged each other since your last turn. No reply is needed; use cp_agent_read for more.",
+        "- Docs to Tests: Docs to Tests said hi",
+        "",
+        "status?",
+      ].join("\n"),
+    });
+  });
+
   effectIt.effect("projects inline context before sending the provider turn", () =>
     Effect.gen(function* () {
       const harness = yield* Effect.promise(() => createHarness());

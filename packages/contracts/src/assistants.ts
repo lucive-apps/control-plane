@@ -219,6 +219,15 @@ export function isAgentPushMessageId(id: string): boolean {
   return id.startsWith(AGENT_PUSH_MESSAGE_PREFIX);
 }
 
+/**
+ * A message one agent sent another in its Project with `cp_agent_message`:
+ * `cp-send:<recipient>:peer:<sender>:<uuid>`. It is not a request, so no
+ * result goes back, and it never speaks for the user.
+ */
+export function isAgentPeerMessageId(id: string): boolean {
+  return id.startsWith("cp-send:") && id.includes(":peer:");
+}
+
 export type AgentManagerRole = "coordinator" | "standing";
 
 interface AgentManagerProjectLike extends AssistantProjectLike {

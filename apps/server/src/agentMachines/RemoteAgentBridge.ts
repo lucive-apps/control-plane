@@ -34,7 +34,7 @@ import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSna
 import { forkParked } from "../serverActivation.ts";
 import { AgentMachines } from "./AgentMachines.ts";
 import { PeerError } from "./AgentMachineClient.ts";
-import { RemoteAgents } from "./RemoteAgents.ts";
+import { isRemotePeerRequestId, RemoteAgents } from "./RemoteAgents.ts";
 import {
   judgeRequest,
   remotePhase,
@@ -103,6 +103,7 @@ export const makeRemoteAgentBridge = Effect.gen(function* () {
   const resolveRecipient = Effect.fn("RemoteAgentBridge.resolveRecipient")(function* (
     record: RemoteAgentRecord,
     replyTo: string,
+    peer = false,
   ) {
     const project = Option.getOrUndefined(
       yield* snapshots.getProjectShellById(record.homeProjectId as OrchestrationProjectShell["id"]),
@@ -117,6 +118,8 @@ export const makeRemoteAgentBridge = Effect.gen(function* () {
       recipient.archivedAt === null &&
       recipient.projectId === project.id &&
       (recipient.id === coordinatorId ||
+        // A peer's message is answered to that peer, which does not manage the agent.
+        (peer && recipient.settledAt === null) ||
         canManageAgent(project, recipient, {
           id: ThreadId.make(record.threadId),
           projectId: project.id,
@@ -133,7 +136,11 @@ export const makeRemoteAgentBridge = Effect.gen(function* () {
     text: string | null,
     idSuffix = "",
   ) {
-    const resolved = yield* resolveRecipient(record, request.replyTo);
+    const resolved = yield* resolveRecipient(
+      record,
+      request.replyTo,
+      isRemotePeerRequestId(request.messageId),
+    );
     // No live Project to deliver into: keep the request open and try again.
     if (resolved === null) return false;
     const createdAt = yield* nowIso;

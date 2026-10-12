@@ -138,6 +138,11 @@ peer's own reactor never mistakes them for deliveries.
 - `cp_agent_list` entries gain `machine` (label or null).
 - `cp_agent_read`, `cp_agent_stop`, `cp_thread_send` resolve a threadId or exact title across
   local and remote agents the caller manages; their parameters do not change.
+- `cp_agent_message` (and `cp_thread_send` from an agent that does not manage the target) reaches
+  any open remote agent in the home Project as a peer message. The remote agent cannot call back
+  into the home, so the send is a request with `replyTo` the sender, and its id carries a `peer:`
+  segment so the bridge returns the result to that sender instead of falling back to the
+  coordinator.
 - **Ownership** of a remote agent comes from the registry, as a managed-agent shape
   `{ id, projectId: home Project, pinnedAt: null, createdByThreadId: registry creator }` fed to the
   existing `canManageAgent`, because `lineage.creatorOf` reads the local event log.
