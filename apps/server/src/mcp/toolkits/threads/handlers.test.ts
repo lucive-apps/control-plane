@@ -716,6 +716,16 @@ describe("cp_agent_message and cp_agent_peers", () => {
     }),
   );
 
+  it.effect("takes threadId in place of to, and needs one of them", () =>
+    Effect.gen(function* () {
+      const harness = yield* projectHarness();
+      const result = yield* harness.message({ threadId: PEER_HELPER, message: "Hi" }, ONE_OFF);
+      expect(result.threadId).toBe(PEER_HELPER);
+      const error = yield* harness.message({ message: "Hi" }, ONE_OFF).pipe(Effect.flip);
+      expect(error._tag).toBe("ThreadSendTargetMissingError");
+    }),
+  );
+
   it.effect("stays inside the sender's Project", () =>
     Effect.gen(function* () {
       const elsewhere = makeThread(ThreadId.make("writer-elsewhere"), "Elsewhere", {

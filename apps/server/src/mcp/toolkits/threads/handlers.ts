@@ -601,7 +601,10 @@ const make = Effect.gen(function* () {
     cp_agent_message: (input) =>
       Effect.gen(function* () {
         const { scope } = yield* requirePeerScope();
-        const target = yield* resolvePeer(scope, input.to);
+        // Agents used to cp_thread_send pass threadId; take it as `to`.
+        const to = input.to ?? input.threadId;
+        if (to === undefined) return yield* new ThreadSendTargetMissingError({});
+        const target = yield* resolvePeer(scope, to);
         return yield* sendPeer(scope, target, input.message, input.notifyCoordinator !== false);
       }),
 

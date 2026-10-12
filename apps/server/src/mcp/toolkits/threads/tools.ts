@@ -137,6 +137,7 @@ export type ThreadSendToolError = typeof ThreadSendToolError.Type;
 
 export const AgentMessageToolError = Schema.Union([
   McpCapabilityUnavailableError,
+  ThreadSendTargetMissingError,
   PeerMessagingUnavailableError,
   PeerNotFoundError,
   PeerAmbiguousError,
@@ -147,10 +148,17 @@ export const AgentMessageToolError = Schema.Union([
 export type AgentMessageToolError = typeof AgentMessageToolError.Type;
 
 export const AgentMessageInput = Schema.Struct({
-  to: TrimmedNonEmptyString.annotate({
-    description:
-      "The agent's threadId, or its exact title within this Project. cp_agent_peers lists them.",
-  }),
+  to: Schema.optional(
+    TrimmedNonEmptyString.annotate({
+      description:
+        "The agent's threadId, or its exact title within this Project. cp_agent_peers lists them.",
+    }),
+  ),
+  threadId: Schema.optional(
+    TrimmedNonEmptyString.annotate({
+      description: "Same as `to`, for callers used to cp_thread_send.",
+    }),
+  ),
   message: TrimmedNonEmptyString.annotate({
     description: "The text to send. The recipient sees which agent and thread sent it.",
   }),
