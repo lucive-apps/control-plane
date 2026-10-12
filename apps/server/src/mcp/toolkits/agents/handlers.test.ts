@@ -1118,10 +1118,16 @@ describe("cp_agent_stop", () => {
         threadId: RESEARCH_ID,
         threadTitle: "Research",
       });
+      // Another agent's cp_agent_message waits too, and a stop drops it as well.
+      const agentMessage = makeMessage("cp-send:worker:peer:research:uuid", "user", "Use v2.", {
+        kind: "agent",
+        threadId: RESEARCH_ID,
+        threadTitle: "Research",
+      });
       const harness = yield* makeHarness({
         caller: COORDINATOR_ID,
         threads: [coordinator, research, withActiveTurn("turn-2")],
-        messages: { worker: [request, startedSend, heldSend, peerSend] },
+        messages: { worker: [request, startedSend, heldSend, peerSend, agentMessage] },
         turns: {
           worker: [
             {
@@ -1147,6 +1153,7 @@ describe("cp_agent_stop", () => {
       // starts a held message under this id, so it never starts.
       expect(harness.commands.map((command) => [command.type, command.commandId])).toEqual([
         ["thread.activity.append", "cp-start:cp-send:worker:held"],
+        ["thread.activity.append", "cp-start:cp-send:worker:peer:research:uuid"],
         ["thread.turn.interrupt", "cp-agent-stop:coordinator:worker:cp-send:worker:started"],
         ["thread.session.stop", expect.stringMatching(/^mcp-agent-session-stop:/)],
       ]);

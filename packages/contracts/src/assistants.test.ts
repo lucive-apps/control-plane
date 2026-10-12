@@ -7,6 +7,7 @@ import {
   assistantSlug,
   assistantThreadRole,
   canManageAgent,
+  isAgentPeerMessageId,
   isAgentPushMessageId,
   isArchivedAssistant,
   isAssistantSettlementExempt,
@@ -336,6 +337,13 @@ describe("agent managers", () => {
     assert.isTrue(isAgentPushMessageId("cp-push:agent:message"));
     assert.isFalse(isAgentPushMessageId("cp-send:agent:uuid"));
     assert.isFalse(isAgentPushMessageId("message-cp-push:agent"));
+  });
+
+  it("recognizes peer message ids", () => {
+    assert.isTrue(isAgentPeerMessageId("cp-send:target:peer:sender:uuid"));
+    assert.isFalse(isAgentPeerMessageId("cp-send:target:uuid"));
+    assert.isFalse(isAgentPeerMessageId("cp-send:worker:peer"));
+    assert.isFalse(isAgentPeerMessageId("cp-push:agent:peer:x"));
   });
 });
 

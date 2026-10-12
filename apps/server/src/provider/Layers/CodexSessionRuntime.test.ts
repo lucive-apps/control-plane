@@ -10,7 +10,9 @@ import * as CodexRpc from "effect-codex-app-server/rpc";
 import * as EffectCodexSchema from "effect-codex-app-server/schema";
 
 import {
+  AGENT_PEER_RULE,
   buildAssistantRuntimeBlock,
+  COORDINATOR_PEER_RULE,
   clearAssistantRuntime,
   setAssistantRuntime,
   withGlobalInstructions,
@@ -521,6 +523,12 @@ describe("Project block on every Codex model", () => {
               NodeAssert.match(
                 projectContext(params),
                 new RegExp(`<control_plane_project role="${role}"`),
+              );
+              // Codex agents learn they can message peers; the coordinator, that it gets heads-ups.
+              NodeAssert.ok(
+                projectContext(params).includes(
+                  role === "agent" ? AGENT_PEER_RULE : COORDINATOR_PEER_RULE,
+                ),
               );
             }
             for (const entry of Object.values(params.additionalContext ?? {})) {

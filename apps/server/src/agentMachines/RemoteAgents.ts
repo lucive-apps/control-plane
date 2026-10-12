@@ -54,6 +54,13 @@ export class RemoteAgentError extends Schema.TaggedError<RemoteAgentError>()("Re
 }
 
 const REMOTE_SEND_PREFIX = "cp-remote-send:";
+/** Marks a remote send from a peer agent: `cp-remote-send:<agent>:peer:<at>:<n>`. */
+const REMOTE_PEER_SEGMENT = "peer:";
+
+/** A request a peer agent sent with `cp_agent_message`, whose result goes back to that peer. */
+export function isRemotePeerRequestId(messageId: string): boolean {
+  return messageId.startsWith(REMOTE_SEND_PREFIX) && messageId.includes(`:${REMOTE_PEER_SEGMENT}`);
+}
 
 const unavailable = (label: string, error: PeerError) =>
   new RemoteAgentError({
@@ -149,6 +156,8 @@ export interface RemoteAgentsShape {
       readonly sender: { readonly id: string; readonly title: string };
       readonly replyTo: string | null;
       readonly runtimeMode: RuntimeMode;
+      /** From an agent that does not manage this one (`cp_agent_message`); its result still goes back to it. */
+      readonly peer?: boolean;
     },
   ) => Effect.Effect<{ readonly queued: boolean }, RemoteAgentError>;
   /** Starts the oldest queued send if the peer thread is idle. Used by the bridge. */
@@ -478,7 +487,7 @@ const make = Effect.gen(function* () {
   const sendMessage: RemoteAgentsShape["send"] = (record, input) =>
     Effect.gen(function* () {
       const createdAt = yield* nowIso;
-      const messageId = `${REMOTE_SEND_PREFIX}${record.threadId}:${createdAt}:${record.queuedSends.length}`;
+      const messageId = `${REMOTE_SEND_PREFIX}${record.threadId}:${input.peer === true ? REMOTE_PEER_SEGMENT : ""}${createdAt}:${record.queuedSends.length}`;
       const detail = yield* readView(record, 1);
       if (Option.isNone(detail)) return yield* lostError(record);
       const view = viewOf(detail.value.thread);

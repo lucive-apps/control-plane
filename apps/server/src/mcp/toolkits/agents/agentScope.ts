@@ -7,6 +7,7 @@
  * @module agentScope
  */
 import {
+  isAgentPeerMessageId,
   isProviderAvailable,
   isRunningAgent,
   type MessageId,
@@ -208,9 +209,9 @@ export function inFlightRequestId(input: {
 }
 
 /**
- * The manager's `cp_thread_send` messages held in the agent for its turn to
- * end that no turn has started yet. A stop drops them, or they would start
- * the agent again once it is idle.
+ * The manager's `cp_thread_send` messages, and peers' `cp_agent_message`
+ * messages, held in the agent for its turn to end that no turn has started
+ * yet. A stop drops them, or they would start the agent again once it is idle.
  */
 export function heldRequestIds(input: {
   readonly agentId: string;
@@ -225,7 +226,7 @@ export function heldRequestIds(input: {
       (message) =>
         message.role === "user" &&
         message.messageId.startsWith(heldPrefix) &&
-        message.source?.replyTo === input.managerId &&
+        (message.source?.replyTo === input.managerId || isAgentPeerMessageId(message.messageId)) &&
         !started.has(message.messageId),
     )
     .map((message) => message.messageId);

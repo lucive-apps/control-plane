@@ -403,6 +403,31 @@ describe("RemoteAgentBridge routing", () => {
     }),
   );
 
+  it.effect("returns a peer's request to that peer, which does not manage the agent", () =>
+    Effect.gen(function* () {
+      const h = harness();
+      yield* h.run(
+        Effect.gen(function* () {
+          const bridge = yield* RemoteAgentBridge;
+          yield* seed(
+            h,
+            {
+              creatorThreadId: "someone-else",
+              inFlight: request({
+                messageId: "cp-remote-send:remote-1:peer:2026-01-01T00:00:00.000Z:0",
+                replyTo: "standing",
+              }),
+            },
+            { latestTurn: completedTurn() },
+            finishedMessages,
+          );
+          yield* bridge.pollOnce;
+        }),
+      );
+      expect(h.pushes()[0]).toMatchObject({ threadId: "standing" });
+    }),
+  );
+
   it.effect("falls back to the coordinator when the asker is archived", () =>
     Effect.gen(function* () {
       const h = harness({

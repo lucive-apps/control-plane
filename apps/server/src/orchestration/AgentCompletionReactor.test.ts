@@ -29,6 +29,7 @@ import {
   AGENT_PUSH_BUDGET,
   agentContinuationId,
   agentPushId,
+  agentPeerMessageId,
   agentSendId,
   agentStopId,
 } from "./agentProtocol.ts";
@@ -852,6 +853,53 @@ describe("AgentCompletionReactor", () => {
         resultText("Counter", agent, "finished", "Printed done."),
       );
       assert.isFalse(yield* f.settled(agent));
+    }),
+  );
+
+  test(
+    "starts a peer's message held for a busy agent, and pushes no result for it",
+    Effect.gen(function* () {
+      const f = yield* makeFixture;
+      yield* f.createProject;
+      const agent = A("agent-docs");
+      const sibling = A("agent-tests");
+      yield* f.createThread(agent, "Docs", { createdBy: COORDINATOR });
+      yield* f.createThread(sibling, "Tests", { createdBy: COORDINATOR });
+      yield* f.request(agent, M("request-docs"), COORDINATOR);
+      const peerMessage = M(agentPeerMessageId(agent, sibling, "uuid-1"));
+
+      yield* f.withReactor((drain) =>
+        Effect.gen(function* () {
+          yield* f.beginTurn(agent, T("turn-docs"));
+          yield* f.dispatch({
+            type: "thread.message.user.append",
+            commandId: CommandId.make(peerMessage),
+            threadId: agent,
+            message: {
+              messageId: peerMessage,
+              text: "The API changed to v2.",
+              attachments: [],
+              // A peer's message is not a request: no replyTo.
+              source: { kind: "agent", threadId: sibling, threadTitle: "Tests" },
+            },
+            createdAt: yield* f.now,
+          });
+          yield* drain;
+          assert.deepStrictEqual(yield* f.receipts("cp-start:"), []);
+
+          yield* f.endTurn(agent, T("turn-docs"), "Docs written.");
+          yield* drain;
+          assert.include(yield* f.receipts("cp-start:"), `accepted cp-start:${peerMessage}`);
+
+          yield* f.finishTurn(agent, T("turn-peer"), "Updated to v2.");
+          yield* drain;
+        }),
+      );
+
+      // The coordinator's request is answered; the peer's message owes nothing.
+      const pushed = (yield* f.userMessages(COORDINATOR)).map((message) => message.id);
+      assert.deepStrictEqual(pushed, [pushIdOf(agent, M("request-docs"))]);
+      assert.deepStrictEqual(yield* f.userMessages(sibling), []);
     }),
   );
 

@@ -77,6 +77,7 @@ import {
   type ThreadTitleMessage,
 } from "../../textGeneration/ThreadTitleContext.ts";
 import { canReplaceThreadTitle, DEFAULT_THREAD_TITLE } from "../threadTitles.ts";
+import { AGENT_PEER_FYI_KIND, peerFyiDigest } from "../agentPeers.ts";
 import {
   resolveSourceControlWriterModelSelection,
   ServerSettingsService,
@@ -1401,6 +1402,40 @@ const make = Effect.gen(function* () {
     processThreadTitleRegenerationSafely,
   );
 
+  /**
+   * For a Project coordinator, the heads-ups about peer messages since its
+   * previous turn, which it reads instead of being woken for each one.
+   */
+  const coordinatorPeerDigest = (input: {
+    readonly threadId: ThreadId;
+    readonly projectId: ProjectId;
+    readonly messageId: MessageId;
+  }) =>
+    Effect.gen(function* () {
+      const project = Option.getOrUndefined(
+        yield* projectionSnapshotQuery.getProjectShellById(input.projectId),
+      );
+      if (project?.assistant?.coordinatorThreadId !== input.threadId) return undefined;
+      const detail = Option.getOrUndefined(
+        yield* projectionSnapshotQuery.getThreadDetailById(input.threadId, {
+          activityKinds: [AGENT_PEER_FYI_KIND],
+        }),
+      );
+      if (detail === undefined || detail.activities.length === 0) return undefined;
+      return peerFyiDigest({
+        messageId: input.messageId,
+        messages: detail.messages,
+        activities: detail.activities,
+      });
+    }).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("peer message heads-ups not read", {
+          threadId: input.threadId,
+          cause: Cause.pretty(cause),
+        }).pipe(Effect.as(undefined)),
+      ),
+    );
+
   const processTurnStartRequested = Effect.fn("processTurnStartRequested")(function* (
     receivedEvent: Extract<ProviderIntentEvent, { type: "thread.turn-start-requested" }>,
   ) {
@@ -1683,13 +1718,21 @@ const make = Effect.gen(function* () {
     if (blockedSwitch !== undefined) {
       return yield* appendTurnStartFailure("Provider switch failed", blockedSwitch);
     }
+    const providerText = projectComposerContextForProvider({
+      text: message.text,
+      records: message.context?.records ?? [],
+    });
+    const peerDigest = providerText.startsWith("/")
+      ? undefined
+      : yield* coordinatorPeerDigest({
+          threadId: thread.id,
+          projectId: thread.projectId,
+          messageId: event.payload.messageId,
+        });
     const sendTurnRequest = yield* buildSendTurnRequestForThread({
       threadId: event.payload.threadId,
       messageId: event.payload.messageId,
-      messageText: projectComposerContextForProvider({
-        text: message.text,
-        records: message.context?.records ?? [],
-      }),
+      messageText: peerDigest === undefined ? providerText : `${peerDigest}\n\n${providerText}`,
       ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
       ...(event.payload.modelSelection !== undefined
         ? { modelSelection: event.payload.modelSelection }
