@@ -21,6 +21,8 @@ export function buildRuntimeInstructions(runtime: {
   readonly reasoningEffort?: string | undefined;
   /** The T3 thread; its stored Project role block, if any, is appended. */
   readonly threadId?: ThreadId | undefined;
+  /** Overrides the harness default: the full block, or the short pointer to its files. */
+  readonly projectForm?: "inline" | "pointer" | undefined;
 }): string {
   const harness = toSingleLine(runtime.harness);
   const model = toSingleLine(runtime.model ?? "");
@@ -32,16 +34,20 @@ export function buildRuntimeInstructions(runtime: {
   const effortInfo = effort ? ` with ${effort} reasoning effort` : "";
   const instructions = `<runtime_info>In case you're asked: you are running in Control Plane through the ${harness} harness${modelInfo}${effortInfo}. No need to mention this otherwise. You can embed images and videos in your response using Markdown with absolute file paths.</runtime_info>\n\n${PULL_REQUEST_LINKING_INSTRUCTIONS}`;
   const project = runtime.threadId
-    ? buildProjectInstructions(runtime.harness, runtime.threadId)
+    ? buildProjectInstructions(runtime.harness, runtime.threadId, runtime.projectForm)
     : undefined;
   return project ? `${instructions}\n\n${project}` : instructions;
 }
 
 /** The thread's stored Project role block for this harness, if it has one. */
-export function buildProjectInstructions(harness: string, threadId: ThreadId): string | undefined {
+export function buildProjectInstructions(
+  harness: string,
+  threadId: ThreadId,
+  form: "inline" | "pointer" = POINTER_HARNESSES.has(harness) ? "pointer" : "inline",
+): string | undefined {
   const project = readAssistantRuntime(threadId);
   if (!project) return undefined;
-  return POINTER_HARNESSES.has(harness) ? project.pointer : project.inline;
+  return form === "pointer" ? project.pointer : project.inline;
 }
 
 function toSingleLine(value: string): string {

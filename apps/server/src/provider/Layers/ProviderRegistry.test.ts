@@ -2629,10 +2629,14 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
                 "codex",
                 "cursor",
                 "grok",
+                "muse",
                 "opencode",
               ]);
               assert.strictEqual(cursorProvider?.enabled, false);
               assert.strictEqual(cursorProvider?.status, "disabled");
+              const museProvider = providers.find((provider) => provider.driver === "muse");
+              assert.strictEqual(museProvider?.enabled, false);
+              assert.strictEqual(museProvider?.status, "disabled");
               assert.strictEqual(
                 cursorProvider?.message,
                 "Cursor is disabled in Control Plane settings.",
