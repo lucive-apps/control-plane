@@ -56,6 +56,7 @@ catalog:
   yaml: ^2.9.0
 
 minimumReleaseAgeExclude:
+  - "@muse-code/sdk@1.4.6"
   - "@clerk/backend@3.18.1"
   - "@clerk/clerk-js@6.32.1"
   - "@clerk/electron@0.0.44"
