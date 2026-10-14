@@ -84,8 +84,9 @@ after signing in with `grok login`. Explicit `XAI_API_KEY` connections and custo
 or endpoint configurations do not report subscription limits.
 
 Muse reports its current window and weekly subscription usage through the Muse host while
-turns run, so its **Usage → Limits** bars appear after the first Muse turn in Control Plane and
-refresh as turns complete. Before any turn, Muse has observed no quota and shows no bar yet.
+turns run. Its **Usage → Limits** bars appear once Muse reports quota during a turn in Control Plane
+and refresh when Muse reports a changed allowance. Before that, no bar is shown.
+Refreshing provider status keeps the last reported figures without fetching a new allowance.
 The figures are the provider's own percentages and reset times; nothing is estimated.
 
 API-key accounts may not report subscription limits. This also applies to Claude connections

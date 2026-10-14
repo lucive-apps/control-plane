@@ -112,6 +112,7 @@ export const MuseDriver: ProviderDriver<MuseSettings, MuseDriverEnv> = {
         });
       const snapshot = yield* makeManagedServerProvider<ProviderSnapshotSettings<MuseSettings>>({
         resolveMaintenance,
+        usageLimitsFromRuntimeOnly: true,
         getSettings: snapshotSettings.getSettings,
         streamSettings: snapshotSettings.streamSettings,
         haveSettingsChanged: haveProviderSnapshotSettingsChanged,

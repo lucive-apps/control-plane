@@ -585,6 +585,39 @@ describe("makeManagedServerProvider", () => {
     ).pipe(Effect.provide(AlwaysRunTestLayer)),
   );
 
+  it.effect("keeps runtime-only limits across status refreshes and clears them when disabled", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const probe = yield* Ref.make(refreshedSnapshot);
+        const provider = yield* makeManagedServerProvider<TestSettings>({
+          resolveMaintenance: () => Effect.succeed(maintenanceCapabilities),
+          getSettings: Effect.succeed({ enabled: true }),
+          streamSettings: Stream.empty,
+          haveSettingsChanged: (previous, next) => previous.enabled !== next.enabled,
+          initialSnapshot: () => Effect.succeed(initialSnapshot),
+          checkProvider: Ref.get(probe),
+          usageLimitsFromRuntimeOnly: true,
+          refreshInterval: "1 hour",
+        });
+        yield* Stream.take(provider.streamChanges, 1).pipe(Stream.runDrain);
+        assert.isUndefined((yield* provider.getSnapshot).usageLimits);
+
+        yield* provider.applyUsageLimits({
+          checkedAt: "2026-04-10T00:05:00.000Z",
+          windows: [{ id: "current", kind: "session", label: "Current", usedPercent: 60 }],
+        });
+        const observed = (yield* provider.getSnapshot).usageLimits;
+        yield* Ref.set(probe, refreshedSnapshotSecond);
+        const refreshed = yield* provider.refresh;
+        assert.strictEqual(refreshed.message, refreshedSnapshotSecond.message);
+        assert.strictEqual(refreshed.usageLimits, observed);
+
+        yield* Ref.set(probe, { ...refreshedSnapshotSecond, enabled: false });
+        assert.isUndefined((yield* provider.refresh).usageLimits);
+      }),
+    ).pipe(Effect.provide(AlwaysRunTestLayer)),
+  );
+
   it.effect("keeps live usage windows across a failed probe and a stale enrichment", () =>
     Effect.scoped(
       Effect.gen(function* () {
