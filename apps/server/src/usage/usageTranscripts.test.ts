@@ -6,6 +6,7 @@ import {
   parseClaudeLine,
   parseCodexLine,
   parseGrokLine,
+  parseMuseLine,
   totalTokens,
 } from "./usageTranscripts.ts";
 
@@ -562,5 +563,153 @@ describe("parseGrokLine", () => {
 
     const records = parseGrokLine(line);
     expect(records[0]?.timestampMs).toBe(1_786_372_566_000);
+  });
+});
+
+describe("parseMuseLine", () => {
+  /**
+   * Shaped after a real Muse Code `model_completed` run event, nested in its
+   * outer frame exactly as `session.jsonl` stores it. Token figures are the
+   * sanitised values from genuine history, not invented ones.
+   */
+  function museLine(overrides?: {
+    recordId?: string;
+    sessionId?: string;
+    recordedAtUs?: number;
+    model?: string;
+    usage?: Record<string, unknown>;
+    eventKind?: string;
+  }): string {
+    const inner = {
+      schema_version: 1,
+      id: overrides?.recordId ?? "5a5f3d97-363c-4fe7-9f82-6e3c65d978be",
+      stream: {
+        kind: "session",
+        id: overrides?.sessionId ?? "01a13b76-b508-7000-aac2-224fa15f0683",
+      },
+      sequence: 66,
+      recorded_at: overrides?.recordedAtUs ?? 1_786_372_566_485_000,
+      record_type: "event",
+      durability: "durable",
+      causation_id: null,
+      payload_type: "runtime.session",
+      payload_schema_version: 1,
+      payload: {
+        kind: "run",
+        run_id: "01a13b76-b617-7000-bd8a-b162440beb02",
+        event: {
+          kind: overrides?.eventKind ?? "model_completed",
+          usage: {
+            input_tokens: 42129,
+            output_tokens: 135,
+            cached_tokens: 41716,
+            cache_write_tokens: 0,
+            cache_read_tokens: 41716,
+            reasoning_tokens: 0,
+            ...overrides?.usage,
+          },
+          duration_ms: 2306,
+          finish_reason: "tool_calls",
+          model: overrides?.model ?? "muse-wonder-1.0",
+        },
+      },
+    };
+    return JSON.stringify({
+      retained_frame: "session_transaction",
+      frame_schema_version: 1,
+      outer_log_ordinal: 94,
+      transaction_id: "956ecdf9-cf5e-4840-b694-711530050f12",
+      children: [{ child_index: 0, record_json: JSON.stringify(inner) }],
+    });
+  }
+
+  it("extracts token totals, model, session, and a dedupe key", () => {
+    const records = parseMuseLine(museLine());
+
+    expect(records).toHaveLength(1);
+    const [record] = records;
+    expect(record?.provider).toBe("muse");
+    expect(record?.model).toBe("muse-wonder-1.0");
+    expect(record?.sessionId).toBe("01a13b76-b508-7000-aac2-224fa15f0683");
+    expect(record?.timestampMs).toBe(1_786_372_566_485);
+    // Muse reports input_tokens inclusive of the cached portion.
+    expect(record?.totals).toEqual({
+      uncachedInputTokens: 42129 - 41716,
+      cachedInputTokens: 41716,
+      cacheCreationTokens: 0,
+      outputTokens: 135,
+      reasoningTokens: 0,
+    });
+    expect(record?.reportedCostUsd).toBeNull();
+    expect(record?.dedupeKey).toBe("5a5f3d97-363c-4fe7-9f82-6e3c65d978be");
+  });
+
+  it("clamps reasoning into output and keeps cache writes separate", () => {
+    const records = parseMuseLine(
+      museLine({
+        usage: {
+          input_tokens: 1000,
+          output_tokens: 120,
+          cached_tokens: 0,
+          cache_write_tokens: 200,
+          cache_read_tokens: 100,
+          reasoning_tokens: 500,
+        },
+      }),
+    );
+
+    expect(records[0]?.totals).toEqual({
+      uncachedInputTokens: 700,
+      cachedInputTokens: 100,
+      cacheCreationTokens: 200,
+      outputTokens: 120,
+      reasoningTokens: 120,
+    });
+  });
+
+  it("returns one record per model_completed child in a shared frame", () => {
+    const first = JSON.parse(museLine({ recordId: "record-1" })) as {
+      children: { record_json: string }[];
+    };
+    const second = JSON.parse(museLine({ recordId: "record-2" })) as {
+      children: { record_json: string }[];
+    };
+    const shared = JSON.stringify({
+      retained_frame: "session_transaction",
+      children: [...first.children, ...second.children],
+    });
+
+    const records = parseMuseLine(shared);
+    expect(records).toHaveLength(2);
+    expect(records.map((record) => record.dedupeKey)).toEqual(["record-1", "record-2"]);
+  });
+
+  it("gives a repeated event the same dedupe key so the aggregate drops it", () => {
+    // The companion goal_usage_attribution events repeat these quantities
+    // under different ids, and subagent logs never repeat a parent id, so the
+    // record id alone keeps every turn counted exactly once.
+    const line = museLine();
+    expect(parseMuseLine(line)[0]?.dedupeKey).toBe(parseMuseLine(line)[0]?.dedupeKey);
+    expect(parseMuseLine(line)).toHaveLength(1);
+  });
+
+  it("ignores attribution repeats, other events, and empty usage", () => {
+    expect(parseMuseLine(museLine({ eventKind: "goal_usage_attribution" }))).toEqual([]);
+    expect(parseMuseLine(museLine({ eventKind: "model_response_created" }))).toEqual([]);
+    expect(
+      parseMuseLine(
+        museLine({
+          usage: {
+            input_tokens: 0,
+            output_tokens: 0,
+            cached_tokens: 0,
+            cache_write_tokens: 0,
+            cache_read_tokens: 0,
+            reasoning_tokens: 0,
+          },
+        }),
+      ),
+    ).toEqual([]);
+    expect(parseMuseLine("not json")).toEqual([]);
   });
 });
