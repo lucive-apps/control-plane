@@ -82,6 +82,30 @@ describe("Muse model catalog", () => {
     }),
   );
 
+  it.effect("shows friendly picker names when Meta sends raw model ids as labels", () =>
+    Effect.gen(function* () {
+      const models = yield* discoverMuseModels(settings, {}, undefined, async () =>
+        host({
+          providerId: "meta",
+          models: [
+            row("muse-wonder-1.0"),
+            row("muse-spark-1.3"),
+            row("muse-spark-1.2"),
+            row("muse-image-1.0", { displayLabel: "Muse Image" }),
+            row("future-model-9.9"),
+          ],
+        }),
+      ).pipe(Effect.scoped);
+      expect(models.map(({ slug, name }) => [slug, name])).toEqual([
+        ["muse-wonder-1.0", "Muse Wonder"],
+        ["muse-spark-1.3", "Muse Spark 1.3"],
+        ["muse-spark-1.2", "Muse Spark 1.2"],
+        ["muse-image-1.0", "Muse Image"],
+        ["future-model-9.9", "future-model-9.9"],
+      ]);
+    }),
+  );
+
   it("normalizes saved and implicit efforts against the selected model before dispatch", () => {
     const fallback = museModelCapabilities();
     expect(resolveMuseReasoningEffort(fallback, undefined)).toBe("high");
