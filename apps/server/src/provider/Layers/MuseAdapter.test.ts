@@ -613,6 +613,41 @@ describe("MuseAdapter", () => {
     }).pipe(Effect.scoped, Effect.provide(testLayer)),
   );
 
+  it.effect("publishes subscription usage changes as rate-limit updates", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakeMuse();
+      const harness = yield* makeHarness(fake);
+      yield* start(harness);
+      // Sanitized `usage/changed` shape: invented percentages and stamps.
+      yield* fake.emit("usage/changed", {
+        observedAtMs: 1_800_000_000_000,
+        tier: "00000000000000000",
+        window: { usedPercent: 40, windowDurationMins: 300, resetsAtMs: 1_800_001_800_000 },
+        weekly: { usedPercent: 10, resetsAtMs: 1_800_432_000_000 },
+      });
+      const updated = yield* harness.takeEvent("account.rate-limits.updated");
+      assert.deepStrictEqual(updated.payload.limits, {
+        windows: [
+          {
+            id: "current",
+            kind: "session",
+            label: "Current",
+            usedPercent: 40,
+            resetsAt: "2027-01-15T08:30:00.000Z",
+            windowDurationMins: 300,
+          },
+          {
+            id: "weekly",
+            kind: "weekly",
+            label: "Weekly",
+            usedPercent: 10,
+            resetsAt: "2027-01-20T08:00:00.000Z",
+          },
+        ],
+      });
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+
   it.effect("rejects Plan mode, a disabled instance, and closes its host on stop", () =>
     Effect.gen(function* () {
       const fake = yield* makeFakeMuse();

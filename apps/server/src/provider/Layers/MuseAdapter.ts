@@ -67,6 +67,7 @@ import {
   type MuseItem,
   MuseItemEvent,
   MuseSessionResult,
+  MuseSubscriptionUsage,
   MuseTodoList,
   MuseTokenUsageEvent,
   MuseTurnCompleted,
@@ -87,6 +88,7 @@ import { buildRuntimeInstructions } from "../RuntimeInstructions.ts";
 import type { ProviderAdapterShape } from "../Services/ProviderAdapter.ts";
 import type { ProviderAdapterError } from "../Errors.ts";
 import type { EventNdjsonLogger } from "./EventNdjsonLogger.ts";
+import { museUsageToLimitsUpdate } from "./museUsageLimits.ts";
 
 const PROVIDER = ProviderDriverKind.make("muse");
 const MUSE_RESUME_VERSION = 1 as const;
@@ -97,6 +99,7 @@ const responseAnswerSchema = Schema.Union([Schema.String, Schema.Array(Schema.St
 const INFORMATIONAL_NOTIFICATIONS = new Set([
   "session/contextUsage",
   "session/tokenUsage",
+  "usage/changed",
   "session/todoListChanged",
   "turn/retryScheduled",
 ]);
@@ -587,6 +590,16 @@ export const makeMuseAdapter = Effect.fn("makeMuseAdapter")(function* (
   const handleNotification = (ctx: MuseSessionContext, method: string, data: unknown) =>
     Effect.gen(function* () {
       const params = yield* decode(method, recordSchema, data);
+      // Subscription quota is connection scoped: it carries no sessionId and
+      // folds into the account's published Limits like Claude's sparse updates.
+      if (method === "usage/changed") {
+        const usage = yield* decode(method, MuseSubscriptionUsage, params);
+        yield* publish(ctx, {
+          type: "account.rate-limits.updated",
+          payload: { limits: museUsageToLimitsUpdate(usage) },
+        });
+        return;
+      }
       if (params.sessionId !== ctx.nativeSessionId) return;
       if (method === "view/gap")
         return yield* requestError(method, "Muse delivery gap requires session recovery");

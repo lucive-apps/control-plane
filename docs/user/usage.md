@@ -83,10 +83,10 @@ Grok reports the remaining subscription allowance and reset time for its current
 after signing in with `grok login`. Explicit `XAI_API_KEY` connections and custom authentication
 or endpoint configurations do not report subscription limits.
 
-Muse does not appear under **Usage → Limits**. Meta exposes no subscription quota for Muse
-through its CLI, SDK, session logs, or account API, so there is no honest percentage to show.
-Muse usage still appears under **Cost** and **Tokens** from transcript scanning. No limit is
-estimated or invented.
+Muse reports its current window and weekly subscription usage through the Muse host while
+turns run, so its **Usage → Limits** bars appear after the first Muse turn in Control Plane and
+refresh as turns complete. Before any turn, Muse has observed no quota and shows no bar yet.
+The figures are the provider's own percentages and reset times; nothing is estimated.
 
 API-key accounts may not report subscription limits. This also applies to Claude connections
 using a proxy through `ANTHROPIC_AUTH_TOKEN`.
