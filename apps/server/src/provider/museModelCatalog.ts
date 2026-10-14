@@ -21,6 +21,22 @@ const REASONING_EFFORT_LABELS = {
 const isMuseReasoningEffort = (tier: string): tier is MuseReasoningEffort =>
   Object.hasOwn(REASONING_EFFORT_LABELS, tier);
 
+/**
+ * Friendly picker names for Meta rows whose catalog label is still the raw model id.
+ * Slug stays the model id, so favourites and hidden-model prefs keyed by id are unaffected.
+ */
+const FRIENDLY_MODEL_NAMES: Readonly<Record<string, string>> = {
+  "muse-wonder-1.0": "Muse Wonder",
+  "muse-spark-1.3": "Muse Spark 1.3",
+  "muse-spark-1.2": "Muse Spark 1.2",
+};
+
+function musePickerName(modelId: string, displayLabel: string): string {
+  const label = displayLabel.trim();
+  if (label && label !== modelId) return label;
+  return FRIENDLY_MODEL_NAMES[modelId] ?? modelId;
+}
+
 /** Used when Muse does not report a model's efforts (custom slugs, older hosts, "unknown"). */
 const FALLBACK_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 /** Muse's own CLI default. */
@@ -128,7 +144,7 @@ export const discoverMuseModels = Effect.fn("discoverMuseModels")(function* (
     return [
       {
         slug: model.modelId,
-        name: model.displayLabel.trim() || model.modelId,
+        name: musePickerName(model.modelId, model.displayLabel),
         isCustom: false,
         isDefault: model.isDefault,
         capabilities: museModelCapabilities(model),
