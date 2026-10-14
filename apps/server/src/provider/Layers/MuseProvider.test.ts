@@ -124,6 +124,10 @@ it.layer(NodeServices.layer)("Muse status", (it) => {
         expect(host.connection.request).toHaveBeenCalledWith("model/list", {});
         expect(host.connection.command).not.toHaveBeenCalled();
         expect(host.close).toHaveBeenCalledOnce();
+        // Muse has no subscription quota source (no CLI, SDK, or log field
+        // reports one), so it deliberately publishes no usageLimits and stays
+        // off Usage Limits, like other drivers with no limits notion.
+        expect(snapshot.usageLimits).toBeUndefined();
       }),
     ),
   );

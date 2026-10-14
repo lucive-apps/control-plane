@@ -61,6 +61,9 @@ export const checkMuseProviderStatus = Effect.fn("checkMuseProviderStatus")(func
   const checkedAt = DateTime.formatIso(yield* DateTime.now);
   // The driver passes a prepared environment; direct callers get the host's without META_API_KEY.
   const museEnvironment = environment ?? makeMuseEnvironment();
+  // No usageLimits here on purpose: Muse exposes no subscription quota
+  // through its CLI, SDK, session logs, or account API, so Muse stays off
+  // Usage Limits (Cost and Tokens still come from transcript scanning).
   const snapshot = (probe: ProviderProbeResult, models: ReadonlyArray<ServerProviderModel> = []) =>
     buildServerProvider({
       presentation: MUSE_PRESENTATION,
