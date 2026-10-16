@@ -102,6 +102,7 @@ const serviceLayers = (input: {
     Layer.provideMerge(
       Layer.succeed(HostProcessEnvironment, {
         GROK_HOME: NodePath.join(input.home, "grok"),
+        MUSE_HOME: NodePath.join(input.home, "muse"),
         ...input.environment,
       }),
     ),
@@ -226,6 +227,76 @@ describe("UsageService", () => {
         sources.filter((source) => source.fingerprint.provider === "codex").length,
         1,
       );
+    }).pipe(Effect.scoped),
+  );
+
+  it.live("scans muse history once across main and subagent logs", () =>
+    Effect.gen(function* () {
+      const { settings, home } = yield* setup;
+      const sessionDir = NodePath.join(
+        home,
+        "muse",
+        "sessions",
+        "2026",
+        "08",
+        "01",
+        "muse-session-1",
+      );
+      const subagentDir = NodePath.join(sessionDir, "subagent", "muse-subagent-1");
+      const frame = (recordId: string, streamId: string, outputTokens: number) =>
+        `${encodeUnknownJsonString({
+          retained_frame: "session_transaction",
+          children: [
+            {
+              child_index: 0,
+              record_json: encodeUnknownJsonString({
+                id: recordId,
+                stream: { kind: "session", id: streamId },
+                recorded_at: Date.parse("2026-08-01T10:00:00Z") * 1000,
+                payload_type: "runtime.session",
+                payload: {
+                  kind: "run",
+                  event: {
+                    kind: "model_completed",
+                    usage: { input_tokens: 1000, output_tokens: outputTokens },
+                    model: "muse-spark-1.3",
+                  },
+                },
+              }),
+            },
+          ],
+        })}\n`;
+      yield* Effect.promise(async () => {
+        await NodeFSP.mkdir(subagentDir, { recursive: true });
+        await NodeFSP.writeFile(
+          NodePath.join(sessionDir, "session.jsonl"),
+          frame("record-1", "muse-session-1", 50) + frame("record-2", "muse-session-1", 70),
+        );
+        // A subagent repeat of an already-seen event must not count twice,
+        // while the subagent's own turn still counts under its own session.
+        await NodeFSP.writeFile(
+          NodePath.join(subagentDir, "session.jsonl"),
+          frame("record-2", "muse-subagent-1", 70) + frame("record-3", "muse-subagent-1", 30),
+        );
+      });
+      const service = yield* UsageService.make.pipe(
+        Effect.provide(serviceLayers({ prefix: "usage-service-muse-test", home, settings })),
+      );
+      const summary = yield* service.readSummary(WINDOW);
+      const museBuckets = summary.buckets.filter((bucket) => bucket.provider === "muse");
+      assert.strictEqual(museBuckets.length, 1);
+      // record-2 appears in both logs but counts once: 50 + 70 + 30.
+      assert.strictEqual(museBuckets[0]?.records, 3);
+      assert.strictEqual(museBuckets[0]?.totals.outputTokens, 150);
+      // Muse reports no cost and the rate table is unavailable here, so tokens
+      // show with no cost rather than an invented figure.
+      assert.strictEqual(museBuckets[0]?.costSource, "unpriced");
+      assert.strictEqual(museBuckets[0]?.unpricedRecords, 3);
+      assert.strictEqual(museBuckets[0]?.sessions, 2);
+      const museSource = summary.sources.find((source) => source.fingerprint.provider === "muse");
+      assert.strictEqual(museSource?.status, "ok");
+      assert.strictEqual(museSource?.scannedFiles, 2);
+      assert.strictEqual(museSource?.distinctSessions, 2);
     }).pipe(Effect.scoped),
   );
 

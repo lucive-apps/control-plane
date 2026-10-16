@@ -61,6 +61,9 @@ export const checkMuseProviderStatus = Effect.fn("checkMuseProviderStatus")(func
   const checkedAt = DateTime.formatIso(yield* DateTime.now);
   // The driver passes a prepared environment; direct callers get the host's without META_API_KEY.
   const museEnvironment = environment ?? makeMuseEnvironment();
+  // The probe publishes no usageLimits: a fresh MSP host has observed no
+  // quota yet. Muse limits arrive with turns via `usage/changed` and fold
+  // into the published snapshot; the merge keeps them across probes.
   const snapshot = (probe: ProviderProbeResult, models: ReadonlyArray<ServerProviderModel> = []) =>
     buildServerProvider({
       presentation: MUSE_PRESENTATION,
