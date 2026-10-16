@@ -137,13 +137,8 @@ function WorkspaceZoomFrame({ children }: { children: ReactNode }) {
       <div
         className="flex h-full min-h-0 w-full flex-col [&_[data-slot=sidebar-inset]]:h-full! [&_[data-slot=sidebar-inset]]:max-h-full"
         data-workspace-zoom-canvas=""
-        style={
-          {
-            zoom: factor,
-            width: `${100 / factor}%`,
-            height: `${100 / factor}%`,
-          } as CSSProperties
-        }
+        // CSS zoom already adjusts percentage sizes to the containing frame.
+        style={{ zoom: factor }}
       >
         {children}
       </div>
