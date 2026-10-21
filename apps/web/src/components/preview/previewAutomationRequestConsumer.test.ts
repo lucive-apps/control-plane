@@ -324,7 +324,7 @@ describe("previewAutomationRequestConsumer", () => {
     });
   });
 
-  it("correlates unexpected failures without exposing cause details", () => {
+  it("correlates unexpected failures with a redacted reason instead of raw cause details", () => {
     const cause = new Error("private bridge token: preview-secret");
     const context = {
       requestId: "request-2",
@@ -345,9 +345,27 @@ describe("previewAutomationRequestConsumer", () => {
         environmentId: "environment-1",
         threadId: "thread-1",
         tabId: "tab-1",
+        reason: "private bridge token: <redacted>",
       },
     });
     expect(JSON.stringify(response)).not.toContain("preview-secret");
+  });
+
+  it("forwards why a desktop capture failed, without local paths", () => {
+    const ipcFailure = new Error(
+      "Error invoking remote method 'desktop:preview:automation-snapshot': Error: Desktop preview operation failed: automationSnapshot.capturePage (artifact /Users/someone/.t3/shot.png): TimeoutError: Operation timed out after '1s'",
+    );
+    const response = serializePreviewAutomationError(ipcFailure, {
+      requestId: "request-3",
+      operation: "snapshot" as const,
+      environmentId,
+      threadId,
+      tabId,
+    });
+    const reason = (response.detail as { reason?: string }).reason;
+    expect(reason).toContain("automationSnapshot.capturePage");
+    expect(reason).toContain("Operation timed out after '1s'");
+    expect(reason).not.toContain("/Users/someone");
   });
 
   it("sanitizes unexpected handler failures at the response boundary", async () => {
@@ -398,6 +416,7 @@ describe("previewAutomationRequestConsumer", () => {
           environmentId: "environment-1",
           threadId: "thread-1",
           tabId: "tab-1",
+          reason: "desktop IPC secret: <redacted>",
         },
       },
     });

@@ -1356,7 +1356,8 @@ it.effect("evicts an unanswered host and lets later calls use a healthy runtime"
           Effect.forkScoped,
         );
       yield* Deferred.await(otherReceived);
-      yield* TestClock.adjust(1_000);
+      // Budget plus the host-response grace, with no sign of life from the host.
+      yield* TestClock.adjust(2_000);
       expect(yield* Fiber.join(timedOut)).toMatchObject({ _tag: "PreviewAutomationTimeoutError" });
       expect(yield* Deferred.isDone(otherCompleted)).toBe(true);
       expect(yield* Fiber.join(other)).toMatchObject({
@@ -1414,6 +1415,186 @@ it.effect("keeps a host that responds with an operation timeout", () =>
         yield* broker.invoke<void>({ scope, operation: "waitFor", input: {} }).pipe(Effect.flip),
       ).toMatchObject({ _tag: "PreviewAutomationTimeoutError" });
       expect(yield* broker.invoke({ scope, operation: "status", input: {} })).toBe("responsive");
+    }),
+  ),
+);
+
+const otherThreadScope = {
+  ...scope,
+  threadId: ThreadId.make("thread-2"),
+  providerSessionId: "provider-session-2",
+};
+
+it.effect("a timed-out request does not evict a host that is still answering other threads", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const broker = yield* makeBroker;
+      const connected = yield* Deferred.make<void>();
+      const stuckDelivered = yield* Deferred.make<void>();
+      const events = yield* broker.connect(makeHost());
+      const consumer = yield* Stream.runForEach(events, (event) => {
+        if (event.type === "connected") return Deferred.succeed(connected, undefined);
+        // A page that never settles: the host never answers this one request.
+        if (event.request.operation === "snapshot") {
+          return Deferred.succeed(stuckDelivered, undefined);
+        }
+        return broker.respond({
+          clientId: "client-1",
+          connectionId: event.connectionId,
+          requestId: event.request.requestId,
+          ok: true,
+          result: `answered ${event.request.operation} for ${event.request.threadId}`,
+        });
+      }).pipe(Effect.forkScoped);
+      yield* Deferred.await(connected);
+
+      const stuck = yield* broker
+        .invoke<void>({ scope, operation: "snapshot", input: {}, timeoutMs: 1_000 })
+        .pipe(Effect.flip, Effect.forkScoped);
+      yield* Deferred.await(stuckDelivered);
+      // Another thread keeps using the same host while the first request hangs.
+      expect(
+        yield* broker.invoke({ scope: otherThreadScope, operation: "evaluate", input: {} }),
+      ).toBe("answered evaluate for thread-2");
+
+      yield* TestClock.adjust(2_000);
+      expect(yield* Fiber.join(stuck)).toMatchObject({ _tag: "PreviewAutomationTimeoutError" });
+      expect(consumer.pollUnsafe()).toBeUndefined();
+      expect(
+        yield* broker.invoke({ scope: otherThreadScope, operation: "status", input: {} }),
+      ).toBe("answered status for thread-2");
+      expect(yield* broker.invoke({ scope, operation: "status", input: {} })).toBe(
+        "answered status for thread-1",
+      );
+    }),
+  ),
+);
+
+it.effect("a slow background status read never drops the host or other pending calls", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const broker = yield* makeBroker;
+      const connected = yield* Deferred.make<void>();
+      const evaluateDelivered = yield* Deferred.make<RoutedRequest>();
+      const events = yield* broker.connect(makeHost());
+      const consumer = yield* Stream.runForEach(events, (event) => {
+        if (event.type === "connected") return Deferred.succeed(connected, undefined);
+        // A busy page: nothing is answered until the evaluate finishes.
+        if (event.request.operation === "evaluate") {
+          return Deferred.succeed(evaluateDelivered, {
+            ...event.request,
+            connectionId: event.connectionId,
+          });
+        }
+        return Effect.void;
+      }).pipe(Effect.forkScoped);
+      yield* Deferred.await(connected);
+
+      const evaluate = yield* broker
+        .invoke<string>({ scope: otherThreadScope, operation: "evaluate", input: {} })
+        .pipe(Effect.forkScoped);
+      const evaluateRequest = yield* Deferred.await(evaluateDelivered);
+      const probe = yield* broker
+        .invoke<void>({
+          scope,
+          operation: "status",
+          input: {},
+          timeoutMs: 500,
+          updateCurrentTab: false,
+        })
+        .pipe(Effect.flip, Effect.forkScoped);
+      yield* TestClock.adjust(500);
+      expect(yield* Fiber.join(probe)).toMatchObject({ _tag: "PreviewAutomationTimeoutError" });
+
+      // The host was silent the whole time, yet the probe must not have dropped it.
+      expect(consumer.pollUnsafe()).toBeUndefined();
+      yield* broker.respond({
+        clientId: "client-1",
+        connectionId: evaluateRequest.connectionId,
+        requestId: evaluateRequest.requestId,
+        ok: true,
+        result: "evaluated",
+      });
+      expect(yield* Fiber.join(evaluate)).toBe("evaluated");
+    }),
+  ),
+);
+
+it.effect("keeps a host whose own timeout reply arrives within the response grace", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const broker = yield* makeBroker;
+      const connected = yield* Deferred.make<void>();
+      const delivered = yield* Deferred.make<RoutedRequest>();
+      const events = yield* broker.connect(makeHost());
+      const consumer = yield* Stream.runForEach(events, (event) => {
+        if (event.type === "connected") return Deferred.succeed(connected, undefined);
+        if (event.request.operation === "waitFor") {
+          return Deferred.succeed(delivered, {
+            ...event.request,
+            connectionId: event.connectionId,
+          });
+        }
+        return broker.respond({
+          clientId: "client-1",
+          connectionId: event.connectionId,
+          requestId: event.request.requestId,
+          ok: true,
+          result: "responsive",
+        });
+      }).pipe(Effect.forkScoped);
+      yield* Deferred.await(connected);
+
+      const waitFor = yield* broker
+        .invoke<void>({ scope, operation: "waitFor", input: {}, timeoutMs: 1_000 })
+        .pipe(Effect.flip, Effect.forkScoped);
+      const request = yield* Deferred.await(delivered);
+      // The host started its own timer late, so its timeout lands after ours.
+      yield* TestClock.adjust(1_500);
+      yield* broker.respond({
+        clientId: "client-1",
+        connectionId: request.connectionId,
+        requestId: request.requestId,
+        ok: false,
+        error: { _tag: "PreviewAutomationTimeoutError", message: "Selector timed out" },
+      });
+      expect(yield* Fiber.join(waitFor)).toMatchObject({ _tag: "PreviewAutomationTimeoutError" });
+      expect(consumer.pollUnsafe()).toBeUndefined();
+      expect(yield* broker.invoke({ scope, operation: "status", input: {} })).toBe("responsive");
+    }),
+  ),
+);
+
+it.effect("reports the host's sanitized failure reason instead of a bare execution error", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const broker = yield* makeBroker;
+      const requests = requestsFrom(yield* broker.connect(makeHost()));
+      yield* Stream.runForEach(requests, (request) =>
+        broker.respond({
+          clientId: "client-1",
+          connectionId: request.connectionId,
+          requestId: request.requestId,
+          ok: false,
+          error: {
+            _tag: "PreviewAutomationExecutionError",
+            message: "Preview automation snapshot request failed.",
+            detail: {
+              reason:
+                "Desktop preview operation failed: automationSnapshot.capturePage (artifact /Users/someone/.t3/a.png): TimeoutError: Operation timed out after '1s'",
+            },
+          },
+        }),
+      ).pipe(Effect.forkScoped);
+      yield* Effect.yieldNow;
+
+      const error = yield* broker
+        .invoke<void>({ scope, operation: "snapshot", input: {} })
+        .pipe(Effect.flip);
+      expect(error).toMatchObject({ _tag: "PreviewAutomationExecutionError" });
+      expect(error.message).toBe(
+        "Preview automation snapshot failed on client client-1: Desktop preview operation failed: automationSnapshot.capturePage (artifact <path>): TimeoutError: Operation timed out after '1s'",
+      );
     }),
   ),
 );
