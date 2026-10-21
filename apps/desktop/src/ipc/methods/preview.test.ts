@@ -170,3 +170,32 @@ describe("preview IPC methods", () => {
     ).toThrow();
   });
 });
+
+describe("describePreviewIpcFailure", () => {
+  it("folds a desktop operation's sanitized cause into the text the renderer receives", () => {
+    const timeout = Object.assign(new Error("Operation timed out after '1s'"), {
+      _tag: "TimeoutError",
+    });
+    const failure = PreviewIpc.describePreviewIpcFailure(
+      new PreviewManager.PreviewOperationError({
+        operation: "automationSnapshot.capturePage",
+        tabId: "tab_1",
+        artifactPath: "/Users/someone/.t3/shot.png",
+        cause: timeout,
+      }),
+    );
+    expect(failure.message).toBe(
+      "Desktop preview operation failed: automationSnapshot.capturePage (tab tab_1, artifact /Users/someone/.t3/shot.png): TimeoutError: Operation timed out after '1s'",
+    );
+  });
+
+  it("leaves already-descriptive errors and causeless failures unchanged", () => {
+    const notFound = new PreviewManager.PreviewTabNotFoundError({ tabId: "tab_1" });
+    expect(PreviewIpc.describePreviewIpcFailure(notFound)).toBe(notFound);
+    const bare = new PreviewManager.PreviewOperationError({
+      operation: "navigate.loadURL",
+      cause: {},
+    });
+    expect(PreviewIpc.describePreviewIpcFailure(bare)).toBe(bare);
+  });
+});

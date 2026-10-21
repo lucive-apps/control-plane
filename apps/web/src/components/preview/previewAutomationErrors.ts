@@ -12,6 +12,7 @@ import {
   ThreadId,
   TrimmedNonEmptyString,
 } from "@t3tools/contracts";
+import { previewFailureReason } from "@t3tools/shared/previewFailureReason";
 import * as Schema from "effect/Schema";
 
 export interface PreviewAutomationOperationContext {
@@ -235,6 +236,13 @@ export function serializePreviewAutomationHostError(
         key !== "_tag" && key !== "cause" && key !== "name" && key !== "message" && key !== "stack",
     ),
   );
+  // The wrapped cause is not serializable, but its sanitized summary is what
+  // tells the agent why the operation failed (e.g. a capture timeout).
+  const reason =
+    error._tag === "PreviewAutomationOperationError"
+      ? previewFailureReason(error.cause)
+      : undefined;
+  if (reason !== undefined) detail.reason = reason;
   return {
     _tag: "responseTag" in error ? error.responseTag : error._tag,
     message: error.message,

@@ -784,10 +784,13 @@ export class PreviewAutomationExecutionError extends Schema.TaggedError<PreviewA
   {
     ...PreviewAutomationRequestErrorFields,
     ...PreviewAutomationRemoteDiagnosticFields,
+    /** Sanitized summary of the host-side cause, e.g. a capture timeout. */
+    reason: Schema.optional(Schema.String),
   },
 ) {
   override get message(): string {
-    return `Preview automation ${this.operation} failed on client ${this.clientId}.`;
+    const summary = `Preview automation ${this.operation} failed on client ${this.clientId}`;
+    return this.reason ? `${summary}: ${this.reason}` : `${summary}.`;
   }
 }
 

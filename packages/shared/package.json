@@ -362,6 +362,10 @@
     "./schedules": {
       "types": "./src/schedules.ts",
       "import": "./src/schedules.ts"
+    },
+    "./previewFailureReason": {
+      "types": "./src/previewFailureReason.ts",
+      "import": "./src/previewFailureReason.ts"
     }
   },
   "scripts": {

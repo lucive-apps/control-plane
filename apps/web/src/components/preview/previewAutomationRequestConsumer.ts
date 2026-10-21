@@ -23,6 +23,8 @@ export function serializePreviewAutomationError(
   );
 }
 
+class PreviewAutomationHostDeadlineError extends Error {}
+
 export function createPreviewAutomationRequestConsumerAtom<E>(options: {
   readonly requestsAtom: Atom.Atom<AutomationStreamResult<E>>;
   readonly clientId: PreviewAutomationHost["clientId"];
@@ -63,9 +65,18 @@ export function createPreviewAutomationRequestConsumerAtom<E>(options: {
         return;
       }
       const request = event.request;
-      void get
-        .once(options.requestHandlerAtom)
-        .handle(request)
+      // Answer within the request's own budget. The broker waits only a short grace
+      // past it, and a host that never answers is treated as gone, which fails every
+      // other thread's calls on this host. A late result is dropped.
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const deadline = new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new PreviewAutomationHostDeadlineError()),
+          request.timeoutMs,
+        );
+      });
+      void Promise.race([get.once(options.requestHandlerAtom).handle(request), deadline])
+        .finally(() => clearTimeout(timer))
         .then(
           (value) =>
             options.respond({
@@ -81,13 +92,19 @@ export function createPreviewAutomationRequestConsumerAtom<E>(options: {
               connectionId: event.connectionId,
               requestId: request.requestId,
               ok: false,
-              error: serializePreviewAutomationError(error, {
-                requestId: request.requestId,
-                operation: request.operation,
-                environmentId: options.environmentId,
-                threadId: request.threadId,
-                tabId: request.tabId ?? null,
-              }),
+              error:
+                error instanceof PreviewAutomationHostDeadlineError
+                  ? {
+                      _tag: "PreviewAutomationTimeoutError",
+                      message: `Preview automation ${request.operation} did not finish within ${request.timeoutMs}ms on this client; it may still complete.`,
+                    }
+                  : serializePreviewAutomationError(error, {
+                      requestId: request.requestId,
+                      operation: request.operation,
+                      environmentId: options.environmentId,
+                      threadId: request.threadId,
+                      tabId: request.tabId ?? null,
+                    }),
             }),
         );
     };

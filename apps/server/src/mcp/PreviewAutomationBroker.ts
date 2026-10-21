@@ -36,7 +36,19 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SynchronizedRef from "effect/SynchronizedRef";
 
+import {
+  previewFailureReason,
+  sanitizePreviewFailureText,
+} from "@t3tools/shared/previewFailureReason";
+
 import * as McpInvocationContext from "./McpInvocationContext.ts";
+
+/**
+ * The host answers every request within the request's own budget, measured from
+ * when it receives it, so its reply can land just after the broker's clock runs
+ * out. Wait this long past the budget before concluding the host never answered.
+ */
+const HOST_RESPONSE_GRACE_MS = 1_000;
 
 export interface PreviewAutomationInvokeInput {
   readonly scope: McpInvocationContext.McpInvocationScope;
@@ -75,6 +87,12 @@ interface ClientConnection {
   readonly liveTabs: NonNullable<PreviewAutomationHostFocus["liveTabs"]>;
   readonly focusOrder: number;
   readonly queue: Queue.Queue<PreviewAutomationStreamEvent>;
+  /**
+   * Bumped on every response from this connection, so a timeout can tell a busy
+   * host from one that stopped serving its request stream. Focus updates travel
+   * on a separate RPC and do not prove the stream is being read.
+   */
+  readonly activity: number;
 }
 
 interface PendingRequest {
@@ -192,6 +210,22 @@ function remoteDetailKind(detail: unknown): RemoteDetailKind {
   }
 }
 
+// The host is a client, so its text is re-sanitized here rather than trusted.
+const remoteFailureReason = (
+  error: NonNullable<PreviewAutomationResponse["error"]>,
+): string | undefined => {
+  const detail = error.detail;
+  if (
+    typeof detail === "object" &&
+    detail !== null &&
+    "reason" in detail &&
+    typeof detail.reason === "string"
+  ) {
+    return previewFailureReason(sanitizePreviewFailureText(detail.reason));
+  }
+  return undefined;
+};
+
 const classifyResponseError = (
   context: PreviewAutomationRequestErrorContext,
   error: NonNullable<PreviewAutomationResponse["error"]>,
@@ -306,11 +340,14 @@ const classifyResponseError = (
         ...context,
         ...remoteDiagnostics,
       });
-    default:
+    default: {
+      const reason = remoteFailureReason(error);
       return new PreviewAutomationExecutionError({
         ...context,
         ...remoteDiagnostics,
+        ...(reason === undefined ? {} : { reason }),
       });
+    }
   }
 };
 
@@ -364,6 +401,7 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
       liveTabs: [],
       focusOrder: 0,
       queue,
+      activity: 0,
     };
     const registration = yield* SynchronizedRef.modify(state, (current) => {
       const previousConnection = current.clients.get(clientId);
@@ -429,17 +467,28 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
     "PreviewAutomationBroker.respond",
   )(function* (response) {
     const pending = yield* SynchronizedRef.modify(state, (current) => {
-      const entry = current.pending.get(response.requestId);
+      const responder = current.clients.get(response.clientId);
+      const withActivity =
+        responder?.connectionId === response.connectionId
+          ? {
+              ...current,
+              clients: new Map(current.clients).set(response.clientId, {
+                ...responder,
+                activity: responder.activity + 1,
+              }),
+            }
+          : current;
+      const entry = withActivity.pending.get(response.requestId);
       if (
         !entry ||
         entry.context.clientId !== response.clientId ||
         entry.context.connectionId !== response.connectionId
       ) {
-        return [undefined, current] as const;
+        return [undefined, withActivity] as const;
       }
-      const next = new Map(current.pending);
+      const next = new Map(withActivity.pending);
       next.delete(response.requestId);
-      return [entry, { ...current, pending: next }] as const;
+      return [entry, { ...withActivity, pending: next }] as const;
     });
     if (!pending) return;
     if (response.ok) {
@@ -563,7 +612,14 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
       pending.delete(requestId);
       return { ...next, pending };
     });
+    const connectionActivity = SynchronizedRef.get(state).pipe(
+      Effect.map((current) => {
+        const live = current.clients.get(connection.clientId);
+        return live?.queue === connection.queue ? live.activity : undefined;
+      }),
+    );
     const awaitResponse = Effect.fn("PreviewAutomationBroker.awaitResponse")(function* () {
+      const activityAtDelivery = yield* connectionActivity;
       const offered = yield* Queue.offer(connection.queue, {
         type: "request",
         connectionId: connection.connectionId,
@@ -584,13 +640,31 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
         }
         return yield* new PreviewAutomationRequestQueueClosedError(requestContext);
       }
-      const result = yield* Deferred.await(deferred).pipe(Effect.timeoutOption(timeoutMs));
+      const responseTimeoutMs =
+        input.updateCurrentTab === false ? timeoutMs : timeoutMs + HOST_RESPONSE_GRACE_MS;
+      const result = yield* Deferred.await(deferred).pipe(Effect.timeoutOption(responseTimeoutMs));
       return yield* Option.match(result, {
         onNone: () =>
           Effect.gen(function* () {
-            // An unanswered request invalidates this connection. Do not replay
-            // actions: the client may have applied them before becoming unreachable.
-            yield* disconnect(connection.clientId, connection.queue);
+            // Only this request fails. The connection is dropped (failing every
+            // request on it, from any thread) only when the host has gone silent:
+            // no response at all since this request was delivered. A busy
+            // page, a slow background status read, or a host that is answering
+            // other calls keeps its connection. Never replay: the client may have
+            // applied the action before going quiet.
+            const activityNow = yield* connectionActivity;
+            if (
+              input.updateCurrentTab !== false &&
+              activityNow !== undefined &&
+              activityNow === activityAtDelivery
+            ) {
+              yield* Effect.logWarning("preview automation host went silent; dropping it", {
+                operation: input.operation,
+                clientId: connection.clientId,
+                timeoutMs,
+              });
+              yield* disconnect(connection.clientId, connection.queue);
+            }
             return yield* new PreviewAutomationTimeoutError(requestContext);
           }),
         onSome: (value) => Effect.succeed(value as A),

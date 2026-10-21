@@ -140,6 +140,16 @@ const PICTURE_IN_PICTURE_JPEG_QUALITY = 80;
 const CAPTURE_PAGE_RETRY_ATTEMPTS = 3;
 const CAPTURE_PAGE_RETRY_DELAY_MS = 120;
 const CAPTURE_PAGE_ATTEMPT_TIMEOUT_MS = 1_000;
+// Enabling CDP domains on a healthy guest takes milliseconds. A target that never
+// answers must not hold the control-session lock every tab shares.
+const CONTROL_SESSION_INIT_TIMEOUT_MS = 5_000;
+// A target that drops its debugger again right after each reattach is not recoverable.
+const DEBUGGER_RECOVERY_MAX_ATTEMPTS = 3;
+const DEBUGGER_RECOVERY_WINDOW_MS = 60_000;
+
+// Commands sent to a crashed guest never settle. Test doubles may omit isCrashed.
+const isGuestCrashed = (wc: Electron.WebContents): boolean =>
+  (wc as { readonly isCrashed?: () => boolean }).isCrashed?.() === true;
 const PICTURE_IN_PICTURE_INITIAL_WIDTH = 480;
 const PICTURE_IN_PICTURE_INITIAL_HEIGHT = 320;
 const PICTURE_IN_PICTURE_MIN_WIDTH = 240;
@@ -644,6 +654,9 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     ReadonlyMap<number, BrowserControlSession>
   >(new Map());
   const diagnosticsRef = yield* Ref.make<ReadonlyMap<number, BrowserDiagnostics>>(new Map());
+  const debuggerRecoveriesRef = yield* Ref.make<ReadonlyMap<number, ReadonlyArray<number>>>(
+    new Map(),
+  );
   const expectedAgentInputsRef = yield* Ref.make<
     ReadonlyMap<string, ReadonlyArray<ExpectedAgentInput>>
   >(new Map());
@@ -1241,8 +1254,26 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         readonly [BrowserControlSession, ReadonlyMap<number, BrowserControlSession>],
         PreviewManagerError
       > => {
+        if (!wc.isDestroyed() && isGuestCrashed(wc)) {
+          return Effect.fail(
+            new PreviewOperationError({
+              operation: "ensureControlSession",
+              webContentsId: wc.id,
+              cause: new Error("The page's renderer crashed. Reload the tab to continue."),
+            }),
+          );
+        }
         const existing = sessions.get(wc.id);
         if (existing) return Effect.succeed([existing, sessions] as const);
+        if (wc.isDestroyed()) {
+          return Effect.fail(
+            new PreviewOperationError({
+              operation: "ensureControlSession",
+              webContentsId: wc.id,
+              cause: new Error("WebContents was destroyed"),
+            }),
+          );
+        }
         if (wc.isDevToolsOpened()) {
           return Effect.fail(
             new PreviewAutomationDevToolsOpenError({
@@ -1311,6 +1342,19 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
           const onMessage: BrowserControlSession["onMessage"] = (_event, method, params) => {
             runFork(handleDebuggerMessage(method, params));
           };
+          // Electron emits `detach` when Chromium closes the debugger session on its
+          // own (target crash or swap). The cached session would otherwise fail every
+          // later command until the webview is replaced.
+          let dropped = false;
+          const onDetach = () => {
+            dropped = true;
+            runFork(recoverDetachedControlSession(wc, control));
+          };
+          // Commands in flight on a crashed guest never settle. Closing the session
+          // detaches the debugger, which rejects them so the caller gets an error.
+          const onGuestGone = () => {
+            runFork(releaseCrashedControlSession(wc.id, control));
+          };
           yield* Scope.addFinalizer(
             scope,
             Effect.all(
@@ -1320,9 +1364,15 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
                     copy.delete(wc.id);
                   }),
                 ),
+                // The listener comes off before detach() so a detach requested here
+                // never looks like a dropped one. A dropped session has nothing left
+                // to detach, and `wc.debugger` is shared, so detaching would hit a
+                // successor session.
                 attempt({ operation: "detachControlSession", webContentsId: wc.id }, () => {
                   wcDebugger.off("message", onMessage);
-                  if (wcDebugger.isAttached()) wcDebugger.detach();
+                  wcDebugger.off("detach", onDetach);
+                  if (!wc.isDestroyed()) wc.off("render-process-gone", onGuestGone);
+                  if (!dropped && wcDebugger.isAttached()) wcDebugger.detach();
                 }).pipe(Effect.ignore),
               ],
               { discard: true },
@@ -1347,6 +1397,8 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
             );
             yield* attempt({ operation: "attachDebuggerListeners", webContentsId: wc.id }, () => {
               wcDebugger.on("message", onMessage);
+              wcDebugger.on("detach", onDetach);
+              wc.on("render-process-gone", onGuestGone);
               wcDebugger.attach("1.3");
             });
             yield* Effect.all(
@@ -1355,6 +1407,18 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
                   attemptPromise(
                     { operation: `initializeDebugger.${method}`, webContentsId: wc.id },
                     () => wcDebugger.sendCommand(method),
+                  ).pipe(
+                    Effect.timeout(CONTROL_SESSION_INIT_TIMEOUT_MS),
+                    Effect.catchTags({
+                      TimeoutError: (cause) =>
+                        Effect.fail(
+                          new PreviewOperationError({
+                            operation: `initializeDebugger.${method}`,
+                            webContentsId: wc.id,
+                            cause,
+                          }),
+                        ),
+                    }),
                   ),
               ),
               { concurrency: "unbounded", discard: true },
@@ -2688,6 +2752,62 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       }
     }).pipe(Effect.ignore);
 
+  const releaseCrashedControlSession = Effect.fn("PreviewManager.releaseCrashedControlSession")(
+    function* (webContentsId: number, crashed: BrowserControlSession) {
+      const removed = yield* SynchronizedRef.modify(controlSessionsRef, (sessions) =>
+        sessions.get(webContentsId) === crashed
+          ? ([
+              true,
+              replaceMap(sessions, (copy) => {
+                copy.delete(webContentsId);
+              }),
+            ] as const)
+          : ([false, sessions] as const),
+      );
+      if (removed) yield* Scope.close(crashed.scope, Exit.void).pipe(Effect.ignore);
+    },
+    (release) => Effect.ignore(release),
+  );
+
+  // Only the session that saw the detach is replaced: by the time the event is
+  // handled the guest may already hold a newer one, which must stay.
+  const recoverDetachedControlSession = Effect.fn("PreviewManager.recoverDetachedControlSession")(
+    function* (wc: Electron.WebContents, detached: BrowserControlSession) {
+      const removed = yield* SynchronizedRef.modify(controlSessionsRef, (sessions) =>
+        sessions.get(wc.id) === detached
+          ? ([
+              true,
+              replaceMap(sessions, (copy) => {
+                copy.delete(wc.id);
+              }),
+            ] as const)
+          : ([false, sessions] as const),
+      );
+      if (!removed) return;
+      yield* Scope.close(detached.scope, Exit.void).pipe(Effect.ignore);
+      // A crashed guest is reattached on demand after the webview reloads.
+      if (wc.isDestroyed() || isGuestCrashed(wc)) return;
+      const now = yield* currentMillis;
+      const allowed = yield* Ref.modify(debuggerRecoveriesRef, (recoveries) => {
+        const recent = (recoveries.get(wc.id) ?? []).filter(
+          (timestamp) => now - timestamp < DEBUGGER_RECOVERY_WINDOW_MS,
+        );
+        const permitted = recent.length < DEBUGGER_RECOVERY_MAX_ATTEMPTS;
+        return [
+          permitted,
+          replaceMap(recoveries, (copy) => {
+            copy.set(wc.id, permitted ? [...recent, now] : recent);
+          }),
+        ] as const;
+      });
+      if (!allowed) return;
+      const tabId = yield* tabIdForWebContents(wc.id);
+      if (tabId === null) return;
+      yield* restoreControlSession(tabId, wc);
+    },
+    (recover) => Effect.ignore(recover),
+  );
+
   const setColorScheme = Effect.fn("PreviewManager.setColorScheme")(function* (
     tabId: string,
     colorScheme: DesktopPreviewColorScheme,
@@ -3418,14 +3538,20 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         if (requestWebContents === null) {
           return yield* new PreviewMainWindowClosedError({ tabId });
         }
-        yield* attemptPromise(
-          {
-            operation: "recording.warmSource",
-            tabId,
-            webContentsId: wc.id,
-          },
-          () => wc.capturePage().then(() => undefined),
-        ).pipe(Effect.retry({ times: 1 }), Effect.ignore);
+        const warmupContext = { operation: "recording.warmSource", tabId, webContentsId: wc.id };
+        yield* Effect.tryPromise({
+          // Electron cannot cancel capturePage, but a stalled warmup must release the tab lock.
+          try: (_signal) => wc.capturePage(),
+          catch: (cause) => new PreviewOperationError({ ...warmupContext, cause }),
+        }).pipe(
+          Effect.timeout(CAPTURE_PAGE_ATTEMPT_TIMEOUT_MS),
+          Effect.catchTags({
+            TimeoutError: (cause) =>
+              Effect.fail(new PreviewOperationError({ ...warmupContext, cause })),
+          }),
+          Effect.retry({ times: 1 }),
+          Effect.ignore,
+        );
         const currentWebContents = yield* requireWebContents(tabId);
         if (currentWebContents !== wc || wc.isDestroyed()) {
           return yield* new PreviewWebContentsNotFoundError({
