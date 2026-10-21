@@ -2,6 +2,7 @@ import { ProjectId, ThreadId } from "@t3tools/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
+  dismissIosPromo,
   legacyProjectCwdPreferenceKey,
   markThreadUnread,
   markThreadVisited,
@@ -33,6 +34,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     threadChangedFilesExpandedById: {},
     defaultAdvertisedEndpointKey: null,
     pullRequestMergeMethod: "merge",
+    iosPromoDismissed: false,
     ...overrides,
   };
 }
@@ -202,6 +204,15 @@ describe("uiStateStore pure functions", () => {
   });
 });
 
+describe("dismissIosPromo", () => {
+  it("marks the promo dismissed and is idempotent", () => {
+    const dismissed = dismissIosPromo(makeUiState());
+
+    expect(dismissed.iosPromoDismissed).toBe(true);
+    expect(dismissIosPromo(dismissed)).toBe(dismissed);
+  });
+});
+
 describe("parsePersistedState", () => {
   it("hydrates the last selected pull request merge method", () => {
     const parsed = parsePersistedState({
@@ -249,6 +260,7 @@ describe("parsePersistedState", () => {
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       sidebarProjectScopeKey: null,
       pullRequestMergeMethod: "merge",
+      iosPromoDismissed: false,
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
           "turn-1": false,
@@ -396,10 +408,25 @@ describe("uiStateStore persistence", () => {
         },
       },
       pullRequestMergeMethod: "merge",
+      iosPromoDismissed: false,
     });
     expect(parsePersistedState(persisted)).toEqual({
       ...state,
     });
+  });
+
+  it("restores the iOS promo dismissal across reloads", () => {
+    persistState(dismissIosPromo(makeUiState()));
+
+    const persisted = JSON.parse(
+      localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}",
+    ) as PersistedUiState;
+
+    expect(parsePersistedState(persisted).iosPromoDismissed).toBe(true);
+    expect(parsePersistedState({}).iosPromoDismissed).toBe(false);
+    expect(parsePersistedState({ iosPromoDismissed: "yes" as never }).iosPromoDismissed).toBe(
+      false,
+    );
   });
 
   it("restores the sidebar project scope across reloads", () => {
