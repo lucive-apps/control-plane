@@ -44,9 +44,9 @@ import {
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 
 /**
- * The browser host starts its own operation timer only after the request is
- * delivered, so its timeout reply lands just after ours. Wait this long past
- * the request's budget before concluding the host never answered.
+ * The host answers every request within the request's own budget, measured from
+ * when it receives it, so its reply can land just after the broker's clock runs
+ * out. Wait this long past the budget before concluding the host never answered.
  */
 const HOST_RESPONSE_GRACE_MS = 1_000;
 
@@ -87,7 +87,11 @@ interface ClientConnection {
   readonly liveTabs: NonNullable<PreviewAutomationHostFocus["liveTabs"]>;
   readonly focusOrder: number;
   readonly queue: Queue.Queue<PreviewAutomationStreamEvent>;
-  /** Bumped on every response or focus update, so a timeout can tell a busy host from a dead one. */
+  /**
+   * Bumped on every response from this connection, so a timeout can tell a busy
+   * host from one that stopped serving its request stream. Focus updates travel
+   * on a separate RPC and do not prove the stream is being read.
+   */
   readonly activity: number;
 }
 
@@ -454,7 +458,6 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
         focused: host.focused,
         liveTabs: host.liveTabs ?? currentHost.liveTabs,
         focusOrder: host.focused ? focusSequence : currentHost.focusOrder,
-        activity: currentHost.activity + 1,
       });
       return { ...current, clients, focusSequence };
     });
@@ -645,7 +648,7 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
           Effect.gen(function* () {
             // Only this request fails. The connection is dropped (failing every
             // request on it, from any thread) only when the host has gone silent:
-            // no response or focus update since this request was delivered. A busy
+            // no response at all since this request was delivered. A busy
             // page, a slow background status read, or a host that is answering
             // other calls keeps its connection. Never replay: the client may have
             // applied the action before going quiet.

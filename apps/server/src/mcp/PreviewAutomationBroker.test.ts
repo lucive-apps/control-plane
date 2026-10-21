@@ -1598,3 +1598,39 @@ it.effect("reports the host's sanitized failure reason instead of a bare executi
     }),
   ),
 );
+
+it.effect("focus updates alone do not keep a host whose request stream went silent", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const broker = yield* makeBroker;
+      const connected = yield* Deferred.make<string>();
+      const delivered = yield* Deferred.make<void>();
+      const events = yield* broker.connect(makeHost());
+      const consumer = yield* Stream.runForEach(events, (event) =>
+        event.type === "connected"
+          ? Deferred.succeed(connected, event.connectionId)
+          : Deferred.succeed(delivered, undefined),
+      ).pipe(Effect.forkScoped);
+      const connectionId = yield* Deferred.await(connected);
+
+      const stuck = yield* broker
+        .invoke<void>({ scope, operation: "snapshot", input: {}, timeoutMs: 1_000 })
+        .pipe(Effect.flip, Effect.forkScoped);
+      yield* Deferred.await(delivered);
+      // The window keeps reporting focus on a separate RPC while requests go unanswered.
+      yield* broker.focusHost({
+        clientId: "client-1",
+        connectionId,
+        environmentId: scope.environmentId,
+        focused: true,
+      });
+      yield* TestClock.adjust(2_000);
+      expect(yield* Fiber.join(stuck)).toMatchObject({ _tag: "PreviewAutomationTimeoutError" });
+      const consumerExit = yield* Fiber.await(consumer);
+      expect(Exit.isFailure(consumerExit)).toBe(true);
+      expect(
+        yield* broker.invoke({ scope, operation: "status", input: {} }).pipe(Effect.flip),
+      ).toMatchObject({ _tag: "PreviewAutomationNoAvailableHostError" });
+    }),
+  ),
+);

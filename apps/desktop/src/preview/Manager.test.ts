@@ -1732,8 +1732,10 @@ describe("PreviewManager", () => {
 
   const makeDetachableGuest = (id: number) => {
     const detachListeners = new Set<() => void>();
+    const goneListeners = new Set<() => void>();
     let chromiumDetaches = 0;
     let destroyed = false;
+    let crashed = false;
     const attach = vi.fn();
     const detach = vi.fn();
     const sendCommand = vi.fn<(method: string, params?: unknown) => Promise<unknown>>(
@@ -1742,6 +1744,7 @@ describe("PreviewManager", () => {
     const wc = {
       id,
       isDestroyed: () => destroyed,
+      isCrashed: () => crashed,
       isDevToolsOpened: () => false,
       getType: () => "webview",
       getURL: () => "https://example.com",
@@ -1752,8 +1755,12 @@ describe("PreviewManager", () => {
       setAudioMuted: vi.fn(),
       isCurrentlyAudible: () => false,
       loadURL: vi.fn(async () => undefined),
-      on: vi.fn(),
-      off: vi.fn(),
+      on: (event: string, listener: () => void) => {
+        if (event === "render-process-gone") goneListeners.add(listener);
+      },
+      off: (event: string, listener: () => void) => {
+        if (event === "render-process-gone") goneListeners.delete(listener);
+      },
       ipc: { on: vi.fn(), off: vi.fn() },
       send: webviewSend,
       navigationHistory: { canGoBack: () => false, canGoForward: () => false },
@@ -1785,8 +1792,69 @@ describe("PreviewManager", () => {
       destroy: () => {
         destroyed = true;
       },
+      crash: () => {
+        crashed = true;
+        for (const listener of Array.from(goneListeners)) listener();
+      },
+      reload: () => {
+        crashed = false;
+      },
     };
   };
+
+  effectIt.effect("releases a crashed guest's debugger and fails fast until it reloads", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        const guest = makeDetachableGuest(50);
+        fromId.mockReturnValue(guest.wc);
+        yield* manager.createTab("tab_crashed");
+        yield* manager.registerWebview("tab_crashed", 50);
+        yield* Effect.yieldNow;
+        expect(guest.attach).toHaveBeenCalledTimes(1);
+
+        guest.crash();
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+        // Detaching rejects any command still waiting on the dead renderer.
+        expect(guest.detach).toHaveBeenCalledTimes(1);
+        guest.chromiumDetach();
+        yield* Effect.yieldNow;
+        expect(guest.attach).toHaveBeenCalledTimes(1);
+
+        const failure = yield* manager
+          .automationEvaluate("tab_crashed", { expression: "1" })
+          .pipe(Effect.flip);
+        expect(String(failure.cause)).toContain("renderer crashed");
+        expect(guest.attach).toHaveBeenCalledTimes(1);
+
+        guest.reload();
+        yield* manager.automationEvaluate("tab_crashed", { expression: "1" }).pipe(Effect.exit);
+        expect(guest.attach).toHaveBeenCalledTimes(2);
+      }),
+    ),
+  );
+
+  effectIt.effect("stops reattaching a debugger that keeps dropping", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        const guest = makeDetachableGuest(51);
+        fromId.mockReturnValue(guest.wc);
+        yield* manager.createTab("tab_flapping");
+        yield* manager.registerWebview("tab_flapping", 51);
+        yield* Effect.yieldNow;
+        for (let drop = 0; drop < 5; drop += 1) {
+          guest.chromiumDetach();
+          yield* Effect.yieldNow;
+          yield* Effect.yieldNow;
+        }
+        // One initial attach plus three bounded recoveries, then it stays detached.
+        expect(guest.attach).toHaveBeenCalledTimes(4);
+        // The next agent command still reattaches on demand.
+        yield* manager.automationEvaluate("tab_flapping", { expression: "1" }).pipe(Effect.exit);
+        expect(guest.attach).toHaveBeenCalledTimes(5);
+      }),
+    ),
+  );
 
   effectIt.effect("reattaches a debugger that Chromium dropped on its own", () =>
     withManager((manager) =>

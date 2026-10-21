@@ -7,18 +7,26 @@
 const MAX_REASON_LENGTH = 300;
 const MAX_CAUSE_DEPTH = 4;
 
-const HOME_PATH = /(?:\/Users|\/home|[A-Za-z]:\\Users)[\\/][^\s'"`)\]]+/g;
 const FILE_URL = /file:\/\/[^\s'"`)\]]+/g;
+// Home and temp paths. A space continues the path only when the next word still
+// holds a separator, so "Application Support/Control Plane/x" is covered while
+// the text after the path is kept.
+const LOCAL_PATH =
+  /(?:\/Users|\/home|\/private\/var|\/var\/folders|[A-Za-z]:[\\/]Users)[\\/][^\s'"`)\]]*(?: [^\s'"`)\]\\/]*[\\/][^\s'"`)\]]*)*/g;
+const URL_USERINFO = /(\b[a-z][a-z0-9+.-]*:\/\/)[^\s/@'"`]+@/gi;
 const URL_QUERY = /(https?:\/\/[^\s?#'"`)\]]+)[?#][^\s'"`)\]]*/g;
-const BEARER = /\b(bearer|token|authorization|cookie|password|secret)([=: ]+)[^\s,;'"`)\]]+/gi;
+// key=value / key: value / "key":"value" credentials, including "Bearer <token>".
+const CREDENTIAL =
+  /((?:^|[^A-Za-z0-9])(?:[A-Za-z]+[_-])?(?:authorization|cookie|password|passwd|secret|token|api[_-]?key|session(?:id)?|sid)["']?\s*[=:]\s*["']?)(?:(?:bearer|basic)\s+)?[^\s,;'"`)\]]+/gi;
 const OPAQUE_TOKEN = /\b[A-Za-z0-9_-]{40,}\b/g;
 
 export const sanitizePreviewFailureText = (text: string): string =>
   text
     .replace(FILE_URL, "<file>")
-    .replace(HOME_PATH, "<path>")
+    .replace(LOCAL_PATH, "<path>")
+    .replace(URL_USERINFO, "$1")
     .replace(URL_QUERY, "$1")
-    .replace(BEARER, "$1$2<redacted>")
+    .replace(CREDENTIAL, "$1<redacted>")
     .replace(OPAQUE_TOKEN, "<redacted>")
     .replace(/\s+/g, " ")
     .trim();

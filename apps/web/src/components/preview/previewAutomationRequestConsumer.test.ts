@@ -152,6 +152,54 @@ describe("previewAutomationRequestConsumer", () => {
     registry.dispose();
   });
 
+  it("answers a stalled request with a timeout within its budget and drops the late result", async () => {
+    vi.useFakeTimers();
+    try {
+      const requestsAtom = Atom.make<AsyncResult.AsyncResult<PreviewAutomationStreamEvent, Error>>(
+        AsyncResult.initial<PreviewAutomationStreamEvent, Error>(false),
+      );
+      const stalled = Promise.withResolvers<unknown>();
+      const responses: PreviewAutomationResponse[] = [];
+      const state = consumerState(() => stalled.promise);
+      const consumerAtom = createPreviewAutomationRequestConsumerAtom({
+        requestsAtom,
+        clientId,
+        connectionAtom: state.connectionAtom,
+        environmentId,
+        requestHandlerAtom: state.requestHandlerAtom,
+        respond: async (response) => {
+          responses.push(response);
+        },
+        label: "test:preview-automation-deadline",
+      });
+      const registry = AtomRegistry.make();
+      registry.mount(consumerAtom);
+      registry.set(
+        requestsAtom,
+        AsyncResult.success(
+          requestEvent("request-stalled", { operation: "snapshot", timeoutMs: 2_000 }),
+        ),
+      );
+
+      await vi.advanceTimersByTimeAsync(1_999);
+      expect(responses).toHaveLength(0);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(responses).toHaveLength(1);
+      expect(responses[0]).toMatchObject({
+        requestId: "request-stalled",
+        ok: false,
+        error: { _tag: "PreviewAutomationTimeoutError" },
+      });
+
+      stalled.resolve("late");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(responses).toHaveLength(1);
+      registry.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("uses the latest request handler without rebuilding the stream consumer", async () => {
     const requestsAtom = Atom.make<AsyncResult.AsyncResult<PreviewAutomationStreamEvent, Error>>(
       AsyncResult.initial<PreviewAutomationStreamEvent, Error>(false),

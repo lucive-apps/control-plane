@@ -25,16 +25,39 @@ describe("previewFailureReason", () => {
     );
   });
 
-  it("strips local paths, URL queries and token-like values", () => {
+  it("strips local paths, URL credentials and queries, and token-like values", () => {
     const text = sanitizePreviewFailureText(
-      "ERR_ABORTED loading 'https://app.example.com/callback?code=abc123&state=xyz' from file:///Users/nick/app/index.html at /Users/nick/.t3/userdata/x.png Authorization: Bearer-zzz " +
+      [
+        "ERR_ABORTED loading 'https://user:hunter2@app.example.com/callback?code=abc123&state=xyz'",
+        "from file:///Users/nick/app/index.html",
+        "at /Users/nick/Library/Application Support/Control Plane/x.png",
+        "and C:/Users/nick/a.txt",
+        "Authorization: Bearer abc123def456",
+        '{"access_token":"sk-live-1"} api_key=k-2 x-api-key: k-3',
         "a".repeat(48),
+      ].join(" "),
     );
-    expect(text).not.toContain("code=abc123");
-    expect(text).not.toContain("/Users/nick");
-    expect(text).not.toContain("Bearer-zzz");
-    expect(text).not.toContain("a".repeat(48));
+    for (const leaked of [
+      "hunter2",
+      "code=abc123",
+      "/Users/nick",
+      "nick/a.txt",
+      "Support/Control",
+      "abc123def456",
+      "sk-live-1",
+      "k-2",
+      "k-3",
+      "a".repeat(48),
+    ]) {
+      expect(text).not.toContain(leaked);
+    }
     expect(text).toContain("https://app.example.com/callback");
+  });
+
+  it("keeps ordinary words that only resemble credential keys", () => {
+    expect(sanitizePreviewFailureText("token expired while waiting; Cookie import failed")).toBe(
+      "token expired while waiting; Cookie import failed",
+    );
   });
 
   it("bounds the reason and ignores causes without text", () => {
