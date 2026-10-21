@@ -12,6 +12,26 @@ const MuseUsage = Schema.Struct({
   cacheWriteTokens: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
 });
 
+/**
+ * MSP `usage/changed` params and the `usage/read` result payload: the
+ * subscription usage the host last observed from the provider. Percents may
+ * exceed 100 when the account is over quota.
+ */
+export const MuseSubscriptionUsage = Schema.Struct({
+  observedAtMs: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
+  tier: Schema.String,
+  weekly: Schema.Struct({
+    resetsAtMs: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
+    usedPercent: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
+  }),
+  window: Schema.Struct({
+    resetsAtMs: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
+    usedPercent: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
+    windowDurationMins: Schema.Finite.check(Schema.isGreaterThan(0)),
+  }),
+});
+export type MuseSubscriptionUsage = typeof MuseSubscriptionUsage.Type;
+
 export const MuseItem = Schema.Struct({
   /** `workflow`: the launched entry's name. */
   entryId: Schema.optional(Schema.String),

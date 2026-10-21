@@ -28,6 +28,7 @@ const DRIVER_LABEL: Partial<Record<string, string>> = {
   codex: "Codex",
   claudeAgent: "Claude",
   grok: "Grok",
+  muse: "Muse",
 };
 const PACE_LABEL = { ahead: "Ahead of pace", on: "On pace", under: "Under pace" } as const;
 
@@ -239,7 +240,9 @@ export function UsageLimitsSection({
                   ? colors.claude
                   : pool.driver === "grok"
                     ? colors.grok
-                    : colors.codex
+                    : pool.driver === "muse"
+                      ? colors.muse
+                      : colors.codex
               }
               now={now}
               environmentIds={selectedEnvironmentIds === null ? null : [...selectedEnvironmentIds]}

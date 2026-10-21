@@ -167,6 +167,9 @@ describe("mergeUsage", () => {
   });
 
   it("excludes an environment reporting an older contract version", () => {
+    // Versions below USAGE_MERGE_COMPATIBLE_SINCE stay excluded. v6 only adds
+    // the muse provider, so v4 and v5 still merge and the excluded version
+    // must sit three back, not two.
     const merged = mergeUsage(
       [
         environment(
@@ -178,7 +181,7 @@ describe("mergeUsage", () => {
           summary(
             [bucket()],
             [{ provider: "claude", hostId: "linux", homePath: "/b" }],
-            USAGE_CONTRACT_VERSION - 2,
+            USAGE_CONTRACT_VERSION - 3,
           ),
         ),
       ],

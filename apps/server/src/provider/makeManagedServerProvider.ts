@@ -45,6 +45,8 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
   readonly haveSettingsChanged: (previous: Settings, next: Settings) => boolean;
   readonly initialSnapshot: (settings: Settings) => Effect.Effect<ServerProvider>;
   readonly checkProvider: Effect.Effect<ServerProvider, ServerSettingsError>;
+  /** Preserve observations when this provider's status probe cannot read subscription usage. */
+  readonly usageLimitsFromRuntimeOnly?: boolean;
   readonly enrichSnapshot?: (input: {
     readonly settings: Settings;
     readonly snapshot: ServerProvider;
@@ -161,7 +163,11 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
           probedSnapshot,
           resolveUsageLimitsAfterProbe({
             published: state.snapshot.usageLimits,
-            probed: probedSnapshot.usageLimits,
+            probed:
+              probedSnapshot.usageLimits ??
+              (input.usageLimitsFromRuntimeOnly && probedSnapshot.enabled
+                ? state.snapshot.usageLimits
+                : undefined),
           }),
         );
         return [
