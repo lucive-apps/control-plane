@@ -158,7 +158,13 @@ describe("previewAutomationRequestConsumer", () => {
       const requestsAtom = Atom.make<AsyncResult.AsyncResult<PreviewAutomationStreamEvent, Error>>(
         AsyncResult.initial<PreviewAutomationStreamEvent, Error>(false),
       );
-      const stalled = Promise.withResolvers<unknown>();
+      let resolveStalled!: (value: unknown) => void;
+      const stalled = {
+        promise: new Promise<unknown>((resolve) => {
+          resolveStalled = resolve;
+        }),
+        resolve: (value: unknown) => resolveStalled(value),
+      };
       const responses: PreviewAutomationResponse[] = [];
       const state = consumerState(() => stalled.promise);
       const consumerAtom = createPreviewAutomationRequestConsumerAtom({

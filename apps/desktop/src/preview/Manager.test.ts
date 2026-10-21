@@ -1823,8 +1823,10 @@ describe("PreviewManager", () => {
 
         const failure = yield* manager
           .automationEvaluate("tab_crashed", { expression: "1" })
-          .pipe(Effect.flip);
-        expect(String(failure.cause)).toContain("renderer crashed");
+          .pipe(Effect.match({ onFailure: (error) => error, onSuccess: () => undefined }));
+        expect(String((failure as { readonly cause?: unknown } | undefined)?.cause)).toContain(
+          "renderer crashed",
+        );
         expect(guest.attach).toHaveBeenCalledTimes(1);
 
         guest.reload();

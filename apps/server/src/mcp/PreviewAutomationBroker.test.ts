@@ -1629,7 +1629,7 @@ it.effect("focus updates alone do not keep a host whose request stream went sile
       const consumerExit = yield* Fiber.await(consumer);
       expect(Exit.isFailure(consumerExit)).toBe(true);
       expect(
-        yield* broker.invoke({ scope, operation: "status", input: {} }).pipe(Effect.flip),
+        yield* broker.invoke<void>({ scope, operation: "status", input: {} }).pipe(Effect.flip),
       ).toMatchObject({ _tag: "PreviewAutomationNoAvailableHostError" });
     }),
   ),
