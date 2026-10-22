@@ -1728,6 +1728,40 @@ export function isMacDiskImageArtifact(filePath: string): boolean {
   return filePath.endsWith(".dmg");
 }
 
+const isMacUpdateManifestArtifact = (filePath: string): boolean =>
+  /(^|[\\/])[^\\/]*-mac\.yml$/u.test(filePath);
+
+/**
+ * Rewrites the sha512 and size recorded for `fileName` in an electron-updater
+ * manifest: its `files` entry and, when it is the manifest's primary `path`, the
+ * top-level sha512. Other entries and lines are left byte-for-byte.
+ */
+export function refreshUpdateManifestFileEntry(
+  manifest: string,
+  fileName: string,
+  digest: { readonly sha512: string; readonly size: number },
+): string {
+  const lines = manifest.split("\n");
+  for (let index = 0; index < lines.length; index += 1) {
+    const entry = /^(\s*)- url: (.+)$/u.exec(lines[index] ?? "");
+    if (!entry || entry[2]?.trim() !== fileName) continue;
+    const indent = `${entry[1] ?? ""}  `;
+    for (let field = index + 1; field < lines.length; field += 1) {
+      const line = lines[field] ?? "";
+      if (!line.startsWith(indent) || line.trimStart().startsWith("- ")) break;
+      if (line.trimStart().startsWith("sha512:"))
+        lines[field] = `${indent}sha512: ${digest.sha512}`;
+      if (line.trimStart().startsWith("size:")) lines[field] = `${indent}size: ${digest.size}`;
+    }
+  }
+  const primary = lines.findIndex((line) => line.trim() === `path: ${fileName}`);
+  if (primary !== -1) {
+    const topSha = lines.findIndex((line) => line.startsWith("sha512:"));
+    if (topSha !== -1) lines[topSha] = `sha512: ${digest.sha512}`;
+  }
+  return lines.join("\n");
+}
+
 const MacDmgNotarizationConfig = Config.all({
   appleId: Config.String("APPLE_ID").pipe(Config.option),
   applePassword: Config.String("APPLE_PASSWORD").pipe(Config.option),
@@ -1805,6 +1839,19 @@ export const signAndNotarizeMacDmgs = Effect.fn("signAndNotarizeMacDmgs")(functi
   }
 
   const fs = yield* FileSystem.FileSystem;
+  // electron-builder hashed the DMGs before codesign and stapling rewrote them, so
+  // refresh their entries in any update manifest that lists them.
+  for (const manifest of input.artifacts.filter(isMacUpdateManifestArtifact)) {
+    let text = yield* fs.readFileString(manifest);
+    for (const dmg of dmgs) {
+      const bytes = yield* fs.readFile(dmg);
+      text = refreshUpdateManifestFileEntry(text, path.basename(dmg), {
+        sha512: NodeCrypto.createHash("sha512").update(bytes).digest("base64"),
+        size: bytes.byteLength,
+      });
+    }
+    yield* fs.writeFileString(manifest, text);
+  }
   const remaining: string[] = [];
   for (const artifact of input.artifacts) {
     const staleBlockmap = dmgs.some((dmg) => artifact === `${dmg}.blockmap`);
