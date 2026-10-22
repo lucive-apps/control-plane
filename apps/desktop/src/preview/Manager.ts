@@ -4500,7 +4500,8 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         send,
         `(() => {
               try {
-                const selectorMatched = ${locatorJson ? `(() => { const injected = globalThis.__t3PlaywrightInjected; return injected.querySelector(injected.parseSelector(${locatorJson}), document, false) !== null; })()` : "true"};
+                // Playwright's querySelector returns undefined, not null, when nothing matches.
+                const selectorMatched = ${locatorJson ? `(() => { const injected = globalThis.__t3PlaywrightInjected; return injected.querySelector(injected.parseSelector(${locatorJson}), document, false) != null; })()` : "true"};
                 const textMatched = ${
                   textJson ? `(document.body?.innerText || "").includes(${textJson})` : "true"
                 };

@@ -4153,6 +4153,69 @@ describe("PreviewManager", () => {
     ),
   );
 
+  effectIt.effect(
+    "waitFor times out while the selector has no match and resolves once it does",
+    () =>
+      withManager((manager) =>
+        Effect.gen(function* () {
+          const present = new Set<string>();
+          // Mirrors Playwright's injected script: querySelector returns undefined on no match.
+          const pageContext = NodeVM.createContext({
+            document: { body: { innerText: "" } },
+            location: { href: "http://127.0.0.1/" },
+            __t3PlaywrightInjected: {
+              parseSelector: (selector: string) => selector,
+              querySelector: (selector: string) => (present.has(selector) ? {} : undefined),
+            },
+          });
+          const sendCommand = vi.fn(async (method: string, params?: Record<string, unknown>) =>
+            method === "Runtime.evaluate"
+              ? {
+                  result: {
+                    value: NodeVM.runInContext(String(params?.["expression"]), pageContext),
+                  },
+                }
+              : undefined,
+          );
+          const webContents = Object.assign(
+            makeTestPreviewWebContents(async () => {
+              throw new Error("unused");
+            }, 52),
+            {
+              isDevToolsOpened: () => false,
+              debugger: {
+                isAttached: () => false,
+                attach: vi.fn(),
+                detach: vi.fn(),
+                sendCommand,
+                on: vi.fn(),
+                off: vi.fn(),
+              },
+            },
+          );
+          fromId.mockReturnValue(webContents);
+          yield* manager.createTab("tab_wait_for");
+          yield* manager.registerWebview("tab_wait_for", 52);
+
+          const missing = yield* manager
+            .automationWaitFor("tab_wait_for", { selector: "#never-appears", timeoutMs: 300 })
+            .pipe(Effect.flip, Effect.forkChild({ startImmediately: true }));
+          yield* TestClock.adjust(500);
+          expect(yield* Fiber.join(missing)).toMatchObject({
+            _tag: "PreviewAutomationTimeoutError",
+          });
+
+          const appears = yield* manager
+            .automationWaitFor("tab_wait_for", { selector: "#later", timeoutMs: 5_000 })
+            .pipe(Effect.forkChild({ startImmediately: true }));
+          yield* TestClock.adjust(200);
+          present.add("css=#later");
+          yield* TestClock.adjust(200);
+          yield* Fiber.join(appears);
+        }),
+      ),
+  );
+
   effectIt.effect("types in background webviews and enables native key input", () =>
     withManager((manager) =>
       Effect.gen(function* () {
