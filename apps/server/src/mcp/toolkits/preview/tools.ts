@@ -52,7 +52,7 @@ const readonlyBrowserTool = <T extends Tool.Any>(tool: T): T =>
 
 const PreviewStatusTool = Tool.make("preview_status", {
   description:
-    "Report whether a collaborative browser tab is automation-capable, including its URL, title, visibility, loading state, viewport mode, and measured CSS-pixel size. Pass tabId to inspect a specific tab; omit it to use this agent session's current tab.",
+    "Report whether a collaborative browser tab is automation-capable, including its URL, title, visibility (with presentation explaining why it is or is not on screen), loading state, viewport mode, and measured CSS-pixel size. Pass tabId to inspect a specific tab; omit it to use this agent session's current tab.",
   parameters: PreviewAutomationTabTargetInput,
   success: PreviewAutomationStatus,
   failure: PreviewAutomationError,

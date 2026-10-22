@@ -675,6 +675,9 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
   // deadline. Captures lift throttling while they run. Counting them alongside
   // frame-capture sessions keeps either one from re-throttling under the other.
   const stillCaptureLeasesRef = yield* Ref.make<ReadonlyMap<number, number>>(new Map());
+  // The main window's throttling before the first lease, restored after the last.
+  // Dev builds keep the window unthrottled on purpose; packaged builds throttle it.
+  const stillCaptureWindowThrottlingRef = yield* Ref.make<boolean>(true);
   const stillCaptureLeaseTotal = Ref.get(stillCaptureLeasesRef).pipe(
     Effect.map((leases) => Array.from(leases.values()).reduce((sum, count) => sum + count, 0)),
   );
@@ -871,6 +874,13 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       Effect.gen(function* () {
         const leases = yield* Ref.get(stillCaptureLeasesRef);
         if (sessions.size === 0 && (yield* stillCaptureLeaseTotal) === 0) {
+          const mainWindow = yield* Ref.get(mainWindowRef);
+          yield* Ref.set(
+            stillCaptureWindowThrottlingRef,
+            Option.isSome(mainWindow) && !mainWindow.value.isDestroyed()
+              ? mainWindow.value.webContents.getBackgroundThrottling?.() !== false
+              : true,
+          );
           yield* setFrameCaptureBackgroundThrottling(false).pipe(Effect.ignore);
         }
         if ((leases.get(wc.id) ?? 0) === 0 && !isHeldByFrameCapture(sessions, wc.id)) {
@@ -901,7 +911,9 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
           yield* setFrameCaptureWebContentsBackgroundThrottling(wc, true).pipe(Effect.ignore);
         }
         if (sessions.size === 0 && (yield* stillCaptureLeaseTotal) === 0) {
-          yield* setFrameCaptureBackgroundThrottling(true).pipe(Effect.ignore);
+          yield* setFrameCaptureBackgroundThrottling(
+            yield* Ref.get(stillCaptureWindowThrottlingRef),
+          ).pipe(Effect.ignore);
         }
         return [undefined, sessions] as const;
       }),
@@ -2118,7 +2130,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     }
     yield* SynchronizedRef.modifyEffect(frameCaptureSessionsRef, (sessions) =>
       Effect.gen(function* () {
-        if (sessions.size > 0) {
+        if (sessions.size > 0 || (yield* stillCaptureLeaseTotal) > 0) {
           yield* setWindowBackgroundThrottling(window, false);
         }
         yield* Ref.set(mainWindowRef, Option.some(window));
@@ -3184,9 +3196,10 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
           if (sessions.size === 0) {
             yield* setFrameCaptureBackgroundThrottling(false);
           }
+          const stillCapturesActive = (yield* stillCaptureLeaseTotal) > 0;
           yield* setFrameCaptureWebContentsBackgroundThrottling(wc, false).pipe(
             Effect.onError(() =>
-              sessions.size === 0
+              sessions.size === 0 && !stillCapturesActive
                 ? setFrameCaptureBackgroundThrottling(true).pipe(Effect.ignore)
                 : Effect.void,
             ),

@@ -3153,6 +3153,39 @@ describe("PreviewManager", () => {
       ),
   );
 
+  effectIt.effect("leaves an unthrottled main window unthrottled after a still capture", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        // Dev builds keep the main window unthrottled so input stays responsive.
+        let windowThrottled = false;
+        const windowThrottling = vi.fn((enabled: boolean) => {
+          windowThrottled = enabled;
+        });
+        const capturePage = vi.fn(async () => ({
+          toJPEG: () => Buffer.from("frame"),
+          toPNG: () => Buffer.from("png"),
+          getSize: () => ({ width: 1280, height: 720 }),
+          isEmpty: () => false,
+        }));
+        const webContents = makeTestPreviewWebContents(capturePage, 42);
+        fromId.mockReturnValue(webContents);
+        yield* manager.createTab("tab_dev_capture");
+        yield* manager.registerWebview("tab_dev_capture", 42);
+        yield* manager.setMainWindow({
+          isDestroyed: () => false,
+          once: vi.fn(),
+          webContents: {
+            setBackgroundThrottling: windowThrottling,
+            getBackgroundThrottling: () => windowThrottled,
+          },
+        } as never);
+
+        yield* manager.captureScreenshot("tab_dev_capture");
+        expect(windowThrottled).toBe(false);
+      }),
+    ),
+  );
+
   effectIt.effect("continues native recording when the source warmup fails", () =>
     withManager((manager) =>
       Effect.gen(function* () {

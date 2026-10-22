@@ -65,6 +65,7 @@ import { useAtomCommand } from "~/state/use-atom-command";
 
 import { previewBridge } from "./previewBridge";
 import { resolvePreviewPresentation } from "./previewPresentation";
+import { selectActiveRightPanelSurface, useRightPanelStore } from "~/rightPanelStore";
 import {
   PreviewAutomationOperationError,
   PreviewAutomationOverlayTimeoutError,
@@ -238,14 +239,20 @@ const currentStatus = async (
   const visible = runtimeTabId
     ? (useBrowserSurfaceStore.getState().byTabId[runtimeTabId]?.visible ?? false)
     : false;
+  const rightPanelSurface = selectActiveRightPanelSurface(
+    useRightPanelStore.getState().byThreadKey,
+    threadRef,
+  );
   const presentation = resolvePreviewPresentation({
     visible,
+    windowVisible: document.visibilityState === "visible",
     shownInThread:
       tabId !== null &&
-      selectThreadPreviewMiniPlayerTabId(
+      (selectThreadPreviewMiniPlayerTabId(
         usePreviewMiniPlayerStore.getState().byThreadKey,
         threadRef,
-      ) === tabId,
+      ) === tabId ||
+        (rightPanelSurface?.kind === "preview" && rightPanelSurface.resourceId === tabId)),
   });
   const renderingActive = runtimeTabId ? isPreviewWebviewRendering(runtimeTabId) : false;
   const viewportSetting = snapshot ? (snapshot.viewport ?? FILL_PREVIEW_VIEWPORT) : undefined;
