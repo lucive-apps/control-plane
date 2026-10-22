@@ -3,7 +3,7 @@ import * as NodeCrypto from "node:crypto";
 import * as NodePath from "node:path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { assert, it } from "@effect/vitest";
+import { assert, describe, it } from "@effect/vitest";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as FileSystem from "effect/FileSystem";
 import * as Effect from "effect/Effect";
@@ -24,6 +24,7 @@ import {
   LUCIVE_MAC_SIGN_IDENTITY,
   isMacDiskImageArtifact,
   resolveMacDmgCodesignIdentity,
+  refreshUpdateManifestFileEntry,
   signAndNotarizeMacDmgs,
   createStageWorkspaceConfig,
   createStagePatchedDependencies,
@@ -2005,9 +2006,24 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
           const dmg = path.join(outputDir, "T3-Code-0.0.42-arm64.dmg");
           const blockmap = `${dmg}.blockmap`;
           const zip = path.join(outputDir, "T3-Code-0.0.42-arm64.zip");
+          const manifest = path.join(outputDir, "latest-mac.yml");
           yield* fs.writeFileString(dmg, "dmg");
           yield* fs.writeFileString(blockmap, "blockmap");
           yield* fs.writeFileString(zip, "zip");
+          const manifestBefore = [
+            "version: 0.0.42",
+            "files:",
+            "  - url: T3-Code-0.0.42-arm64.zip",
+            "    sha512: zip-hash",
+            "    size: 3",
+            "  - url: T3-Code-0.0.42-arm64.dmg",
+            "    sha512: hash-before-signing",
+            "    size: 999",
+            "path: T3-Code-0.0.42-arm64.zip",
+            "sha512: zip-hash",
+            "",
+          ].join("\n");
+          yield* fs.writeFileString(manifest, manifestBefore);
 
           const commands: Array<{
             readonly command: string;
@@ -2028,7 +2044,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
           const remaining = yield* signAndNotarizeMacDmgs({
             signed: true,
             platform: "mac",
-            artifacts: [dmg, blockmap, zip],
+            artifacts: [dmg, blockmap, zip, manifest],
             verbose: false,
           }).pipe(
             Effect.provide(spawner),
@@ -2045,8 +2061,18 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
             ),
           );
 
-          assert.deepStrictEqual(remaining, [dmg, zip]);
+          assert.deepStrictEqual(remaining, [dmg, zip, manifest]);
           assert.isFalse(yield* fs.exists(blockmap));
+          // The manifest describes the DMG as shipped, after signing and stapling.
+          assert.strictEqual(
+            yield* fs.readFileString(manifest),
+            manifestBefore
+              .replace(
+                "hash-before-signing",
+                NodeCrypto.createHash("sha512").update("dmg").digest("base64"),
+              )
+              .replace("size: 999", "size: 3"),
+          );
           assert.deepStrictEqual(
             commands.map((command) => [command.command, command.args[0]]),
             [
@@ -2471,4 +2497,28 @@ it("ignores trailing separators", () => {
     ancestorNodeModulesPaths("C:\\tmp\\probe\\app\\", "\\"),
     ancestorNodeModulesPaths("C:\\tmp\\probe\\app", "\\"),
   );
+});
+
+describe("refreshUpdateManifestFileEntry", () => {
+  it("updates the top-level digest when the refreshed file is the primary path", () => {
+    const manifest = [
+      "files:",
+      "  - url: App.dmg",
+      "    sha512: old",
+      "    size: 1",
+      "path: App.dmg",
+      "sha512: old",
+    ].join("\n");
+    assert.strictEqual(
+      refreshUpdateManifestFileEntry(manifest, "App.dmg", { sha512: "new", size: 2 }),
+      [
+        "files:",
+        "  - url: App.dmg",
+        "    sha512: new",
+        "    size: 2",
+        "path: App.dmg",
+        "sha512: new",
+      ].join("\n"),
+    );
+  });
 });

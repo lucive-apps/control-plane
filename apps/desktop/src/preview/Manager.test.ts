@@ -3101,6 +3101,91 @@ describe("PreviewManager", () => {
     ),
   );
 
+  effectIt.effect(
+    "lifts window and guest throttling while a still capture runs, without undoing a recording's",
+    () =>
+      withManager((manager) =>
+        Effect.gen(function* () {
+          // Packaged builds throttle the unfocused main window, and a throttled
+          // offscreen guest paints too slowly for capturePage's deadline.
+          let windowThrottled = true;
+          const windowThrottling = vi.fn((enabled: boolean) => {
+            windowThrottled = enabled;
+          });
+          const throttlingAtCapture: Array<{ window: boolean; guest: boolean }> = [];
+          const capturePage = vi.fn(async () => {
+            throttlingAtCapture.push({
+              window: windowThrottled,
+              guest: webContents.setBackgroundThrottling.mock.calls.at(-1)?.[0] ?? true,
+            });
+            return {
+              toJPEG: () => Buffer.from("frame"),
+              toPNG: () => Buffer.from("png"),
+              getSize: () => ({ width: 1280, height: 720 }),
+              isEmpty: () => false,
+            };
+          });
+          const host = makeTestHostWebContents();
+          const webContents = makeTestPreviewWebContents(capturePage, 42, host);
+          fromId.mockReturnValue(webContents);
+          yield* manager.createTab("tab_still_capture");
+          yield* manager.registerWebview("tab_still_capture", 42);
+          yield* manager.setMainWindow({
+            isDestroyed: () => false,
+            once: vi.fn(),
+            webContents: { setBackgroundThrottling: windowThrottling },
+          } as never);
+
+          yield* manager.captureScreenshot("tab_still_capture");
+          expect(throttlingAtCapture.at(-1)).toEqual({ window: false, guest: false });
+          expect(windowThrottled).toBe(true);
+          expect(webContents.setBackgroundThrottling.mock.calls.at(-1)).toEqual([true]);
+
+          // A recording keeps both unthrottled; a screenshot during it must not re-throttle.
+          yield* manager.startRecording("tab_still_capture");
+          yield* manager.captureScreenshot("tab_still_capture");
+          expect(windowThrottled).toBe(false);
+          expect(webContents.setBackgroundThrottling.mock.calls.at(-1)).toEqual([false]);
+          yield* manager.stopRecording("tab_still_capture");
+          expect(windowThrottled).toBe(true);
+          expect(webContents.setBackgroundThrottling.mock.calls.at(-1)).toEqual([true]);
+        }),
+      ),
+  );
+
+  effectIt.effect("leaves an unthrottled main window unthrottled after a still capture", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        // Dev builds keep the main window unthrottled so input stays responsive.
+        let windowThrottled = false;
+        const windowThrottling = vi.fn((enabled: boolean) => {
+          windowThrottled = enabled;
+        });
+        const capturePage = vi.fn(async () => ({
+          toJPEG: () => Buffer.from("frame"),
+          toPNG: () => Buffer.from("png"),
+          getSize: () => ({ width: 1280, height: 720 }),
+          isEmpty: () => false,
+        }));
+        const webContents = makeTestPreviewWebContents(capturePage, 42);
+        fromId.mockReturnValue(webContents);
+        yield* manager.createTab("tab_dev_capture");
+        yield* manager.registerWebview("tab_dev_capture", 42);
+        yield* manager.setMainWindow({
+          isDestroyed: () => false,
+          once: vi.fn(),
+          webContents: {
+            setBackgroundThrottling: windowThrottling,
+            getBackgroundThrottling: () => windowThrottled,
+          },
+        } as never);
+
+        yield* manager.captureScreenshot("tab_dev_capture");
+        expect(windowThrottled).toBe(false);
+      }),
+    ),
+  );
+
   effectIt.effect("continues native recording when the source warmup fails", () =>
     withManager((manager) =>
       Effect.gen(function* () {
@@ -4151,6 +4236,72 @@ describe("PreviewManager", () => {
         });
       }),
     ),
+  );
+
+  effectIt.effect(
+    "waitFor times out while the selector has no match and resolves once it does",
+    () =>
+      withManager((manager) =>
+        Effect.gen(function* () {
+          const present = new Set<string>();
+          // Mirrors Playwright's injected script: querySelector returns undefined on no match.
+          const pageContext = NodeVM.createContext({
+            document: { body: { innerText: "" } },
+            location: { href: "http://127.0.0.1/" },
+            __t3PlaywrightInjected: {
+              parseSelector: (selector: string) => selector,
+              querySelector: (selector: string) => (present.has(selector) ? {} : undefined),
+            },
+          });
+          const sendCommand = vi.fn(async (method: string, params?: Record<string, unknown>) =>
+            method === "Runtime.evaluate"
+              ? {
+                  result: {
+                    value: NodeVM.runInContext(String(params?.["expression"]), pageContext),
+                  },
+                }
+              : undefined,
+          );
+          const webContents = Object.assign(
+            makeTestPreviewWebContents(async () => {
+              throw new Error("unused");
+            }, 52),
+            {
+              isDevToolsOpened: () => false,
+              debugger: {
+                isAttached: () => false,
+                attach: vi.fn(),
+                detach: vi.fn(),
+                sendCommand,
+                on: vi.fn(),
+                off: vi.fn(),
+              },
+            },
+          );
+          fromId.mockReturnValue(webContents);
+          yield* manager.createTab("tab_wait_for");
+          yield* manager.registerWebview("tab_wait_for", 52);
+
+          const missing = yield* manager
+            .automationWaitFor("tab_wait_for", { selector: "#never-appears", timeoutMs: 300 })
+            .pipe(
+              Effect.match({ onFailure: (error) => error, onSuccess: () => "matched" as const }),
+              Effect.forkChild({ startImmediately: true }),
+            );
+          yield* TestClock.adjust(500);
+          expect(yield* Fiber.join(missing)).toMatchObject({
+            _tag: "PreviewAutomationTimeoutError",
+          });
+
+          const appears = yield* manager
+            .automationWaitFor("tab_wait_for", { selector: "#later", timeoutMs: 5_000 })
+            .pipe(Effect.forkChild({ startImmediately: true }));
+          yield* TestClock.adjust(200);
+          present.add("css=#later");
+          yield* TestClock.adjust(200);
+          yield* Fiber.join(appears);
+        }),
+      ),
   );
 
   effectIt.effect("types in background webviews and enables native key input", () =>

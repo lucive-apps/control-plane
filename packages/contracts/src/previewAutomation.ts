@@ -74,6 +74,17 @@ export const PreviewAutomationStatus = Schema.Struct({
   viewportSetting: Schema.optional(PreviewViewportSetting),
   /** Measured guest-page viewport in CSS pixels when a webview is ready. */
   viewport: Schema.optional(PreviewRenderedViewportSize),
+  /**
+   * Why `visible` is what it is. `visible` only reports whether the tab is laid
+   * out in the app's current view, so an `open: true` tab in a thread the human is not looking
+   * at is "shown-in-thread" and not visible. Automation works in every state.
+   */
+  presentation: Schema.optional(
+    Schema.Literals(["on-screen", "shown-in-thread", "background"]).annotate({
+      description:
+        "on-screen: the tab is in the app's current view and the app window is showing. shown-in-thread: it is the thread's open preview (floating or right panel), but the human is viewing something else or the window is hidden. background: not presented (open=false or closed by the human). Automation works in every state.",
+    }),
+  ),
 });
 export type PreviewAutomationStatus = typeof PreviewAutomationStatus.Type;
 

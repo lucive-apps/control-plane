@@ -669,6 +669,18 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
   const frameCaptureSessionsRef = yield* SynchronizedRef.make<
     ReadonlyMap<string, FrameCaptureSession>
   >(new Map());
+  // Still captures (snapshots, screenshots) in flight, by guest WebContents id.
+  // Packaged builds throttle the main window when it is not focused, which slows
+  // an offscreen guest to about one frame a second, so capturePage misses its
+  // deadline. Captures lift throttling while they run. Counting them alongside
+  // frame-capture sessions keeps either one from re-throttling under the other.
+  const stillCaptureLeasesRef = yield* Ref.make<ReadonlyMap<number, number>>(new Map());
+  // The main window's throttling before the first lease, restored after the last.
+  // Dev builds keep the window unthrottled on purpose; packaged builds throttle it.
+  const stillCaptureWindowThrottlingRef = yield* Ref.make<boolean>(true);
+  const stillCaptureLeaseTotal = Ref.get(stillCaptureLeasesRef).pipe(
+    Effect.map((leases) => Array.from(leases.values()).reduce((sum, count) => sum + count, 0)),
+  );
   const pictureInPictureSessionsRef = yield* SynchronizedRef.make<
     ReadonlyMap<string, PictureInPictureSession>
   >(new Map());
@@ -736,6 +748,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         schedule: Schedule.spaced(CAPTURE_PAGE_RETRY_DELAY_MS),
         while: isPreviewOperationError,
       }),
+      withStillCaptureUnthrottled(wc),
     );
   });
   const currentIso = DateTime.now.pipe(Effect.map(DateTime.formatIso));
@@ -849,6 +862,70 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       );
     });
   });
+  const isHeldByFrameCapture = (
+    sessions: ReadonlyMap<string, FrameCaptureSession>,
+    webContentsId: number,
+  ) =>
+    Array.from(sessions.values()).some((session) =>
+      session.unthrottledWebContentsIds.has(webContentsId),
+    );
+  const acquireStillCaptureUnthrottled = (wc: Electron.WebContents) =>
+    SynchronizedRef.modifyEffect(frameCaptureSessionsRef, (sessions) =>
+      Effect.gen(function* () {
+        const leases = yield* Ref.get(stillCaptureLeasesRef);
+        if (sessions.size === 0 && (yield* stillCaptureLeaseTotal) === 0) {
+          const mainWindow = yield* Ref.get(mainWindowRef);
+          yield* Ref.set(
+            stillCaptureWindowThrottlingRef,
+            Option.isSome(mainWindow) && !mainWindow.value.isDestroyed()
+              ? mainWindow.value.webContents.getBackgroundThrottling?.() !== false
+              : true,
+          );
+          yield* setFrameCaptureBackgroundThrottling(false).pipe(Effect.ignore);
+        }
+        if ((leases.get(wc.id) ?? 0) === 0 && !isHeldByFrameCapture(sessions, wc.id)) {
+          yield* setFrameCaptureWebContentsBackgroundThrottling(wc, false).pipe(Effect.ignore);
+        }
+        yield* Ref.set(
+          stillCaptureLeasesRef,
+          replaceMap(leases, (copy) => {
+            copy.set(wc.id, (copy.get(wc.id) ?? 0) + 1);
+          }),
+        );
+        return [undefined, sessions] as const;
+      }),
+    );
+  const releaseStillCaptureUnthrottled = (wc: Electron.WebContents) =>
+    SynchronizedRef.modifyEffect(frameCaptureSessionsRef, (sessions) =>
+      Effect.gen(function* () {
+        const leases = yield* Ref.get(stillCaptureLeasesRef);
+        const remaining = (leases.get(wc.id) ?? 1) - 1;
+        yield* Ref.set(
+          stillCaptureLeasesRef,
+          replaceMap(leases, (copy) => {
+            if (remaining > 0) copy.set(wc.id, remaining);
+            else copy.delete(wc.id);
+          }),
+        );
+        if (remaining === 0 && !isHeldByFrameCapture(sessions, wc.id)) {
+          yield* setFrameCaptureWebContentsBackgroundThrottling(wc, true).pipe(Effect.ignore);
+        }
+        if (sessions.size === 0 && (yield* stillCaptureLeaseTotal) === 0) {
+          yield* setFrameCaptureBackgroundThrottling(
+            yield* Ref.get(stillCaptureWindowThrottlingRef),
+          ).pipe(Effect.ignore);
+        }
+        return [undefined, sessions] as const;
+      }),
+    ).pipe(Effect.uninterruptible);
+  const withStillCaptureUnthrottled =
+    (wc: Electron.WebContents) =>
+    <A, E, R>(capture: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
+      Effect.acquireUseRelease(
+        acquireStillCaptureUnthrottled(wc),
+        () => capture,
+        () => releaseStillCaptureUnthrottled(wc),
+      );
   const stopFrameCapture = Effect.fn("PreviewManager.stopFrameCapture")(function* (
     tabId: string,
     consumer: FrameCaptureConsumer,
@@ -878,10 +955,15 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         const remainingSessions = replaceMap(sessions, (copy) => {
           copy.delete(tabId);
         });
+        const stillCaptureLeases = yield* Ref.get(stillCaptureLeasesRef);
         yield* restoreFrameCaptureWebContentsBackgroundThrottling(
-          current.unthrottledWebContentsIds,
+          new Set(
+            Array.from(current.unthrottledWebContentsIds).filter(
+              (webContentsId) => (stillCaptureLeases.get(webContentsId) ?? 0) === 0,
+            ),
+          ),
         );
-        if (remainingSessions.size === 0) {
+        if (remainingSessions.size === 0 && (yield* stillCaptureLeaseTotal) === 0) {
           yield* setFrameCaptureBackgroundThrottling(true).pipe(
             Effect.retry({ times: 2 }),
             Effect.catch((error) =>
@@ -2048,7 +2130,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     }
     yield* SynchronizedRef.modifyEffect(frameCaptureSessionsRef, (sessions) =>
       Effect.gen(function* () {
-        if (sessions.size > 0) {
+        if (sessions.size > 0 || (yield* stillCaptureLeaseTotal) > 0) {
           yield* setWindowBackgroundThrottling(window, false);
         }
         yield* Ref.set(mainWindowRef, Option.some(window));
@@ -3114,9 +3196,10 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
           if (sessions.size === 0) {
             yield* setFrameCaptureBackgroundThrottling(false);
           }
+          const stillCapturesActive = (yield* stillCaptureLeaseTotal) > 0;
           yield* setFrameCaptureWebContentsBackgroundThrottling(wc, false).pipe(
             Effect.onError(() =>
-              sessions.size === 0
+              sessions.size === 0 && !stillCapturesActive
                 ? setFrameCaptureBackgroundThrottling(true).pipe(Effect.ignore)
                 : Effect.void,
             ),
@@ -4500,7 +4583,8 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         send,
         `(() => {
               try {
-                const selectorMatched = ${locatorJson ? `(() => { const injected = globalThis.__t3PlaywrightInjected; return injected.querySelector(injected.parseSelector(${locatorJson}), document, false) !== null; })()` : "true"};
+                // Playwright's querySelector returns undefined, not null, when nothing matches.
+                const selectorMatched = ${locatorJson ? `(() => { const injected = globalThis.__t3PlaywrightInjected; return injected.querySelector(injected.parseSelector(${locatorJson}), document, false) != null; })()` : "true"};
                 const textMatched = ${
                   textJson ? `(document.body?.innerText || "").includes(${textJson})` : "true"
                 };

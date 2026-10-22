@@ -64,6 +64,8 @@ import { useAtomQueryRunner } from "~/state/use-atom-query-runner";
 import { useAtomCommand } from "~/state/use-atom-command";
 
 import { previewBridge } from "./previewBridge";
+import { resolvePreviewPresentation } from "./previewPresentation";
+import { selectActiveRightPanelSurface, useRightPanelStore } from "~/rightPanelStore";
 import {
   PreviewAutomationOperationError,
   PreviewAutomationOverlayTimeoutError,
@@ -237,6 +239,21 @@ const currentStatus = async (
   const visible = runtimeTabId
     ? (useBrowserSurfaceStore.getState().byTabId[runtimeTabId]?.visible ?? false)
     : false;
+  const rightPanelSurface = selectActiveRightPanelSurface(
+    useRightPanelStore.getState().byThreadKey,
+    threadRef,
+  );
+  const presentation = resolvePreviewPresentation({
+    visible,
+    windowVisible: document.visibilityState === "visible",
+    shownInThread:
+      tabId !== null &&
+      (selectThreadPreviewMiniPlayerTabId(
+        usePreviewMiniPlayerStore.getState().byThreadKey,
+        threadRef,
+      ) === tabId ||
+        (rightPanelSurface?.kind === "preview" && rightPanelSurface.resourceId === tabId)),
+  });
   const renderingActive = runtimeTabId ? isPreviewWebviewRendering(runtimeTabId) : false;
   const viewportSetting = snapshot ? (snapshot.viewport ?? FILL_PREVIEW_VIEWPORT) : undefined;
   const viewport =
@@ -249,12 +266,13 @@ const currentStatus = async (
   };
   if (runtimeTabId && tabId && previewBridge && state.desktopByTabId[tabId]) {
     const status = await previewBridge.automation.status(runtimeTabId);
-    return { ...status, tabId, visible, ...viewportStatus };
+    return { ...status, tabId, visible, presentation, ...viewportStatus };
   }
   const navStatus = snapshot?.navStatus;
   return {
     available: false,
     visible,
+    presentation,
     tabId,
     url: navStatus && navStatus._tag !== "Idle" ? navStatus.url : null,
     title: navStatus && navStatus._tag !== "Idle" ? navStatus.title : null,
