@@ -3101,6 +3101,58 @@ describe("PreviewManager", () => {
     ),
   );
 
+  effectIt.effect(
+    "lifts window and guest throttling while a still capture runs, without undoing a recording's",
+    () =>
+      withManager((manager) =>
+        Effect.gen(function* () {
+          // Packaged builds throttle the unfocused main window, and a throttled
+          // offscreen guest paints too slowly for capturePage's deadline.
+          let windowThrottled = true;
+          const windowThrottling = vi.fn((enabled: boolean) => {
+            windowThrottled = enabled;
+          });
+          const throttlingAtCapture: Array<{ window: boolean; guest: boolean }> = [];
+          const capturePage = vi.fn(async () => {
+            throttlingAtCapture.push({
+              window: windowThrottled,
+              guest: webContents.setBackgroundThrottling.mock.calls.at(-1)?.[0] ?? true,
+            });
+            return {
+              toJPEG: () => Buffer.from("frame"),
+              toPNG: () => Buffer.from("png"),
+              getSize: () => ({ width: 1280, height: 720 }),
+              isEmpty: () => false,
+            };
+          });
+          const host = makeTestHostWebContents();
+          const webContents = makeTestPreviewWebContents(capturePage, 42, host);
+          fromId.mockReturnValue(webContents);
+          yield* manager.createTab("tab_still_capture");
+          yield* manager.registerWebview("tab_still_capture", 42);
+          yield* manager.setMainWindow({
+            isDestroyed: () => false,
+            once: vi.fn(),
+            webContents: { setBackgroundThrottling: windowThrottling },
+          } as never);
+
+          yield* manager.captureScreenshot("tab_still_capture");
+          expect(throttlingAtCapture.at(-1)).toEqual({ window: false, guest: false });
+          expect(windowThrottled).toBe(true);
+          expect(webContents.setBackgroundThrottling.mock.calls.at(-1)).toEqual([true]);
+
+          // A recording keeps both unthrottled; a screenshot during it must not re-throttle.
+          yield* manager.startRecording("tab_still_capture");
+          yield* manager.captureScreenshot("tab_still_capture");
+          expect(windowThrottled).toBe(false);
+          expect(webContents.setBackgroundThrottling.mock.calls.at(-1)).toEqual([false]);
+          yield* manager.stopRecording("tab_still_capture");
+          expect(windowThrottled).toBe(true);
+          expect(webContents.setBackgroundThrottling.mock.calls.at(-1)).toEqual([true]);
+        }),
+      ),
+  );
+
   effectIt.effect("continues native recording when the source warmup fails", () =>
     withManager((manager) =>
       Effect.gen(function* () {
@@ -4199,7 +4251,10 @@ describe("PreviewManager", () => {
 
           const missing = yield* manager
             .automationWaitFor("tab_wait_for", { selector: "#never-appears", timeoutMs: 300 })
-            .pipe(Effect.flip, Effect.forkChild({ startImmediately: true }));
+            .pipe(
+              Effect.match({ onFailure: (error) => error, onSuccess: () => "matched" as const }),
+              Effect.forkChild({ startImmediately: true }),
+            );
           yield* TestClock.adjust(500);
           expect(yield* Fiber.join(missing)).toMatchObject({
             _tag: "PreviewAutomationTimeoutError",
