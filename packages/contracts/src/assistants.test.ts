@@ -130,18 +130,16 @@ describe("schedules", () => {
     }),
   );
 
-  it.effect("lets an agent pause a schedule but never turn one on", () =>
+  it.effect("lets an agent change carry a pause or a turn-on", () =>
     Effect.gen(function* () {
-      const paused = yield* decodeAgentChange({
-        kind: "upsert",
-        id: "morning-brief",
-        enabled: false,
-      });
-      assert.deepStrictEqual(paused, { kind: "upsert", id: "morning-brief", enabled: false });
-      const enabled = yield* Effect.flip(
-        decodeAgentChange({ kind: "upsert", id: "morning-brief", enabled: true }),
+      for (const enabled of [false, true]) {
+        const change = yield* decodeAgentChange({ kind: "upsert", id: "morning-brief", enabled });
+        assert.deepStrictEqual(change, { kind: "upsert", id: "morning-brief", enabled });
+      }
+      const invalid = yield* Effect.flip(
+        decodeAgentChange({ kind: "upsert", id: "morning-brief", enabled: "yes" }),
       );
-      assert.strictEqual(enabled._tag, "SchemaError");
+      assert.strictEqual(invalid._tag, "SchemaError");
     }),
   );
 

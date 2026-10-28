@@ -146,6 +146,36 @@ describe("ScheduleRunner fires", () => {
   );
 
   test(
+    "runs a schedule the coordinator turns on from its next slot, not a passed one",
+    Effect.gen(function* () {
+      const f = yield* makeRunnerFixture();
+      yield* f.setSchedules(PROJECT, [{ id: "daily", cron: DAILY, enabled: false }]);
+      yield* TestClock.setTime(Date.parse("2026-09-28T13:10:00.000Z"));
+      yield* f.dispatch({
+        type: "project.schedule.agent-change",
+        commandId: CommandId.make(f.nextId("turn-on")),
+        projectId: PROJECT,
+        actorThreadId: COORDINATOR,
+        change: { kind: "upsert", id: "daily", enabled: true },
+        createdAt: "2026-09-28T13:10:00.000Z",
+      });
+
+      yield* f.withRunner((runner) => f.fireAt(runner, "2026-09-28T13:10:30.000Z"));
+      assert.deepStrictEqual(yield* f.messageIds(COORDINATOR), []);
+      assert.deepStrictEqual(yield* f.runsOf(PROJECT), {});
+
+      yield* f.withRunner((runner) => f.fireAt(runner, "2026-09-29T13:00:30.000Z"));
+      assert.deepStrictEqual((yield* f.runsOf(PROJECT)).daily, {
+        slot: "2026-09-29T13:00:00.000Z",
+        at: "2026-09-29T13:00:30.000Z",
+        trigger: "cron",
+        outcome: "sent",
+        threadId: COORDINATOR,
+      });
+    }),
+  );
+
+  test(
     "records a slot over 2 hours late as late, and a gone target as target-missing",
     Effect.gen(function* () {
       const f = yield* makeRunnerFixture();

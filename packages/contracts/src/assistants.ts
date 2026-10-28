@@ -124,8 +124,8 @@ export const ProjectAssistantPatch = Schema.Struct({
 export type ProjectAssistantPatch = typeof ProjectAssistantPatch.Type;
 
 /**
- * One agent write to one schedule. An agent can pause a schedule but never
- * turn one on, so `enabled` admits only `false`.
+ * One agent write to one schedule. `enabled: true` turns it on; the schedule
+ * tools send it only in a turn the user's own message started.
  */
 export const ProjectScheduleAgentChange = Schema.Union([
   Schema.Struct({
@@ -135,7 +135,7 @@ export const ProjectScheduleAgentChange = Schema.Union([
     prompt: Schema.optional(Schema.String),
     cron: Schema.optional(TrimmedNonEmptyString),
     target: Schema.optional(ProjectScheduleTarget),
-    enabled: Schema.optional(Schema.Literal(false)),
+    enabled: Schema.optional(Schema.Boolean),
   }),
   Schema.Struct({
     kind: Schema.Literal("delete"),
