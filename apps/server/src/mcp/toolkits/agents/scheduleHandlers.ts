@@ -4,8 +4,13 @@
  * Coordinator only: M3 also grants `agents` to standing agents, so every call
  * checks the caller's live role. Each write is one
  * `project.schedule.agent-change`, so an agent never touches a schedule it did
- * not name, and the decider keeps a schedule an agent creates, re-prompts,
- * re-times or retargets paused until the user turns it on.
+ * not name, and the decider pauses a schedule an agent creates, re-prompts,
+ * re-times or retargets unless the change turns it on. Turning one on needs
+ * the caller's running turn to have been started by the user's own message:
+ * a turn an agent result, peer message or schedule run started (its message
+ * has a `source`) never can. Whether that message asked to turn the schedule
+ * on is the coordinator's judgment, per its instructions; the server cannot
+ * read intent.
  *
  * @module scheduleHandlers
  */
@@ -19,7 +24,7 @@ import {
   type ProjectScheduleAgentChange,
   type ProjectScheduleTarget,
 } from "@t3tools/contracts";
-import { describeCadence, newScheduleId } from "@t3tools/shared/schedules";
+import { describeCadence, newScheduleId, nextScheduleRuns } from "@t3tools/shared/schedules";
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
@@ -32,6 +37,9 @@ import { OrchestrationCommandInvariantError } from "../../../orchestration/Error
 import * as OrchestrationEngine from "../../../orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ProjectionProjectRepository } from "../../../persistence/Services/ProjectionProjects.ts";
+import { ProjectionThreadMessageRepository } from "../../../persistence/Services/ProjectionThreadMessages.ts";
+import { ProjectionTurnRepository } from "../../../persistence/Services/ProjectionTurns.ts";
+import { HostTimeZoneSource } from "../../../schedules/hostZone.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import { agentRefCandidates } from "./agentScope.ts";
 import {
@@ -41,6 +49,7 @@ import {
   AgentToolFailedError,
   ScheduleNotFoundError,
   SchedulesCoordinatorOnlyError,
+  ScheduleTurnOnNotRequestedError,
 } from "./tools.ts";
 
 type ScheduleToolName =
@@ -124,7 +133,74 @@ export const makeScheduleHandlers = Effect.gen(function* () {
   const engine = yield* OrchestrationEngine.OrchestrationEngineService;
   const snapshots = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
   const projects = yield* ProjectionProjectRepository;
+  const messages = yield* ProjectionThreadMessageRepository;
+  const turns = yield* ProjectionTurnRepository;
+  const hostZone = yield* HostTimeZoneSource;
   const crypto = yield* Crypto.Crypto;
+
+  /** The next slot in the zone the host scheduler fires in; null while paused. */
+  const nextRunOf = (schedule: { readonly cron: string; readonly enabled: boolean }) =>
+    Effect.map(DateTime.now, (now) => {
+      if (!schedule.enabled) return null;
+      const [next] = nextScheduleRuns(schedule.cron, hostZone().zone, DateTime.toDateUtc(now), 1);
+      return next === undefined ? null : next.toISOString();
+    });
+
+  /**
+   * Turning a schedule on is the user's call, so the caller's running turn
+   * must have been started by the user's own message. Agent results, peer
+   * messages and schedule runs carry a `source`; one that arrives mid-turn
+   * does not change which message started the turn.
+   */
+  const requireUserTurn = Effect.fn("ScheduleTools.requireUserTurn")(function* (
+    coordinator: Coordinator,
+  ) {
+    const { caller } = coordinator;
+    const turnId =
+      caller.session?.activeTurnId ??
+      (caller.latestTurn?.state === "running" ? caller.latestTurn.turnId : null);
+    if (turnId === null) return yield* new ScheduleTurnOnNotRequestedError();
+    const turn = yield* turns
+      .getByTurnId({ threadId: caller.id, turnId })
+      .pipe(Effect.mapError(readFailed));
+    const messageId = Option.getOrUndefined(turn)?.pendingMessageId ?? null;
+    if (Option.isNone(turn) || messageId === null)
+      return yield* new ScheduleTurnOnNotRequestedError();
+    const message = Option.getOrUndefined(
+      yield* messages.getByMessageId({ messageId }).pipe(Effect.mapError(readFailed)),
+    );
+    if (
+      message === undefined ||
+      message.threadId !== caller.id ||
+      message.role !== "user" ||
+      message.source !== undefined
+    ) {
+      return yield* new ScheduleTurnOnNotRequestedError();
+    }
+    // A thread keeps one pending start, so a later request can overwrite an
+    // agent's before its turn runs, and the turn is then credited to the
+    // later message. Refuse when any agent or schedule message arrived since
+    // the previous turn was requested, and when the starting message predates
+    // that turn (a replay of an old message).
+    const requestedAt = Date.parse(turn.value.requestedAt);
+    const previous = (yield* turns
+      .listByThreadId({ threadId: caller.id })
+      .pipe(Effect.mapError(readFailed)))
+      .filter((row) => row.turnId !== turnId && Date.parse(row.requestedAt) < requestedAt)
+      .reduce((latest, row) => Math.max(latest, Date.parse(row.requestedAt)), -Infinity);
+    const startedAt = Date.parse(message.createdAt);
+    if (startedAt <= previous) return yield* new ScheduleTurnOnNotRequestedError();
+    const thread = yield* messages
+      .listByThreadId({ threadId: caller.id })
+      .pipe(Effect.mapError(readFailed));
+    const agentSent = thread.some((entry) => {
+      const at = Date.parse(entry.createdAt);
+      return (
+        entry.role === "user" && entry.source !== undefined && at > previous && at <= startedAt
+      );
+    });
+    if (agentSent) return yield* new ScheduleTurnOnNotRequestedError();
+  });
 
   /** The role is checked live, so a replaced coordinator, or one whose Project was archived, is refused. */
   const requireCoordinator = Effect.fn("ScheduleTools.requireCoordinator")(function* () {
@@ -204,18 +280,21 @@ export const makeScheduleHandlers = Effect.gen(function* () {
       Effect.gen(function* () {
         const coordinator = yield* requireCoordinator();
         const marker = yield* readMarker(coordinator);
-        const schedules = (marker?.schedules ?? []).map((schedule) => ({
-          id: schedule.id,
-          name: schedule.name,
-          prompt: entryOf(marker?.schedulePrompts, schedule.id) ?? "",
-          cron: schedule.cron,
-          cadence: describeCadence(schedule.cron),
-          target: schedule.target,
-          enabled: schedule.enabled,
-          createdBy: schedule.createdBy,
-          updatedBy: schedule.updatedBy,
-          lastRun: entryOf(marker?.scheduleRuns, schedule.id) ?? null,
-        }));
+        const schedules = yield* Effect.forEach(marker?.schedules ?? [], (schedule) =>
+          Effect.map(nextRunOf(schedule), (nextRun) => ({
+            id: schedule.id,
+            name: schedule.name,
+            prompt: entryOf(marker?.schedulePrompts, schedule.id) ?? "",
+            cron: schedule.cron,
+            cadence: describeCadence(schedule.cron),
+            target: schedule.target,
+            enabled: schedule.enabled,
+            nextRun,
+            createdBy: schedule.createdBy,
+            updatedBy: schedule.updatedBy,
+            lastRun: entryOf(marker?.scheduleRuns, schedule.id) ?? null,
+          })),
+        );
         return { schedules };
       }),
 
@@ -224,6 +303,8 @@ export const makeScheduleHandlers = Effect.gen(function* () {
         const coordinator = yield* requireCoordinator();
         const target =
           input.target === undefined ? undefined : yield* requireTarget(coordinator, input.target);
+        const enabled = input.enabled === true;
+        if (enabled) yield* requireUserTurn(coordinator);
         const taken = new Set(
           ((yield* readMarker(coordinator))?.schedules ?? []).map((schedule) => schedule.id),
         );
@@ -237,8 +318,17 @@ export const makeScheduleHandlers = Effect.gen(function* () {
           prompt: input.prompt,
           cron: input.cron,
           ...(target === undefined ? {} : { target }),
+          ...(enabled ? { enabled } : {}),
         });
-        return { id, enabled: false as const, note: "Saved off until the user turns it on." };
+        const { schedule: created } = yield* requireSchedule(coordinator, id);
+        return {
+          id,
+          enabled: created.enabled,
+          nextRun: yield* nextRunOf(created),
+          note: created.enabled
+            ? "On. It first runs at nextRun, not now."
+            : "Saved paused. Turn it on only when the user asks.",
+        };
       }),
 
     cp_schedule_update: (input) =>
@@ -260,14 +350,38 @@ export const makeScheduleHandlers = Effect.gen(function* () {
             : { prompt: input.prompt }),
           ...(input.cron === undefined || input.cron === existing.cron ? {} : { cron: input.cron }),
           ...(target === undefined || target === storedTarget ? {} : { target }),
-          ...(input.pause === true && existing.enabled ? { enabled: false as const } : {}),
         };
-        if (Object.keys(fields).length === 0) {
-          return { id: existing.id, enabled: existing.enabled };
+        // `pause` is the older spelling: true pauses, false never turned one on.
+        if (input.pause === true && input.enabled === true) {
+          return yield* new AgentToolFailedError({
+            detail: "Pass enabled or pause, not both: they disagree.",
+          });
         }
-        yield* dispatchChange(coordinator, { kind: "upsert", id: existing.id, ...fields });
+        const requested = input.enabled ?? (input.pause === true ? false : undefined);
+        // A new prompt, cron or target pauses the schedule unless the change
+        // says enabled: true, so that is sent even when it is already on.
+        const pausesUnlessOn = "prompt" in fields || "cron" in fields || "target" in fields;
+        const enabled =
+          requested === undefined ||
+          (requested === existing.enabled && !(requested && pausesUnlessOn))
+            ? undefined
+            : requested;
+        if (enabled === true) yield* requireUserTurn(coordinator);
+        if (Object.keys(fields).length === 0 && enabled === undefined) {
+          return {
+            id: existing.id,
+            enabled: existing.enabled,
+            nextRun: yield* nextRunOf(existing),
+          };
+        }
+        yield* dispatchChange(coordinator, {
+          kind: "upsert",
+          id: existing.id,
+          ...fields,
+          ...(enabled === undefined ? {} : { enabled }),
+        });
         const { schedule: updated } = yield* requireSchedule(coordinator, existing.id);
-        return { id: updated.id, enabled: updated.enabled };
+        return { id: updated.id, enabled: updated.enabled, nextRun: yield* nextRunOf(updated) };
       }),
 
     cp_schedule_delete: (input) =>

@@ -5,7 +5,8 @@
  * Users write the whole list through `project.meta.update` (like `scripts`),
  * echoing each existing entry's `updatedAt`; a stale echo refuses the write.
  * Agents change one entry per command, so a write built from a stale read
- * never touches another schedule, and an agent can never turn one on.
+ * never touches another schedule. Only an explicit `enabled: true` turns one
+ * on, and the schedule tools send it only in a turn the user's message started.
  */
 import {
   PROJECT_SCHEDULE_LIMIT,
@@ -225,8 +226,10 @@ export const mergeSchedules = ({
 
 /**
  * One agent write. A new schedule is saved off, and a change to its prompt,
- * cron or target turns it off, so a single prompt injection can never become
- * a running job. Every other schedule stays exactly as stored.
+ * cron or target turns it off, unless the same change says `enabled: true`.
+ * Turning one on stamps `updatedAt`, which arms it: slots before then never
+ * run, so it first fires at its next slot. Every other schedule stays
+ * exactly as stored.
  */
 export const applyAgentScheduleChange = ({
   current,
@@ -283,7 +286,7 @@ export const applyAgentScheduleChange = ({
         name,
         cron,
         target,
-        enabled: false,
+        enabled: change.enabled === true,
         createdBy: actor,
         updatedBy: actor,
         updatedAt: now,
@@ -304,7 +307,7 @@ export const applyAgentScheduleChange = ({
         : normalizeTarget(change.target, scope.coordinatorThreadId);
     const retargeted = target !== storedTarget;
     const turnsOff = retargeted || cron !== existing.cron || prompt !== entryOf(prompts, change.id);
-    const enabled = turnsOff || change.enabled === false ? false : existing.enabled;
+    const enabled = change.enabled ?? (turnsOff ? false : existing.enabled);
     const error = entryError(scope, { id: change.id, name, cron }, prompt, target, retargeted);
     if (error !== null) return yield* invariant(scope.commandType, error);
 

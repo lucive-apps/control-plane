@@ -1,4 +1,5 @@
 import {
+  IsoDateTime,
   McpCapabilityUnavailableError,
   PROJECT_SCHEDULE_NAME_MAX,
   PROJECT_SCHEDULE_PROMPT_MAX,
@@ -165,10 +166,20 @@ export class ScheduleNotFoundError extends Schema.TaggedError<ScheduleNotFoundEr
   }
 }
 
+export class ScheduleTurnOnNotRequestedError extends Schema.TaggedError<ScheduleTurnOnNotRequestedError>()(
+  "ScheduleTurnOnNotRequestedError",
+  {},
+) {
+  override get message(): string {
+    return "A schedule turns on only in a turn the user's own message started, and this turn was not clearly started by one: an agent or a schedule started it, or one of their messages arrived just before it. Ask the user, or they can turn it on in the Schedules panel.";
+  }
+}
+
 export const ScheduleToolError = Schema.Union([
   McpCapabilityUnavailableError,
   SchedulesCoordinatorOnlyError,
   ScheduleNotFoundError,
+  ScheduleTurnOnNotRequestedError,
   AgentNotFoundError,
   AgentAmbiguousError,
   AgentToolFailedError,
@@ -325,6 +336,13 @@ const SchedulePrompt = TrimmedNonEmptyString.annotate({
 const ScheduleCron = TrimmedNonEmptyString.annotate({
   description: `Five-field cron in the host's local time, at most every 15 minutes. "0 9 * * 1-5" is weekdays at 9:00.`,
 });
+const ScheduleEnabled = Schema.Boolean.annotate({
+  description:
+    "true turns the schedule on. Only when the user's own message explicitly asks to turn it on, and only in a turn that message started; it first runs at its next run time. false pauses it.",
+});
+const ScheduleNextRun = Schema.NullOr(IsoDateTime).annotate({
+  description: "When it next runs. Null while paused.",
+});
 const ScheduleTargetRef = TrimmedNonEmptyString.annotate({
   description: `"coordinator" (you, the default), or a standing agent's threadId or exact title. A standing agent's result comes back to you.`,
 });
@@ -337,6 +355,7 @@ export const ScheduleListEntry = Schema.Struct({
   cadence: Schema.String.annotate({ description: "The cron in words." }),
   target: ProjectScheduleTarget,
   enabled: Schema.Boolean,
+  nextRun: ScheduleNextRun,
   createdBy: ProjectScheduleActor,
   updatedBy: ProjectScheduleActor,
   lastRun: Schema.NullOr(ProjectScheduleRun),
@@ -351,12 +370,14 @@ export const ScheduleCreateInput = Schema.Struct({
   prompt: SchedulePrompt,
   cron: ScheduleCron,
   target: Schema.optional(ScheduleTargetRef),
+  enabled: Schema.optional(ScheduleEnabled),
 });
 export type ScheduleCreateInput = typeof ScheduleCreateInput.Type;
 
 export const ScheduleCreateResult = Schema.Struct({
   id: Schema.String,
-  enabled: Schema.Literal(false),
+  enabled: Schema.Boolean,
+  nextRun: ScheduleNextRun,
   note: Schema.String,
 });
 export type ScheduleCreateResult = typeof ScheduleCreateResult.Type;
@@ -367,15 +388,18 @@ export const ScheduleUpdateInput = Schema.Struct({
   prompt: Schema.optional(SchedulePrompt),
   cron: Schema.optional(ScheduleCron),
   target: Schema.optional(ScheduleTargetRef),
+  enabled: Schema.optional(ScheduleEnabled),
   pause: Schema.optional(
-    Schema.Boolean.annotate({
-      description: "true pauses the schedule. Only the user can turn one on.",
-    }),
+    Schema.Boolean.annotate({ description: "Deprecated: use enabled. true pauses the schedule." }),
   ),
 });
 export type ScheduleUpdateInput = typeof ScheduleUpdateInput.Type;
 
-export const ScheduleUpdateResult = Schema.Struct({ id: Schema.String, enabled: Schema.Boolean });
+export const ScheduleUpdateResult = Schema.Struct({
+  id: Schema.String,
+  enabled: Schema.Boolean,
+  nextRun: ScheduleNextRun,
+});
 export type ScheduleUpdateResult = typeof ScheduleUpdateResult.Type;
 
 export const ScheduleDeleteInput = Schema.Struct({ id: ScheduleRef });
@@ -455,7 +479,8 @@ const AgentSettleTool = Tool.make("cp_agent_settle", {
   .annotate(Tool.OpenWorld, false);
 
 const ScheduleListTool = Tool.make("cp_schedule_list", {
-  description: "List this Project's schedules with their prompts, cadence and last run.",
+  description:
+    "List this Project's schedules with their prompts, cadence, state, next and last run.",
   success: ScheduleListResult,
   failure: ScheduleToolError,
   dependencies,
@@ -468,7 +493,7 @@ const ScheduleListTool = Tool.make("cp_schedule_list", {
 
 const ScheduleCreateTool = Tool.make("cp_schedule_create", {
   description:
-    "Create a schedule that sends a prompt on a cadence, only when the user asks. It stays paused until the user turns it on.",
+    "Create a schedule that sends a prompt on a cadence, only when the user asks. It is saved paused unless the user asked to turn it on.",
   parameters: ScheduleCreateInput,
   success: ScheduleCreateResult,
   failure: ScheduleToolError,
@@ -482,7 +507,7 @@ const ScheduleCreateTool = Tool.make("cp_schedule_create", {
 
 const ScheduleUpdateTool = Tool.make("cp_schedule_update", {
   description:
-    "Change or pause a schedule. A new prompt, cron or target pauses it until the user turns it back on.",
+    "Change, pause or turn on a schedule. A new prompt, cron or target pauses it unless the same call passes enabled: true.",
   parameters: ScheduleUpdateInput,
   success: ScheduleUpdateResult,
   failure: ScheduleToolError,
