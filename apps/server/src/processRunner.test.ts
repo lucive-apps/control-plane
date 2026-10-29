@@ -369,6 +369,56 @@ describe("runProcess", () => {
     }),
   );
 
+  // After a blocked event loop, Node runs expired timers before pending I/O, so
+  // a wall-clock timeout fires ahead of the exit the child already reported.
+  it.live("does not time out a process that exited while the event loop was blocked", () =>
+    Effect.gen(function* () {
+      const spawner = makeSpawner(() =>
+        Effect.succeed(
+          makeHandle({
+            // Delivered like child process I/O: after the timers phase.
+            exitCode: Effect.callback<ChildProcessSpawner.ExitCode>((resume) => {
+              const timer = setTimeout(
+                () => setImmediate(() => resume(Effect.succeed(ChildProcessSpawner.ExitCode(0)))),
+                10,
+              );
+              return Effect.sync(() => clearTimeout(timer));
+            }),
+          }),
+        ),
+      );
+      const resultFiber = yield* runWith(spawner)({
+        command: "fake",
+        args: ["quick"],
+        timeout: "100 millis",
+      }).pipe(Effect.forkScoped);
+
+      yield* Effect.sleep(Duration.millis(1));
+      const blockedUntil = Date.now() + 400;
+      while (Date.now() < blockedUntil) {
+        // Hold the event loop past the timeout, as a long synchronous query does.
+      }
+      const result = yield* Fiber.join(resultFiber);
+
+      expect(result.code).toBe(0);
+    }),
+  );
+
+  it.live("still times out a process that never exits", () =>
+    Effect.gen(function* () {
+      const spawner = makeSpawner(() => Effect.succeed(makeHandle({ exitCode: Effect.never })));
+      const startedAt = Date.now();
+      const error = yield* runWith(spawner)({
+        command: "fake",
+        args: ["hang"],
+        timeout: "100 millis",
+      }).pipe(Effect.flip);
+
+      expect(error._tag).toBe("ProcessTimeoutError");
+      expect(Date.now() - startedAt).toBeLessThan(1_000);
+    }),
+  );
+
   it.effect("returns a synthetic timed out result when timeoutBehavior is timedOutResult", () =>
     Effect.gen(function* () {
       const spawner = makeSpawner(() =>

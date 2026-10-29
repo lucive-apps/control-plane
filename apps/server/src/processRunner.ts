@@ -1,3 +1,4 @@
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -246,6 +247,36 @@ const collectText = Effect.fn("processRunner.collectText")(function* (input: {
   );
 });
 
+const TIMEOUT_TICK_MS = 250;
+/** A tick this late means the event loop was blocked rather than idle. */
+const TIMEOUT_TICK_LATE_MS = 250;
+/** Wall-clock allowance past the timeout, so a loop that stays sluggish still ends the wait. */
+const TIMEOUT_MAX_STALL_MS = 120_000;
+
+/**
+ * Sleeps for `timeout` of time the event loop was free to run. A tick that
+ * fires late (a long synchronous query, a GC pause) counts for nothing: once
+ * the loop is back, Node runs expired timers before the pending I/O that
+ * reports the child's exit, so a plain timer declares a finished process
+ * timed out. A process that never exits still times out once the loop has
+ * run for `timeout`, and in any case `TIMEOUT_MAX_STALL_MS` of wall time after
+ * it.
+ */
+const sleepForResponsiveTime = (timeout: Duration.Duration) =>
+  Effect.gen(function* () {
+    const timeoutMs = Duration.toMillis(timeout);
+    const deadline = (yield* Clock.currentTimeMillis) + timeoutMs + TIMEOUT_MAX_STALL_MS;
+    let remainingMs = timeoutMs;
+    while (remainingMs > 0) {
+      const tickStartedAt = yield* Clock.currentTimeMillis;
+      if (tickStartedAt >= deadline) return;
+      const tickMs = Math.min(TIMEOUT_TICK_MS, remainingMs, deadline - tickStartedAt);
+      yield* Effect.sleep(Duration.millis(tickMs));
+      const elapsedMs = (yield* Clock.currentTimeMillis) - tickStartedAt;
+      if (elapsedMs <= tickMs + TIMEOUT_TICK_LATE_MS) remainingMs -= elapsedMs;
+    }
+  });
+
 function finalizeRunProcess<R>(
   effect: Effect.Effect<ProcessRunOutput, ProcessRunError, R | Scope.Scope>,
   input: ProcessRunInput,
@@ -255,7 +286,8 @@ function finalizeRunProcess<R>(
 
   return effect.pipe(
     Effect.scoped,
-    Effect.timeoutOption(timeout),
+    Effect.map(Option.some),
+    (run) => Effect.raceFirst(run, sleepForResponsiveTime(timeout).pipe(Effect.as(Option.none()))),
     Effect.flatMap((result) => {
       if (Option.isSome(result)) {
         return Effect.succeed(result.value);
