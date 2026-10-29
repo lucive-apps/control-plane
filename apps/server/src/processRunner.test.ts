@@ -373,6 +373,7 @@ describe("runProcess", () => {
   // a wall-clock timeout fires ahead of the exit the child already reported.
   it.live("does not time out a process that exited while the event loop was blocked", () =>
     Effect.gen(function* () {
+      const exitArmed = yield* Deferred.make<void>();
       const spawner = makeSpawner(() =>
         Effect.succeed(
           makeHandle({
@@ -382,6 +383,7 @@ describe("runProcess", () => {
                 () => setImmediate(() => resume(Effect.succeed(ChildProcessSpawner.ExitCode(0)))),
                 10,
               );
+              Deferred.doneUnsafe(exitArmed, Effect.void);
               return Effect.sync(() => clearTimeout(timer));
             }),
           }),
@@ -393,7 +395,9 @@ describe("runProcess", () => {
         timeout: "100 millis",
       }).pipe(Effect.forkScoped);
 
-      yield* Effect.sleep(Duration.millis(1));
+      // The exit and timeout timers are both armed before the loop blocks.
+      yield* Deferred.await(exitArmed);
+      yield* Effect.yieldNow;
       const blockedUntil = Date.now() + 400;
       while (Date.now() < blockedUntil) {
         // Hold the event loop past the timeout, as a long synchronous query does.
