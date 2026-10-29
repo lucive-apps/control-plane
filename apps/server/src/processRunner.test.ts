@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
+import * as Clock from "effect/Clock";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -78,6 +79,21 @@ const runWith =
         ),
       ),
     );
+
+/** Runs `callback` after `delayMs`, in the check phase as child process I/O completes. */
+function afterTimersPhase(delayMs: number, callback: () => void): () => void {
+  // Node's own timer and check phases are what this reproduces.
+  // @effect-diagnostics-next-line globalTimers:off
+  const timer = setTimeout(() => setImmediate(callback), delayMs);
+  return () => clearTimeout(timer);
+}
+
+function blockEventLoop(durationMs: number): void {
+  const blockedUntil = performance.now() + durationMs;
+  while (performance.now() < blockedUntil) {
+    // Busy-wait: nothing else runs until this returns.
+  }
+}
 
 describe("runProcess", () => {
   it.effect("collects stdout through an injected ChildProcessSpawner", () =>
@@ -366,6 +382,81 @@ describe("runProcess", () => {
         timeoutMs: 50,
       });
       expect(error.message).toBe("Process 'fake' in '/actual' timed out after 50ms");
+    }),
+  );
+
+  // After a blocked event loop, Node runs expired timers before pending I/O, so
+  // a wall-clock timeout fires ahead of the exit the child already reported.
+  it.live("does not time out a process that exited while the event loop was blocked", () =>
+    Effect.gen(function* () {
+      const exitArmed = yield* Deferred.make<void>();
+      const spawner = makeSpawner(() =>
+        Effect.succeed(
+          makeHandle({
+            // Delivered like child process I/O: after the timers phase.
+            exitCode: Effect.callback<ChildProcessSpawner.ExitCode>((resume) => {
+              const cancel = afterTimersPhase(10, () =>
+                resume(Effect.succeed(ChildProcessSpawner.ExitCode(0))),
+              );
+              Deferred.doneUnsafe(exitArmed, Effect.void);
+              return Effect.sync(cancel);
+            }),
+          }),
+        ),
+      );
+      const resultFiber = yield* runWith(spawner)({
+        command: "fake",
+        args: ["quick"],
+        timeout: "100 millis",
+      }).pipe(Effect.forkScoped);
+
+      // The exit and timeout timers are both armed before the loop blocks.
+      yield* Deferred.await(exitArmed);
+      yield* Effect.yieldNow;
+      // Hold the event loop past the timeout, as a long synchronous query does.
+      blockEventLoop(400);
+      const result = yield* Fiber.join(resultFiber);
+
+      expect(result.code).toBe(0);
+    }),
+  );
+
+  it.live("lets an exit held back by a stall past the deadline win", () =>
+    Effect.gen(function* () {
+      const exitArmed = yield* Deferred.make<void>();
+      const exited = Effect.callback<"exited">((resume) => {
+        const cancel = afterTimersPhase(10, () => resume(Effect.succeed("exited")));
+        Deferred.doneUnsafe(exitArmed, Effect.void);
+        return Effect.sync(cancel);
+      });
+      // No stall allowance: the stall alone carries the wait past its deadline.
+      const raceFiber = yield* Effect.raceFirst(
+        exited,
+        ProcessRunner.sleepForResponsiveTime(Duration.millis(100), 0).pipe(
+          Effect.as("timed out" as const),
+        ),
+      ).pipe(Effect.forkScoped);
+
+      yield* Deferred.await(exitArmed);
+      yield* Effect.yieldNow;
+      blockEventLoop(400);
+
+      expect(yield* Fiber.join(raceFiber)).toBe("exited");
+    }),
+  );
+
+  it.live("still times out a process that never exits", () =>
+    Effect.gen(function* () {
+      const spawner = makeSpawner(() => Effect.succeed(makeHandle({ exitCode: Effect.never })));
+      const startedAt = yield* Clock.currentTimeMillis;
+      const error = yield* runWith(spawner)({
+        command: "fake",
+        args: ["hang"],
+        timeout: "100 millis",
+      }).pipe(Effect.flip);
+
+      expect(error._tag).toBe("ProcessTimeoutError");
+      expect((yield* Clock.currentTimeMillis) - startedAt).toBeLessThan(1_000);
     }),
   );
 

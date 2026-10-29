@@ -1,3 +1,4 @@
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -246,6 +247,56 @@ const collectText = Effect.fn("processRunner.collectText")(function* (input: {
   );
 });
 
+const TIMEOUT_TICK_MS = 250;
+/** A tick this late means the event loop was blocked rather than idle. */
+const TIMEOUT_TICK_LATE_MS = 250;
+/** Bounds on the extra time a stalled loop may add before the wait ends anyway. */
+const TIMEOUT_MIN_STALL_ALLOWANCE_MS = 10_000;
+const TIMEOUT_MAX_STALL_ALLOWANCE_MS = 60_000;
+
+const monotonicMillis = Effect.map(Clock.monotonicTimeNanos, (nanos) => Number(nanos / 1_000_000n));
+
+/** After a stall, how long to let pending I/O land before declaring a timeout. */
+const TIMEOUT_STALL_SETTLE_MS = 25;
+
+/**
+ * Sleeps for `timeout` of time the event loop was free to run. A tick that
+ * fires late (a long synchronous query, a GC pause) counts for nothing: once
+ * the loop is back, Node runs expired timers before the pending I/O that
+ * reports the child's exit, so a plain timer declares a finished process
+ * timed out. A process that never exits still times out once the loop has
+ * run for `timeout`, and in any case after the timeout plus a stall allowance
+ * of the timeout itself, clamped to 10 to 60 seconds; if a stall carried it
+ * past that bound, it first waits one more short timer so the exit a stall
+ * held back can win. Time is monotonic, so system sleep and wall-clock jumps
+ * count as neither progress nor stall.
+ */
+export const sleepForResponsiveTime = (
+  timeout: Duration.Duration,
+  stallAllowanceMs = Math.min(
+    Math.max(Duration.toMillis(timeout), TIMEOUT_MIN_STALL_ALLOWANCE_MS),
+    TIMEOUT_MAX_STALL_ALLOWANCE_MS,
+  ),
+) => {
+  if (!Duration.isFinite(timeout)) return Effect.never;
+  const timeoutMs = Duration.toMillis(timeout);
+  return Effect.gen(function* () {
+    const deadline = (yield* monotonicMillis) + timeoutMs + stallAllowanceMs;
+    let remainingMs = timeoutMs;
+    while (remainingMs > 0) {
+      const tickStartedAt = yield* monotonicMillis;
+      if (tickStartedAt >= deadline) {
+        yield* Effect.sleep(Duration.millis(TIMEOUT_STALL_SETTLE_MS));
+        return;
+      }
+      const tickMs = Math.min(TIMEOUT_TICK_MS, remainingMs, deadline - tickStartedAt);
+      yield* Effect.sleep(Duration.millis(tickMs));
+      const elapsedMs = (yield* monotonicMillis) - tickStartedAt;
+      if (elapsedMs <= tickMs + TIMEOUT_TICK_LATE_MS) remainingMs -= Math.max(elapsedMs, 0);
+    }
+  });
+};
+
 function finalizeRunProcess<R>(
   effect: Effect.Effect<ProcessRunOutput, ProcessRunError, R | Scope.Scope>,
   input: ProcessRunInput,
@@ -255,7 +306,8 @@ function finalizeRunProcess<R>(
 
   return effect.pipe(
     Effect.scoped,
-    Effect.timeoutOption(timeout),
+    Effect.map(Option.some),
+    (run) => Effect.raceFirst(run, sleepForResponsiveTime(timeout).pipe(Effect.as(Option.none()))),
     Effect.flatMap((result) => {
       if (Option.isSome(result)) {
         return Effect.succeed(result.value);
