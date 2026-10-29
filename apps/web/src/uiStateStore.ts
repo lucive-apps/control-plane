@@ -32,6 +32,7 @@ export interface PersistedUiState {
   threadChangedFilesExpansionVersion?: number;
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
   pullRequestMergeMethod?: string;
+  iosPromoDismissed?: boolean;
 }
 
 export interface UiProjectState {
@@ -59,8 +60,13 @@ export interface UiPullRequestState {
   pullRequestMergeMethod: PullRequestMergeMethod;
 }
 
+export interface UiPromoState {
+  // The sidebar's "Control Plane for iPhone" card, once the user has closed it.
+  iosPromoDismissed: boolean;
+}
+
 export interface UiState
-  extends UiProjectState, UiThreadState, UiEndpointState, UiPullRequestState {}
+  extends UiProjectState, UiThreadState, UiEndpointState, UiPullRequestState, UiPromoState {}
 
 const initialState: UiState = {
   projectExpandedById: {},
@@ -71,6 +77,7 @@ const initialState: UiState = {
   threadChangedFilesExpandedById: {},
   defaultAdvertisedEndpointKey: null,
   pullRequestMergeMethod: "merge",
+  iosPromoDismissed: false,
 };
 
 const LEGACY_PROJECT_CWD_PREFERENCE_PREFIX = "legacy-project-cwd:";
@@ -173,6 +180,7 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
     pullRequestMergeMethod: isPullRequestMergeMethod(parsed.pullRequestMergeMethod)
       ? parsed.pullRequestMergeMethod
       : initialState.pullRequestMergeMethod,
+    iosPromoDismissed: parsed.iosPromoDismissed === true,
   };
 }
 
@@ -248,6 +256,7 @@ export function persistState(state: UiState): void {
         threadChangedFilesExpansionVersion: THREAD_CHANGED_FILES_EXPANSION_VERSION,
         threadChangedFilesExpandedById: state.threadChangedFilesExpandedById,
         pullRequestMergeMethod: state.pullRequestMergeMethod,
+        iosPromoDismissed: state.iosPromoDismissed,
       } satisfies PersistedUiState),
     );
     if (!legacyKeysCleanedUp) {
@@ -360,6 +369,10 @@ function setPullRequestMergeMethod(state: UiState, method: PullRequestMergeMetho
   return state.pullRequestMergeMethod === method
     ? state
     : { ...state, pullRequestMergeMethod: method };
+}
+
+export function dismissIosPromo(state: UiState): UiState {
+  return state.iosPromoDismissed ? state : { ...state, iosPromoDismissed: true };
 }
 
 export function resolveProjectExpanded(
@@ -477,6 +490,7 @@ interface UiStateStore extends UiState {
   setDefaultAdvertisedEndpointKey: (key: string | null) => void;
   setSidebarProjectScopeKey: (projectKey: string | null) => void;
   setPullRequestMergeMethod: (method: PullRequestMergeMethod) => void;
+  dismissIosPromo: () => void;
   setProjectExpanded: (projectIds: string | readonly string[], expanded: boolean) => void;
   reorderProjects: (
     currentProjectOrder: readonly string[],
@@ -503,6 +517,7 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
   setSidebarProjectScopeKey: (projectKey) =>
     set((state) => setSidebarProjectScopeKey(state, projectKey)),
   setPullRequestMergeMethod: (method) => set((state) => setPullRequestMergeMethod(state, method)),
+  dismissIosPromo: () => set((state) => dismissIosPromo(state)),
   setProjectExpanded: (projectIds, expanded) =>
     set((state) => setProjectExpanded(state, projectIds, expanded)),
   reorderProjects: (currentProjectOrder, draggedProjectIds, targetProjectIds) =>
