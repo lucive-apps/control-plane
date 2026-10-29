@@ -124,6 +124,9 @@ it.layer(NodeServices.layer)("Muse status", (it) => {
         expect(host.connection.request).toHaveBeenCalledWith("model/list", {});
         expect(host.connection.command).not.toHaveBeenCalled();
         expect(host.close).toHaveBeenCalledOnce();
+        // The status probe has run no turn, so it has observed no quota yet.
+        // Limits arrive later with turns via `usage/changed`.
+        expect(snapshot.usageLimits).toBeUndefined();
       }),
     ),
   );

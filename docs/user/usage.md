@@ -2,16 +2,18 @@
 
 ## Understand your usage
 
-**Usage** combines Codex, Claude Code, and Grok Build session history from your connected
+**Usage** combines Codex, Claude Code, Grok Build, and Muse session history from your connected
 environments. It shows token use, cache savings, model breakdowns, and estimated API-equivalent
 cost. These estimates are not your subscription bill.
 
 Totals depend on the history available on each server. Grok turns without a saved completed-turn
-record are missing from the totals.
+record are missing from the totals, as are Muse turns without a saved model-completed record.
+Muse reports tokens but no cost, so Muse rows price through the shared model rate table or your
+custom model prices, and show tokens with no cost when neither knows the model.
 
 Usage includes each configured account's history, including disabled accounts. Custom homes follow
-the account's home setting or its `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, or `GROK_HOME` environment
-variable. Use absolute paths or `~/` paths in the account's environment settings; relative
+the account's home setting or its `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `GROK_HOME`, or `MUSE_HOME`
+environment variable. Use absolute paths or `~/` paths in the account's environment settings; relative
 environment paths depend on each workspace's working directory and cannot be reliably discovered
 by Usage. Accounts sharing a history directory count once.
 
@@ -80,6 +82,12 @@ to use a file-based login.
 Grok reports the remaining subscription allowance and reset time for its current billing period
 after signing in with `grok login`. Explicit `XAI_API_KEY` connections and custom authentication
 or endpoint configurations do not report subscription limits.
+
+Muse reports its current window and weekly subscription usage through the Muse host while
+turns run. Its **Usage → Limits** bars appear once Muse reports quota during a turn in Control Plane
+and refresh when Muse reports a changed allowance. Before that, no bar is shown.
+Refreshing provider status keeps the last reported figures without fetching a new allowance.
+The figures are the provider's own percentages and reset times; nothing is estimated.
 
 API-key accounts may not report subscription limits. This also applies to Claude connections
 using a proxy through `ANTHROPIC_AUTH_TOKEN`.

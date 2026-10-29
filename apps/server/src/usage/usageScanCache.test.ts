@@ -70,6 +70,14 @@ describe("scan cache round trip", () => {
       tailRecords: [record({ provider: "grok", model: "grok-4.5-build", dedupeKey: null })],
       position: position({ resumeOffset: 30, guardLength: 30, guardHash: 123 }),
     });
+    original.set("/muse.jsonl", {
+      size: 60,
+      mtimeMs: 350,
+      provider: "muse",
+      records: [record({ provider: "muse", model: "muse-spark-1.3", dedupeKey: "record-1" })],
+      tailRecords: [],
+      position: position({ resumeOffset: 40, guardLength: 40, guardHash: 456 }),
+    });
     original.set("/codex.jsonl", {
       size: 80,
       mtimeMs: 400,
@@ -90,10 +98,11 @@ describe("scan cache round trip", () => {
 
     const restored = decodeScanCache(JSON.parse(JSON.stringify(encodeScanCache(original))));
 
-    expect(restored.size).toBe(4);
+    expect(restored.size).toBe(5);
     expect(restored.get("/a.jsonl")).toEqual(original.get("/a.jsonl"));
     expect(restored.get("/b.jsonl")).toEqual(original.get("/b.jsonl"));
     expect(restored.get("/grok.jsonl")).toEqual(original.get("/grok.jsonl"));
+    expect(restored.get("/muse.jsonl")).toEqual(original.get("/muse.jsonl"));
     expect(restored.get("/codex.jsonl")).toEqual(original.get("/codex.jsonl"));
   });
 

@@ -207,4 +207,45 @@ describe("readTranscriptRecords resume", () => {
   it("returns null for an unreadable file", async () => {
     assert.isNull(await readTranscriptRecords(NodePath.join(dir, "missing.jsonl"), "claude"));
   });
+
+  it("routes muse session frames to the muse parser", async () => {
+    const usage = {
+      input_tokens: 1000,
+      output_tokens: 50,
+      cached_tokens: 400,
+      cache_write_tokens: 0,
+      cache_read_tokens: 400,
+      reasoning_tokens: 10,
+    };
+    const frame = (recordId: string) =>
+      `${JSON.stringify({
+        retained_frame: "session_transaction",
+        children: [
+          {
+            child_index: 0,
+            record_json: JSON.stringify({
+              id: recordId,
+              stream: { kind: "session", id: "muse-session-1" },
+              recorded_at: 1_786_372_566_485_000,
+              payload_type: "runtime.session",
+              payload: {
+                kind: "run",
+                event: { kind: "model_completed", usage, model: "muse-spark-1.3" },
+              },
+            }),
+          },
+        ],
+      })}\n`;
+    const path = NodePath.join(dir, "session.jsonl");
+    await NodeFSP.writeFile(path, frame("record-1") + frame("record-2"));
+
+    const parsed = await readTranscriptRecords(path, "muse");
+    assert.isNotNull(parsed);
+    assert.strictEqual(parsed.records.length, 2);
+    assert.isTrue(parsed.records.every((record) => record.provider === "muse"));
+    assert.deepStrictEqual(
+      parsed.records.map((record) => record.totals.outputTokens),
+      [50, 50],
+    );
+  });
 });
