@@ -32,6 +32,11 @@ layer("057_AgentPushLookupIndexes", (it) => {
         "kind",
       ]);
 
+      assert.deepStrictEqual(yield* columns("idx_projection_turns_thread_row"), [
+        "thread_id",
+        "row_id",
+      ]);
+
       // The shapes `agentPushes.ts` runs per completed turn and per request.
       const plan = (rows: ReadonlyArray<{ readonly detail: string }>) =>
         rows.map((row) => row.detail).join("\n");
@@ -49,6 +54,16 @@ layer("057_AgentPushLookupIndexes", (it) => {
           AND json_extract(f.payload_json, '$.requestId') = 'request'
       `;
       assert.include(plan(failedStartPlan), "idx_projection_thread_activities_thread_kind");
+      const requestTurnPlan = yield* sql<{ readonly detail: string }>`
+        EXPLAIN QUERY PLAN
+        SELECT p.row_id FROM projection_turns p
+        WHERE p.thread_id = 'thread' AND p.row_id < 10
+          AND p.turn_id IS NOT NULL AND p.pending_message_id IS NOT NULL
+        ORDER BY p.row_id DESC
+        LIMIT 1
+      `;
+      assert.include(plan(requestTurnPlan), "idx_projection_turns_thread_row");
+      assert.notInclude(plan(requestTurnPlan), "TEMP B-TREE");
     }),
   );
 });
