@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
+import * as Clock from "effect/Clock";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -78,6 +79,21 @@ const runWith =
         ),
       ),
     );
+
+/** Runs `callback` after `delayMs`, in the check phase as child process I/O completes. */
+function afterTimersPhase(delayMs: number, callback: () => void): () => void {
+  // Node's own timer and check phases are what this reproduces.
+  // @effect-diagnostics-next-line globalTimers:off
+  const timer = setTimeout(() => setImmediate(callback), delayMs);
+  return () => clearTimeout(timer);
+}
+
+function blockEventLoop(durationMs: number): void {
+  const blockedUntil = performance.now() + durationMs;
+  while (performance.now() < blockedUntil) {
+    // Busy-wait: nothing else runs until this returns.
+  }
+}
 
 describe("runProcess", () => {
   it.effect("collects stdout through an injected ChildProcessSpawner", () =>
@@ -379,12 +395,11 @@ describe("runProcess", () => {
           makeHandle({
             // Delivered like child process I/O: after the timers phase.
             exitCode: Effect.callback<ChildProcessSpawner.ExitCode>((resume) => {
-              const timer = setTimeout(
-                () => setImmediate(() => resume(Effect.succeed(ChildProcessSpawner.ExitCode(0)))),
-                10,
+              const cancel = afterTimersPhase(10, () =>
+                resume(Effect.succeed(ChildProcessSpawner.ExitCode(0))),
               );
               Deferred.doneUnsafe(exitArmed, Effect.void);
-              return Effect.sync(() => clearTimeout(timer));
+              return Effect.sync(cancel);
             }),
           }),
         ),
@@ -398,10 +413,8 @@ describe("runProcess", () => {
       // The exit and timeout timers are both armed before the loop blocks.
       yield* Deferred.await(exitArmed);
       yield* Effect.yieldNow;
-      const blockedUntil = Date.now() + 400;
-      while (Date.now() < blockedUntil) {
-        // Hold the event loop past the timeout, as a long synchronous query does.
-      }
+      // Hold the event loop past the timeout, as a long synchronous query does.
+      blockEventLoop(400);
       const result = yield* Fiber.join(resultFiber);
 
       expect(result.code).toBe(0);
@@ -411,7 +424,7 @@ describe("runProcess", () => {
   it.live("still times out a process that never exits", () =>
     Effect.gen(function* () {
       const spawner = makeSpawner(() => Effect.succeed(makeHandle({ exitCode: Effect.never })));
-      const startedAt = Date.now();
+      const startedAt = yield* Clock.currentTimeMillis;
       const error = yield* runWith(spawner)({
         command: "fake",
         args: ["hang"],
@@ -419,7 +432,7 @@ describe("runProcess", () => {
       }).pipe(Effect.flip);
 
       expect(error._tag).toBe("ProcessTimeoutError");
-      expect(Date.now() - startedAt).toBeLessThan(1_000);
+      expect((yield* Clock.currentTimeMillis) - startedAt).toBeLessThan(1_000);
     }),
   );
 
