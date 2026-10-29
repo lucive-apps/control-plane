@@ -421,6 +421,30 @@ describe("runProcess", () => {
     }),
   );
 
+  it.live("lets an exit held back by a stall past the deadline win", () =>
+    Effect.gen(function* () {
+      const exitArmed = yield* Deferred.make<void>();
+      const exited = Effect.callback<"exited">((resume) => {
+        const cancel = afterTimersPhase(10, () => resume(Effect.succeed("exited")));
+        Deferred.doneUnsafe(exitArmed, Effect.void);
+        return Effect.sync(cancel);
+      });
+      // No stall allowance: the stall alone carries the wait past its deadline.
+      const raceFiber = yield* Effect.raceFirst(
+        exited,
+        ProcessRunner.sleepForResponsiveTime(Duration.millis(100), 0).pipe(
+          Effect.as("timed out" as const),
+        ),
+      ).pipe(Effect.forkScoped);
+
+      yield* Deferred.await(exitArmed);
+      yield* Effect.yieldNow;
+      blockEventLoop(400);
+
+      expect(yield* Fiber.join(raceFiber)).toBe("exited");
+    }),
+  );
+
   it.live("still times out a process that never exits", () =>
     Effect.gen(function* () {
       const spawner = makeSpawner(() => Effect.succeed(makeHandle({ exitCode: Effect.never })));
