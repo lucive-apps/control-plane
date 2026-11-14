@@ -1,3 +1,4 @@
+import * as ServerSettings from "../../../serverSettings.ts";
 import {
   EnvironmentId,
   ProjectId,
@@ -195,6 +196,7 @@ const makeHarness = Effect.fn("makeRemoteAgentsHarness")(function* (input: Harne
     }),
     makeProviderRegistryLayer([provider]),
     remoteLayer,
+    ServerSettings.layerTest(),
     NodeServices.layer,
   );
   const toolkit = yield* AgentsToolkit.pipe(

@@ -1996,6 +1996,43 @@ const TaskProposeCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+/** The fields `cp_task_update` may change. Absent keeps; an empty `notes` clears. */
+export const TaskAgentPatch = Schema.Struct({
+  title: Schema.optional(TrimmedNonEmptyString),
+  notes: Schema.optional(Schema.String),
+  home: Schema.optional(TaskHome),
+  status: Schema.optional(Schema.Literals(["todo", "completed"])),
+});
+export type TaskAgentPatch = typeof TaskAgentPatch.Type;
+
+/**
+ * The Assistant adds a task straight to the user's list, from
+ * `cp_task_propose` when its settings say "Add directly". Server only.
+ */
+const TaskAgentCreateCommand = Schema.Struct({
+  type: Schema.Literal("task.agent.create"),
+  commandId: CommandId,
+  taskId: TaskId,
+  actorThreadId: ThreadId,
+  title: TrimmedNonEmptyString,
+  notes: Schema.optional(Schema.String),
+  home: TaskHome,
+  createdAt: IsoDateTime,
+});
+
+/**
+ * An agent edits a task from `cp_task_update`: the Assistant any task, a
+ * coordinator only its own Project's proposals. Server only.
+ */
+const TaskAgentUpdateCommand = Schema.Struct({
+  type: Schema.Literal("task.agent.update"),
+  commandId: CommandId,
+  taskId: TaskId,
+  actorThreadId: ThreadId,
+  patch: TaskAgentPatch,
+  createdAt: IsoDateTime,
+});
+
 /**
  * Records pulled from the synced task store. The server's Task Sync only;
  * Control Plane-only fields (links, proposals, handoffs) stay as stored.
@@ -2012,6 +2049,8 @@ const TaskSyncApplyCommand = Schema.Struct({
 
 const InternalOrchestrationCommand = Schema.Union([
   TaskProposeCommand,
+  TaskAgentCreateCommand,
+  TaskAgentUpdateCommand,
   TaskSyncApplyCommand,
   ProjectStatusSetCommand,
   ProjectStatusDeadlineCommand,

@@ -287,6 +287,17 @@ export function agentManagerRole(
 }
 
 /**
+ * The thread speaks as the user's Assistant: the live global Assistant
+ * Project's coordinator ("Today") or one of its pinned channels.
+ */
+export function isAssistantChannel(
+  project: AgentManagerProjectLike,
+  thread: AgentManagerThreadLike,
+): boolean {
+  return project.assistant?.scope === "global" && agentManagerRole(project, thread) !== null;
+}
+
+/**
  * The coordinator manages every other thread in its Project. A standing
  * agent manages only the one-off agents it created.
  */

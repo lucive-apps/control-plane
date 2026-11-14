@@ -1,3 +1,4 @@
+import * as ServerSettings from "../../../serverSettings.ts";
 import { RemoteAgentsLocalOnly } from "../../../agentMachines/testFixtures.ts";
 import {
   CommandId,
@@ -68,6 +69,7 @@ const TestLayer = Layer.mergeAll(
 ).pipe(
   Layer.provideMerge(makeProviderRegistryLayer()),
   Layer.provideMerge(RemoteAgentsLocalOnly),
+  Layer.provideMerge(ServerSettings.layerTest()),
   Layer.provideMerge(
     OrchestrationEngineLive.pipe(
       Layer.provideMerge(OrchestrationProjectionSnapshotQueryLive),

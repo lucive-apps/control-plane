@@ -1,3 +1,4 @@
+import * as ServerSettings from "../../../serverSettings.ts";
 import {
   EnvironmentId,
   isOpaqueThreadId,
@@ -368,6 +369,7 @@ const makeHarness = Effect.fn("makeAgentsToolkitHarness")(function* (input: Harn
     }),
     makeProviderRegistryLayer(providers),
     RemoteAgentsLocalOnly,
+    ServerSettings.layerTest(),
     NodeServices.layer,
   );
   const toolkit = yield* AgentsToolkit.pipe(

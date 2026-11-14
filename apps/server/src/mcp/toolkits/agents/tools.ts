@@ -11,6 +11,7 @@ import {
   ProjectStatus,
   ProjectStatusId,
   Task,
+  TaskId,
   ProjectStatusState,
   PROJECT_SCHEDULE_NAME_MAX,
   PROJECT_SCHEDULE_PROMPT_MAX,
@@ -213,9 +214,20 @@ export const StatusToolError = Schema.Union([
 ]);
 export type StatusToolError = typeof StatusToolError.Type;
 
+/** The user's Assistant settings keep the caller from this task action. */
+export class TaskAccessDeniedError extends Schema.TaggedError<TaskAccessDeniedError>()(
+  "TaskAccessDeniedError",
+  { detail: Schema.String },
+) {
+  override get message(): string {
+    return this.detail;
+  }
+}
+
 export const TaskToolError = Schema.Union([
   McpCapabilityUnavailableError,
   StatusCoordinatorOnlyError,
+  TaskAccessDeniedError,
   AgentToolFailedError,
 ]);
 export type TaskToolError = typeof TaskToolError.Type;
@@ -526,16 +538,54 @@ export type StatusSetResult = typeof StatusSetResult.Type;
 export const StatusListResult = Schema.Struct({ statuses: Schema.Array(ProjectStatus) });
 export type StatusListResult = typeof StatusListResult.Type;
 
+/** Relative homes, counted from the server's local today. */
+export const TaskWhen = Schema.Literals([
+  "today",
+  "tomorrow",
+  "this-week",
+  "next-week",
+  "this-month",
+  "next-month",
+  "this-year",
+  "next-year",
+  "backlog",
+  "week-backlog",
+  "month-backlog",
+  "year-backlog",
+]);
+export type TaskWhen = typeof TaskWhen.Type;
+
+const TASK_HOME_HELP =
+  "Where the task lives: give either `when` or `date` (with optional `period`), not both. Resolve words like 'Monday' or 'the 3rd' to a YYYY-MM-DD date yourself, in the user's time zone, before calling.";
+
+/** The flat home fields both task tools take. */
+const taskHomeFields = {
+  when: TaskWhen.annotate({
+    description:
+      "A relative home: today, tomorrow; this-week / next-week, this-month / next-month, this-year / next-year (a commitment for that whole period); week-backlog, month-backlog, year-backlog (that horizon's backlog); or backlog (the general backlog).",
+  }).pipe(Schema.optional),
+  date: Schema.String.annotate({
+    description:
+      "A specific calendar day, YYYY-MM-DD (for example 2026-11-16 for Monday the 16th). Alone, the task is due that day. With `period`, the task is a commitment for the week, month or year containing that day.",
+  }).pipe(Schema.optional),
+  period: Schema.Literals(["week", "month", "year"])
+    .annotate({
+      description:
+        "With `date`: commit to the whole week (weeks start on the user's week-start day), month or year containing it instead of the single day.",
+    })
+    .pipe(Schema.optional),
+};
+
 export const TaskProposeInput = Schema.Struct({
   title: TrimmedNonEmptyString.annotate({
     description:
       "A short imperative title, such as 'Confirm Stripe retry email copy'. At most 200 characters.",
   }),
-  when: Schema.Literals(["today", "tomorrow", "this-week", "this-month", "backlog"])
-    .annotate({
-      description: "When the user should do it. Defaults to this-week.",
-    })
-    .pipe(Schema.optional),
+  ...taskHomeFields,
+  reminderTime: Schema.String.annotate({
+    description:
+      "Optional reminder, 24h local HH:MM (for example 09:30). Only for a task on a single day (`date` alone, today or tomorrow).",
+  }).pipe(Schema.optional),
   notes: Schema.optional(
     Schema.String.annotate({
       description: "Optional context the user sees when opening the task.",
@@ -546,11 +596,15 @@ export const TaskProposeInput = Schema.Struct({
       description: "The Status workstream this task belongs to, if any.",
     }),
   ),
-});
+}).annotate({ description: `${TASK_HOME_HELP} Defaults to this-week.` });
 export type TaskProposeInput = typeof TaskProposeInput.Type;
 
 export const TaskProposeResult = Schema.Struct({
   task: Task,
+  added: Schema.Boolean.annotate({
+    description:
+      "True when the task went straight onto the user's list (the Assistant with 'Add directly' on); false when it waits as a proposal.",
+  }),
   proposed: Schema.Int.annotate({
     description: "Proposals from this Project now waiting on the user.",
   }),
@@ -560,10 +614,39 @@ export type TaskProposeResult = typeof TaskProposeResult.Type;
 export const TaskListResult = Schema.Struct({
   tasks: Schema.Array(Task).annotate({
     description:
-      "Open tasks linked to this Project, plus your proposals still waiting. A task with a proposal and no acceptedAt is not on the user's list yet.",
+      "Open tasks: for a coordinator, those linked to this Project plus its proposals still waiting; for the Assistant, every open task. A task with a proposal and no acceptedAt is not on the user's list yet.",
   }),
 });
 export type TaskListResult = typeof TaskListResult.Type;
+
+export const TaskUpdateInput = Schema.Struct({
+  taskId: TaskId.annotate({ description: "The task's id, from cp_task_list or cp_task_propose." }),
+  title: Schema.optional(
+    TrimmedNonEmptyString.annotate({ description: "A new title. At most 200 characters." }),
+  ),
+  notes: Schema.optional(
+    Schema.String.annotate({
+      description: "New notes, replacing the old. An empty string clears.",
+    }),
+  ),
+  ...taskHomeFields,
+  reminderTime: Schema.NullOr(Schema.String)
+    .annotate({
+      description:
+        "Reminder, 24h local HH:MM, for a task on a single day; null clears it. Without a new home it applies to the task's current day.",
+    })
+    .pipe(Schema.optional),
+  status: Schema.Literals(["todo", "completed"])
+    .annotate({
+      description:
+        "completed marks it done, todo reopens it. The Assistant only, and never for a proposal still waiting on the user.",
+    })
+    .pipe(Schema.optional),
+}).annotate({ description: `Omitted fields keep their value. ${TASK_HOME_HELP}` });
+export type TaskUpdateInput = typeof TaskUpdateInput.Type;
+
+export const TaskUpdateResult = Schema.Struct({ task: Task });
+export type TaskUpdateResult = typeof TaskUpdateResult.Type;
 
 const AgentCreateTool = Tool.make("cp_agent_create", {
   description:
@@ -714,7 +797,7 @@ const StatusSetTool = Tool.make("cp_status_set", {
 
 const TaskListTool = Tool.make("cp_task_list", {
   description:
-    "List the user's open tasks linked to this Project, and your proposed tasks still waiting for the user.",
+    "List the user's open tasks. A coordinator sees the tasks linked to its Project and its proposals still waiting; the Assistant sees every open task (unless the user turned its task access off).",
   success: TaskListResult,
   failure: TaskToolError,
   dependencies,
@@ -727,7 +810,7 @@ const TaskListTool = Tool.make("cp_task_list", {
 
 const TaskProposeTool = Tool.make("cp_task_propose", {
   description:
-    "Propose a task for the user's own list: something only they should do. It shows as a proposal until the user adds or dismisses it; you cannot add it for them.",
+    "Put a task on the user's own list: something only they should do. Home: `when` (today, tomorrow, this-week, next-week, this-month, next-month, this-year, next-year, week-backlog, month-backlog, year-backlog, backlog) or `date` YYYY-MM-DD (optionally `reminderTime` HH:MM, or `period` week/month/year to commit to the period containing that day). Resolve 'Monday' and similar to a date yourself. From a coordinator it is a proposal until the user adds or dismisses it. From the Assistant it is added directly when the user's Assistant settings say 'Add directly' (and allow editing tasks), else proposed; `added` in the result says which.",
   parameters: TaskProposeInput,
   success: TaskProposeResult,
   failure: TaskToolError,
@@ -737,6 +820,20 @@ const TaskProposeTool = Tool.make("cp_task_propose", {
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, false)
+  .annotate(Tool.OpenWorld, false);
+
+const TaskUpdateTool = Tool.make("cp_task_update", {
+  description:
+    "Edit or move one of the user's tasks: title, notes, home (`when`, or `date` YYYY-MM-DD with optional `period`), reminder (HH:MM, null clears), or status (completed / todo). Omitted fields keep their value. The Assistant may edit any task when its task access is 'Read and edit'; a coordinator may edit only tasks its Project proposed, and never completes or reopens them. Nobody but the user adds or dismisses a waiting proposal.",
+  parameters: TaskUpdateInput,
+  success: TaskUpdateResult,
+  failure: TaskToolError,
+  dependencies,
+})
+  .annotate(Tool.Title, "Edit a task")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false);
 
 export const AgentsToolkit = Toolkit.make(
@@ -753,4 +850,5 @@ export const AgentsToolkit = Toolkit.make(
   StatusSetTool,
   TaskListTool,
   TaskProposeTool,
+  TaskUpdateTool,
 );

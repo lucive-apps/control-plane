@@ -75,6 +75,8 @@ function commandToAggregateRef(command: OrchestrationCommand): {
     case "task.proposal.respond":
     case "task.handoff":
     case "task.propose":
+    case "task.agent.create":
+    case "task.agent.update":
       return { aggregateKind: "task", aggregateId: command.taskId };
     case "task.sync.apply":
       return { aggregateKind: "task", aggregateId: TASK_SYNC_AGGREGATE_ID };

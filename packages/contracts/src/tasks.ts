@@ -247,6 +247,11 @@ export function addTaskDays(date: string, days: number): TaskLocalDate {
   return formatCivil(next.y, next.m, next.d);
 }
 
+/** A real `YYYY-MM-DD` calendar day: 2026-02-30 and 2026-13-01 are refused. */
+export function isTaskLocalDate(date: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) && addTaskDays(date, 0) === date;
+}
+
 /** 0-6, Sunday first. */
 export function taskWeekday(date: string): number {
   const { y, m, d } = parseLocalDate(date);
