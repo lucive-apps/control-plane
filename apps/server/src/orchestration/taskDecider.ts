@@ -2,9 +2,12 @@
  * Task invariants for the decider. Fork-owned and pure, so each decider.ts
  * hunk stays a single call.
  *
- * Every write emits the whole record (`task.updated`), like Status. Only a
- * client command creates, edits or accepts a task; a coordinator can only
- * propose one through `cp_task_propose`, and a proposal waits for the user.
+ * Every write emits the whole record (`task.updated`), like Status. Client
+ * commands create, edit and accept tasks. A coordinator proposes through
+ * `cp_task_propose` and edits only its own Project's proposals through
+ * `cp_task_update`; the Assistant may also add tasks directly and edit any
+ * task (its settings are checked by the tool, which this pure decider cannot
+ * read). Only the user adds or dismisses a proposal.
  */
 import {
   TASK_INTENT_MAX,
@@ -13,6 +16,8 @@ import {
   TASK_TITLE_MAX,
   TaskId,
   agentManagerRole,
+  isAssistantChannel,
+  isTaskLocalDate,
   isProposedTask,
   nextTaskOccurrence,
   taskIntentKey,
@@ -41,6 +46,8 @@ type TaskHandoffCommand = Extract<OrchestrationCommand, { type: "task.handoff" }
 type TaskIntentSetCommand = Extract<OrchestrationCommand, { type: "task.intent.set" }>;
 type TaskProposeCommand = Extract<OrchestrationCommand, { type: "task.propose" }>;
 type TaskSyncApplyCommand = Extract<OrchestrationCommand, { type: "task.sync.apply" }>;
+type TaskAgentCreateCommand = Extract<OrchestrationCommand, { type: "task.agent.create" }>;
+type TaskAgentUpdateCommand = Extract<OrchestrationCommand, { type: "task.agent.update" }>;
 type TaskCommand =
   | TaskCreateCommand
   | TaskUpdateCommand
@@ -48,7 +55,9 @@ type TaskCommand =
   | TaskProposalRespondCommand
   | TaskHandoffCommand
   | TaskProposeCommand
-  | TaskSyncApplyCommand;
+  | TaskSyncApplyCommand
+  | TaskAgentCreateCommand
+  | TaskAgentUpdateCommand;
 
 type Decided = Effect.fn.Return<
   PlannedOrchestrationEvent | ReadonlyArray<PlannedOrchestrationEvent>,
@@ -78,7 +87,8 @@ function textError(title: string | undefined, notes: string | undefined): string
 }
 
 function homeError(home: TaskHome): string | null {
-  const valid = (date: string) => !Number.isNaN(Date.parse(`${date}T00:00:00Z`));
+  // A real day: 2026-02-30 is refused, not rolled into March.
+  const valid = isTaskLocalDate;
   if (home.kind === "date" && !valid(home.date)) return `'${home.date}' is not a date.`;
   if (home.kind === "period") {
     if (!valid(home.startsOn) || !valid(home.endsOn)) return "A period needs real dates.";
@@ -291,6 +301,15 @@ export const decideTaskUpdate = Effect.fn("decideTaskUpdate")(function* (
   }
   const next = applyPatch(readModel, stored, command.patch, command.createdAt);
   if (typeof next === "string") return yield* invariant(command.type, next);
+  return yield* writeEdit(command, stored, next);
+});
+
+/** Writes an edited task; completing a repeating one also opens its next occurrence. */
+const writeEdit = Effect.fn("writeEdit")(function* (
+  command: TaskUpdateCommand | TaskAgentUpdateCommand,
+  stored: Task,
+  next: Task,
+): Decided {
   const written = yield* taskEvent(command, next.id, next);
   if (stored.status === "completed" || next.status !== "completed") return written;
   const following = yield* nextOccurrence(next, command.createdAt);
@@ -380,7 +399,7 @@ export const decideTaskPropose = Effect.fn("decideTaskPropose")(function* (
     actor === undefined ||
     actor.deletedAt !== null ||
     actor.archivedAt !== null ||
-    agentManagerRole(project, actor) !== "coordinator"
+    (agentManagerRole(project, actor) !== "coordinator" && !isAssistantChannel(project, actor))
   ) {
     return yield* invariant(command.type, "Only the Project's coordinator can propose tasks.");
   }
@@ -424,6 +443,85 @@ export const decideTaskPropose = Effect.fn("decideTaskPropose")(function* (
     updatedAt: command.createdAt,
   };
   return yield* taskEvent(command, task.id, task);
+});
+
+/** The live thread behind an agent command and its Project, or undefined. */
+function liveActor(readModel: OrchestrationReadModel, threadId: string) {
+  const thread = readModel.threads.find((entry) => entry.id === threadId);
+  if (thread === undefined || thread.deletedAt !== null || thread.archivedAt !== null) {
+    return undefined;
+  }
+  const project = readModel.projects.find((entry) => entry.id === thread.projectId);
+  if (project === undefined || project.deletedAt !== null) return undefined;
+  return { thread, project };
+}
+
+/** `task.agent.create`: the Assistant adds a task straight to the user's list. */
+export const decideTaskAgentCreate = Effect.fn("decideTaskAgentCreate")(function* (
+  readModel: OrchestrationReadModel,
+  command: TaskAgentCreateCommand,
+): Decided {
+  const actor = liveActor(readModel, command.actorThreadId);
+  if (actor === undefined || !isAssistantChannel(actor.project, actor.thread)) {
+    return yield* invariant(command.type, "Only the Assistant can add tasks directly.");
+  }
+  if (findTask(readModel, command.taskId) !== undefined) {
+    return yield* invariant(command.type, `Task '${command.taskId}' already exists.`);
+  }
+  const problem = textError(command.title, command.notes) ?? homeError(command.home);
+  if (problem !== null) return yield* invariant(command.type, problem);
+  const notes = command.notes?.trim();
+  const task: Task = {
+    id: command.taskId,
+    title: command.title,
+    ...(notes !== undefined && notes.length > 0 ? { notes } : {}),
+    status: "todo",
+    home: command.home,
+    createdAt: command.createdAt,
+    updatedAt: command.createdAt,
+  };
+  return yield* taskEvent(command, task.id, task);
+});
+
+/**
+ * `task.agent.update`: the Assistant edits any task; a coordinator edits only
+ * tasks its Project proposed, and never completes or reopens one. Nobody but
+ * the user adds or dismisses a waiting proposal, so its status stays put.
+ */
+export const decideTaskAgentUpdate = Effect.fn("decideTaskAgentUpdate")(function* (
+  readModel: OrchestrationReadModel,
+  command: TaskAgentUpdateCommand,
+): Decided {
+  const stored = findTask(readModel, command.taskId);
+  if (stored === undefined) return yield* invariant(command.type, "That task no longer exists.");
+  const actor = liveActor(readModel, command.actorThreadId);
+  const assistant = actor !== undefined && isAssistantChannel(actor.project, actor.thread);
+  const coordinator =
+    actor !== undefined && agentManagerRole(actor.project, actor.thread) === "coordinator";
+  if (!assistant) {
+    if (!coordinator || stored.proposal?.projectId !== actor.project.id) {
+      return yield* invariant(
+        command.type,
+        "You can only edit tasks this Project proposed. Ask the user to change the others.",
+      );
+    }
+    if (command.patch.status !== undefined && command.patch.status !== stored.status) {
+      return yield* invariant(command.type, "Only the user completes or reopens a task.");
+    }
+  }
+  if (
+    isProposedTask(stored) &&
+    command.patch.status !== undefined &&
+    command.patch.status !== stored.status
+  ) {
+    return yield* invariant(
+      command.type,
+      "That task is still a proposal. Only the user adds or dismisses it.",
+    );
+  }
+  const next = applyPatch(readModel, stored, command.patch, command.createdAt);
+  if (typeof next === "string") return yield* invariant(command.type, next);
+  return yield* writeEdit(command, stored, next);
 });
 
 export const decideTaskIntentSet = Effect.fn("decideTaskIntentSet")(function* (

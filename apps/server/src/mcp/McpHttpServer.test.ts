@@ -1,3 +1,4 @@
+import * as ServerSettings from "../serverSettings.ts";
 import { expect, it } from "@effect/vitest";
 import { NodeHttpServer } from "@effect/platform-node";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -96,6 +97,7 @@ const AgentsTestLayer = AgentsToolkitRegistrationLive.pipe(
       Layer.mock(ProjectionSnapshotQuery)({}),
       Layer.mock(OrchestrationEngineService)({}),
       RemoteAgentsLocalOnly,
+      ServerSettings.layerTest(),
       makeProviderRegistryLayer(),
       SqlitePersistenceMemory,
       NodeServices.layer,
